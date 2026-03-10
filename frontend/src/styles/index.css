@@ -1452,6 +1452,58 @@ button, input, select, textarea {
   margin-bottom: 12px;
 }
 
+/* === SHARE LINK === */
+.share-link__url {
+  font-size: 0.8125rem;
+  color: var(--navy);
+  word-break: break-all;
+}
+
+.share-link__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.share-link__btn:hover {
+  color: var(--navy);
+  border-color: var(--navy);
+  background: var(--linen);
+}
+
+@keyframes share-toast-fade {
+  0%   { opacity: 1; }
+  66%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.share-link__toast {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--navy);
+  color: var(--gold-light);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 4px;
+  pointer-events: none;
+  animation: share-toast-fade 3s ease forwards;
+}
+
 /* === ADMIN UPLOAD SECTION === */
 .admin-upload {
   padding: 20px 24px;

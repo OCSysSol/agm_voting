@@ -32,16 +32,17 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
-### US-012: Create and manage buildings via CSV or Excel upload
+### US-012: Create and manage buildings via form or CSV/Excel upload
 
-**Description:** As a meeting host, I want to upload a CSV or Excel file to create or update building records so I don't have to maintain buildings manually.
+**Description:** As a meeting host, I want to create or update building records via a manual form or file upload so I don't have to maintain buildings manually.
 
 **Acceptance Criteria:**
 
-- [ ] Host can upload a CSV or Excel (.xlsx / .xls) file; the file input accepts both formats
-- [ ] Both formats use the same column names: `building_name` and `manager_email` (one row per building)
-- [ ] `building_name` must be globally unique; attempting to upload a name that conflicts with a different existing building is rejected with a clear error
-- [ ] Uploading creates a new building if `building_name` does not already exist; updates `manager_email` if it does
+- [ ] Host can create a single building by entering name and manager email via a "+ New Building" form in the Buildings admin page; form is toggled inline and dismissed on success or cancel
+- [ ] Host can upload a CSV or Excel (.xlsx / .xls) file to bulk-create/update buildings; the file input accepts both formats
+- [ ] Both file formats use the same column names: `building_name` and `manager_email` (one row per building)
+- [ ] `building_name` must be globally unique (case-insensitive); attempting to create a duplicate is rejected with a clear error (409)
+- [ ] File upload creates a new building if `building_name` does not already exist; updates `manager_email` if it does
 - [ ] Additional columns are ignored
 - [ ] System validates the file format and reports errors (missing columns, blank values) before importing
 - [ ] Successful upload shows count of buildings created and updated
@@ -218,17 +219,15 @@ A web application for body corporates to run voting during Annual General Meetin
   - [ ] Total No: voter count and total weighted unit entitlements (from snapshot)
   - [ ] Total Abstained: voter count and total weighted unit entitlements (submitted ballots where the motion was explicitly abstained or left unanswered)
   - [ ] Total Absent: voter count and total weighted unit entitlements (voters who never submitted or whose draft was discarded on close)
-  - [ ] List of voter emails (with snapshot weight) who voted Yes
-  - [ ] List of voter emails (with snapshot weight) who voted No
-  - [ ] List of voter emails (with snapshot weight) who abstained
-  - [ ] List of voter emails (with snapshot weight) who were absent
+  - [ ] Voter lists show **lot numbers and individual entitlements** (not email addresses) to protect privacy; one row per lot
+  - [ ] Host can export the full voter breakdown as a CSV file (columns: Motion, Category, Lot Number, Entitlement) via an "Export voter lists (CSV)" button
 - [ ] Typecheck/lint passes
 
 ---
 
 ## Functional Requirements
 
-- FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings are created and updated via CSV or Excel upload (US-012). Building names must be globally unique.
+- FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form (POST /api/admin/buildings) or bulk-created/updated via CSV or Excel upload (US-012). Building names must be globally unique (case-insensitive).
 - FR-2: An AGM belongs to one building, has a status (`open` | `closed`), a title, a meeting date/time (`meeting_at`), and a scheduled voting close date/time (`voting_closes_at`). `voting_closes_at` must be after `meeting_at`. Both fields are stored in UTC and are immutable after creation.
 - FR-3: A lot owner record contains: building ID, lot number (string), email address, and unit entitlement (non-negative integer). Lot number must be unique per building. Multiple lots may share the same email address within a building (multi-lot owners). Lot owner records cannot be deleted — only created or edited.
 - FR-4: Authentication is session-based — after verifying lot number + email, the system identifies all lot owner records in that building sharing the same email, and a server-side session is created scoped to that email + building + AGM. Session data is persisted in the database to support draft vote resumption across session restarts. No JWT or OAuth required for MVP.
