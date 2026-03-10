@@ -53,6 +53,11 @@ if os.path.isdir(_dist_dir):
 
     @app.get("/{full_path:path}", include_in_schema=False)  # pragma: no cover
     async def _serve_spa(full_path: str) -> FileResponse:  # pragma: no cover
+        # Serve static files that exist in the dist root (e.g. logo.png, favicon)
+        # before falling back to the SPA shell.
+        candidate = os.path.join(_dist_dir, full_path)  # pragma: no cover
+        if os.path.isfile(candidate):  # pragma: no cover
+            return FileResponse(candidate)  # pragma: no cover
         return FileResponse(os.path.join(_dist_dir, "index.html"))  # pragma: no cover
 
 __all__ = ["app"]
