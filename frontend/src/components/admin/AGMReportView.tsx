@@ -1,103 +1,110 @@
-import React, { useState } from "react";
 import type { MotionDetail } from "../../api/admin";
 
 interface AGMReportViewProps {
   motions: MotionDetail[];
+  agmTitle?: string;
 }
 
-export default function AGMReportView({ motions }: AGMReportViewProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+const CATEGORY_LABELS: Record<string, string> = {
+  yes: "For",
+  no: "Against",
+  abstained: "Abstained",
+  absent: "Absent",
+};
 
-  function toggleExpand(id: string) {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+const CATEGORY_COLORS: Record<string, string> = {
+  yes: "var(--green)",
+  no: "var(--red)",
+  abstained: "var(--text-muted)",
+  absent: "var(--text-muted)",
+};
+
+export default function AGMReportView({ motions, agmTitle }: AGMReportViewProps) {
+  function handleExportCSV() {
+    const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE)"];
+    for (const motion of motions) {
+      const motionLabel = `${motion.order_index + 1}. ${motion.title.replace(/"/g, '""')}`;
+      for (const cat of ["yes", "no", "abstained", "absent"] as const) {
+        for (const v of motion.voter_lists[cat]) {
+          rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement}`);
+        }
+      }
+    }
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = agmTitle ? `${agmTitle.replace(/[^a-z0-9]/gi, "_")}_results.csv` : "agm_results.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   if (motions.length === 0) {
-    return <p>No motions.</p>;
+    return <p className="state-message">No motions recorded.</p>;
   }
 
   return (
     <div>
-      {motions.map((motion) => (
-        <div
-          key={motion.id}
-          style={{
-            marginBottom: 24,
-            border: "1px solid #dee2e6",
-            borderRadius: 4,
-            padding: 16,
-          }}
-        >
-          <h4 style={{ margin: "0 0 4px" }}>
-            {motion.order_index + 1}. {motion.title}
-          </h4>
-          {motion.description && (
-            <p style={{ color: "#666", marginBottom: 12 }}>{motion.description}</p>
-          )}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <button type="button" className="btn btn--secondary" onClick={handleExportCSV}>
+          ↓ Export voter lists (CSV)
+        </button>
+      </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 8 }}>
+      {motions.map((motion) => (
+        <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
+          <div className="admin-card__header">
+            <h3 className="admin-card__title">
+              {motion.order_index + 1}. {motion.title}
+            </h3>
+          </div>
+          {motion.description && (
+            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem" }}>
+              {motion.description}
+            </p>
+          )}
+          <table className="admin-table">
             <thead>
               <tr>
-                <th style={thStyle}>Category</th>
-                <th style={thStyle}>Voter Count</th>
-                <th style={thStyle}>Entitlement Sum</th>
+                <th>Category</th>
+                <th>Voter Count</th>
+                <th>Entitlement Sum (UOE)</th>
               </tr>
             </thead>
             <tbody>
               {(["yes", "no", "abstained", "absent"] as const).map((cat) => (
                 <tr key={cat}>
-                  <td style={{ ...tdStyle, textTransform: "capitalize" }}>
-                    {cat}
+                  <td>
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      fontWeight: cat === "yes" || cat === "no" ? 600 : undefined,
+                    }}>
+                      <span style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: CATEGORY_COLORS[cat],
+                        flexShrink: 0,
+                      }} />
+                      {CATEGORY_LABELS[cat]}
+                    </span>
                   </td>
-                  <td style={tdStyle}>{motion.tally[cat].voter_count}</td>
-                  <td style={tdStyle}>{motion.tally[cat].entitlement_sum}</td>
+                  <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                    {motion.tally[cat].voter_count}
+                  </td>
+                  <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                    {motion.tally[cat].entitlement_sum}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-
-          <button
-            type="button"
-            onClick={() => toggleExpand(motion.id)}
-            style={{ fontSize: "0.85em", marginBottom: 8 }}
-          >
-            {expanded[motion.id] ? "Hide voter lists" : "Show voter lists"}
-          </button>
-
-          {expanded[motion.id] && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {(["yes", "no", "abstained", "absent"] as const).map((cat) => (
-                <div key={cat}>
-                  <strong style={{ textTransform: "capitalize" }}>{cat}</strong>
-                  {motion.voter_lists[cat].length === 0 ? (
-                    <p style={{ color: "#666", fontSize: "0.85em" }}>None</p>
-                  ) : (
-                    <ul style={{ margin: "4px 0", paddingLeft: 16, fontSize: "0.85em" }}>
-                      {motion.voter_lists[cat].map((v) => (
-                        <li key={v.voter_email}>
-                          {v.voter_email} ({v.entitlement})
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       ))}
     </div>
   );
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "6px 10px",
-  borderBottom: "2px solid #dee2e6",
-  background: "#f8f9fa",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "6px 10px",
-  borderBottom: "1px solid #dee2e6",
-};

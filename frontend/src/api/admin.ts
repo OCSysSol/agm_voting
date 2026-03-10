@@ -43,7 +43,7 @@ export interface AGMListItem {
 }
 
 export interface VoterEntry {
-  voter_email: string;
+  lot_number: string;
   entitlement: number;
 }
 

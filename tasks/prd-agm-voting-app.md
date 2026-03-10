@@ -260,6 +260,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - No audit log or vote history beyond the results report
 - No AGM deletion or editing after creation
 - No automatic AGM close at `voting_closes_at` — the timer is informational; the manager always closes the AGM manually
+- No server-side pagination for admin list views (buildings, lot owners) — client-side pagination with full-list fetch is used for MVP. Revisit if buildings regularly exceed 300+ lot owners or the management company manages hundreds of buildings; at that point implement cursor-based server-side pagination with a `COUNT(*)` total and `?page=&page_size=` query params
 
 ---
 

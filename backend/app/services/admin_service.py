@@ -712,14 +712,40 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     )
     motions = list(motions_result.scalars().all())
 
-    # Load lot weights (snapshot)
+    # Load lot weights joined with lot_owner to get lot numbers
     weights_result = await db.execute(
-        select(AGMLotWeight).where(AGMLotWeight.agm_id == agm_id)
+        select(AGMLotWeight, LotOwner.lot_number.label("lot_number"))
+        .join(LotOwner, AGMLotWeight.lot_owner_id == LotOwner.id)
+        .where(AGMLotWeight.agm_id == agm_id)
     )
-    weights = list(weights_result.scalars().all())
+    weight_rows = weights_result.all()
 
-    # Total eligible voters = distinct voter emails in agm_lot_weights
-    eligible_emails: set[str] = {w.voter_email for w in weights}
+    # Build per-voter entitlement and per-email lot list from snapshot
+    voter_entitlement: dict[str, int] = {}
+    email_lots: dict[str, list[dict]] = {}
+    for w, lot_num in weight_rows:
+        voter_entitlement[w.voter_email] = (
+            voter_entitlement.get(w.voter_email, 0) + w.unit_entitlement_snapshot
+        )
+        email_lots.setdefault(w.voter_email, []).append(
+            {"lot_number": lot_num, "entitlement": w.unit_entitlement_snapshot}
+        )
+
+    # Fallback: if snapshot is empty (AGM created before lot owners were imported),
+    # use current lot owner entitlements so tallies are not all zero.
+    if not voter_entitlement:
+        current_result = await db.execute(
+            select(LotOwner).where(LotOwner.building_id == agm.building_id)
+        )
+        for lo in current_result.scalars().all():
+            voter_entitlement[lo.email] = (
+                voter_entitlement.get(lo.email, 0) + lo.unit_entitlement
+            )
+            email_lots.setdefault(lo.email, []).append(
+                {"lot_number": lo.lot_number, "entitlement": lo.unit_entitlement}
+            )
+
+    eligible_emails: set[str] = set(voter_entitlement.keys())
     total_eligible_voters = len(eligible_emails)
 
     # Load ballot submissions
@@ -739,12 +765,17 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     )
     submitted_votes = list(votes_result.scalars().all())
 
-    # Build per-voter entitlement from snapshot (sum over all lots for same email)
-    voter_entitlement: dict[str, int] = {}
-    for w in weights:
-        voter_entitlement[w.voter_email] = (
-            voter_entitlement.get(w.voter_email, 0) + w.unit_entitlement_snapshot
-        )
+    def _tally(emails: set[str]) -> dict:
+        return {
+            "voter_count": len(emails),
+            "entitlement_sum": sum(voter_entitlement.get(e, 0) for e in emails),
+        }
+
+    def _lots(emails: set[str]) -> list[dict]:
+        result: list[dict] = []
+        for email in emails:
+            result.extend(email_lots.get(email, []))
+        return result
 
     # Build per-motion tallies
     motion_details = []
@@ -752,39 +783,24 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
         # Group votes for this motion by email
         motion_votes: dict[str, str] = {}
         for vote in submitted_votes:
-            if vote.motion_id == motion.id:
-                # Only count voters who submitted
-                if vote.voter_email in submitted_emails:
-                    choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
-                    motion_votes[vote.voter_email] = choice or "abstained"
+            if vote.motion_id == motion.id and vote.voter_email in submitted_emails:
+                choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
+                motion_votes[vote.voter_email] = choice or "abstained"
 
-        yes_voters: list[dict] = []
-        no_voters: list[dict] = []
-        abstained_voters: list[dict] = []
-        absent_voters: list[dict] = []
+        yes_emails: set[str] = set()
+        no_emails: set[str] = set()
+        abstained_emails: set[str] = set()
 
-        # Submitted voters: categorize by vote choice
         for email in submitted_emails:
-            entitlement = voter_entitlement.get(email, 0)
             choice = motion_votes.get(email, "abstained")
-            entry = {"voter_email": email, "entitlement": entitlement}
             if choice == "yes":
-                yes_voters.append(entry)
+                yes_emails.add(email)
             elif choice == "no":
-                no_voters.append(entry)
+                no_emails.add(email)
             else:
-                abstained_voters.append(entry)
+                abstained_emails.add(email)
 
-        # Absent voters: in eligible but not submitted
-        for email in eligible_emails - submitted_emails:
-            entitlement = voter_entitlement.get(email, 0)
-            absent_voters.append({"voter_email": email, "entitlement": entitlement})
-
-        def _tally(voter_list: list[dict]) -> dict:
-            return {
-                "voter_count": len(voter_list),
-                "entitlement_sum": sum(v["entitlement"] for v in voter_list),
-            }
+        absent_emails: set[str] = eligible_emails - submitted_emails
 
         motion_details.append(
             {
@@ -793,16 +809,16 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                 "description": motion.description,
                 "order_index": motion.order_index,
                 "tally": {
-                    "yes": _tally(yes_voters),
-                    "no": _tally(no_voters),
-                    "abstained": _tally(abstained_voters),
-                    "absent": _tally(absent_voters),
+                    "yes": _tally(yes_emails),
+                    "no": _tally(no_emails),
+                    "abstained": _tally(abstained_emails),
+                    "absent": _tally(absent_emails),
                 },
                 "voter_lists": {
-                    "yes": yes_voters,
-                    "no": no_voters,
-                    "abstained": abstained_voters,
-                    "absent": absent_voters,
+                    "yes": _lots(yes_emails),
+                    "no": _lots(no_emails),
+                    "abstained": _lots(abstained_emails),
+                    "absent": _lots(absent_emails),
                 },
             }
         )

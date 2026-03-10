@@ -102,6 +102,13 @@ button, input, select, textarea {
   margin-top: -2px;
 }
 
+.app-header__logo {
+  height: 36px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+
 /* === VOTER CONTENT WRAPPER === */
 .voter-content {
   flex: 1;
@@ -1088,6 +1095,14 @@ button, input, select, textarea {
   margin-bottom: 4px;
 }
 
+.admin-sidebar__logo {
+  height: 32px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+
 .admin-sidebar__role {
   font-size: 0.65rem;
   font-weight: 700;
@@ -1224,6 +1239,76 @@ button, input, select, textarea {
 
 .admin-table__link:hover {
   border-bottom-color: var(--navy);
+}
+
+/* === PAGINATION === */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination__info {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-family: 'Overpass Mono', monospace;
+  white-space: nowrap;
+}
+
+.pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pagination__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1.5px solid var(--border);
+  background: var(--white);
+  color: var(--navy);
+  border-radius: 4px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+  line-height: 1;
+}
+
+.pagination__btn:hover:not(:disabled):not(.pagination__btn--active) {
+  background: var(--linen);
+  border-color: var(--navy);
+}
+
+.pagination__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pagination__btn--active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--gold-light);
+  font-weight: 700;
+  cursor: default;
+}
+
+.pagination__ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
 }
 
 /* === ADMIN PAGE HEADER === */

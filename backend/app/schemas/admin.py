@@ -187,7 +187,7 @@ class AGMListItem(BaseModel):
 
 
 class VoterEntry(BaseModel):
-    voter_email: str
+    lot_number: str
     entitlement: int
 
 

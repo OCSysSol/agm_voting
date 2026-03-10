@@ -114,7 +114,7 @@ export default function AGMDetailPage() {
       )}
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
-      <AGMReportView motions={agm.motions} />
+      <AGMReportView motions={agm.motions} agmTitle={agm.title} />
     </div>
   );
 }

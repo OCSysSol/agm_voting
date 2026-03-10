@@ -5,7 +5,7 @@ export default function AdminLayout() {
     <div className="admin-layout">
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
-          <span className="admin-sidebar__brand">AGM·Vote</span>
+          <img src="/logo.png" alt="AGM Vote" className="admin-sidebar__logo" />
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <ul className="admin-nav">
