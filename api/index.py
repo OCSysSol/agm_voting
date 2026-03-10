@@ -25,6 +25,8 @@ if postgres_url and "DATABASE_URL" not in os.environ:
     asyncpg_url = postgres_url.replace("postgres://", "postgresql+asyncpg://", 1).replace(
         "postgresql://", "postgresql+asyncpg://", 1
     )
+    # asyncpg uses ssl=require, not sslmode=require (psycopg2 syntax)
+    asyncpg_url = asyncpg_url.replace("sslmode=require", "ssl=require")
     os.environ["DATABASE_URL"] = asyncpg_url
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
