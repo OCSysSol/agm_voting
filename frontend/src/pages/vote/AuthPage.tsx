@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchAGMs, fetchBuildings, verifyAuth } from "../../api/voter";
+import { fetchBuildings, verifyAuth } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
@@ -10,7 +10,7 @@ export function AuthPage() {
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
 
-  const viewMode = searchParams.get("view");
+  const _viewMode = searchParams.get("view"); // reserved for future use
 
   // We need building info — fetch all buildings then find the one for this AGM
   // We get building_id from the AGM list by querying all buildings and their AGMs.

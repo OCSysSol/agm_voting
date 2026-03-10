@@ -11,10 +11,10 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: null,
-  }) as unknown[][];
+  });
 
   if (rows.length === 0) {
     return { errors: ["Missing required column: Motion", "Missing required column: Description"] };

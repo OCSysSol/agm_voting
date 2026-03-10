@@ -46,7 +46,7 @@ export default function AGMReportView({ motions }: AGMReportViewProps) {
             <tbody>
               {(["yes", "no", "abstained", "absent"] as const).map((cat) => (
                 <tr key={cat}>
-                  <td style={tdStyle} style={{ ...tdStyle, textTransform: "capitalize" }}>
+                  <td style={{ ...tdStyle, textTransform: "capitalize" }}>
                     {cat}
                   </td>
                   <td style={tdStyle}>{motion.tally[cat].voter_count}</td>
