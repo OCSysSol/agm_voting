@@ -10,3 +10,5 @@ backend/.venv/
 .pytest_cache/
 htmlcov/
 .coverage
+frontend/coverage/
+frontend/lcov.info
