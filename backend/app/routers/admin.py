@@ -20,6 +20,7 @@ from app.schemas.admin import (
     AGMDetail,
     AGMListItem,
     AGMOut,
+    BuildingCreate,
     BuildingImportResult,
     BuildingOut,
     LotOwnerCreate,
@@ -94,6 +95,19 @@ async def import_buildings(
     else:
         result = await admin_service.import_buildings_from_excel(content, db)
     return BuildingImportResult(**result)
+
+
+@router.post(
+    "/buildings",
+    response_model=BuildingOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_building(
+    data: BuildingCreate,
+    db: AsyncSession = Depends(get_db),
+) -> BuildingOut:
+    building = await admin_service.create_building(data.name, data.manager_email, db)
+    return BuildingOut.model_validate(building)
 
 
 @router.get("/buildings", response_model=list[BuildingOut])

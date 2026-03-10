@@ -24,42 +24,23 @@ export default function CreateAGMForm() {
 
   const mutation = useMutation<AGMOut, Error, AGMCreateRequest>({
     mutationFn: (data) => createAGM(data),
-    onSuccess: (data) => {
-      navigate(`/admin/agms/${data.id}`);
-    },
-    onError: (err) => {
-      setFormError(err.message);
-    },
+    onSuccess: (data) => { navigate(`/admin/agms/${data.id}`); },
+    onError: (err) => { setFormError(err.message); },
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
 
-    if (!buildingId) {
-      setFormError("Please select a building.");
-      return;
-    }
-    if (!title.trim()) {
-      setFormError("Title is required.");
-      return;
-    }
-    if (!meetingAt) {
-      setFormError("Meeting date/time is required.");
-      return;
-    }
-    if (!votingClosesAt) {
-      setFormError("Voting close date/time is required.");
-      return;
-    }
+    if (!buildingId) { setFormError("Please select a building."); return; }
+    if (!title.trim()) { setFormError("Title is required."); return; }
+    if (!meetingAt) { setFormError("Meeting date/time is required."); return; }
+    if (!votingClosesAt) { setFormError("Voting close date/time is required."); return; }
     if (new Date(votingClosesAt) <= new Date(meetingAt)) {
       setFormError("Voting close time must be after meeting time.");
       return;
     }
-    if (motions.length === 0) {
-      setFormError("At least one motion is required.");
-      return;
-    }
+    if (motions.length === 0) { setFormError("At least one motion is required."); return; }
     for (let i = 0; i < motions.length; i++) {
       if (!motions[i].title.trim()) {
         setFormError(`Motion ${i + 1} title is required.`);
@@ -67,7 +48,7 @@ export default function CreateAGMForm() {
       }
     }
 
-    const payload: AGMCreateRequest = {
+    mutation.mutate({
       building_id: buildingId,
       title: title.trim(),
       meeting_at: new Date(meetingAt).toISOString(),
@@ -77,60 +58,56 @@ export default function CreateAGMForm() {
         description: m.description.trim() || null,
         order_index: i,
       })),
-    };
-
-    mutation.mutate(payload);
+    });
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ maxWidth: 600 }}>
-      <div style={fieldStyle}>
-        <label htmlFor="agm-building">Building</label>
+    <form onSubmit={handleSubmit} className="admin-form">
+      <div className="field">
+        <label className="field__label" htmlFor="agm-building">Building</label>
         <select
           id="agm-building"
+          className="field__select"
           value={buildingId}
           onChange={(e) => setBuildingId(e.target.value)}
-          style={inputStyle}
         >
           <option value="">-- Select a building --</option>
           {buildings.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
+            <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
       </div>
 
-      <div style={fieldStyle}>
-        <label htmlFor="agm-title">Title</label>
+      <div className="field">
+        <label className="field__label" htmlFor="agm-title">Title</label>
         <input
           id="agm-title"
+          className="field__input"
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          style={inputStyle}
         />
       </div>
 
-      <div style={fieldStyle}>
-        <label htmlFor="agm-meeting-at">Meeting Date/Time</label>
+      <div className="field">
+        <label className="field__label" htmlFor="agm-meeting-at">Meeting Date / Time</label>
         <input
           id="agm-meeting-at"
+          className="field__input"
           type="datetime-local"
           value={meetingAt}
           onChange={(e) => setMeetingAt(e.target.value)}
-          style={inputStyle}
         />
       </div>
 
-      <div style={fieldStyle}>
-        <label htmlFor="agm-voting-closes-at">Voting Closes At</label>
+      <div className="field">
+        <label className="field__label" htmlFor="agm-voting-closes-at">Voting Closes At</label>
         <input
           id="agm-voting-closes-at"
+          className="field__input"
           type="datetime-local"
           value={votingClosesAt}
           onChange={(e) => setVotingClosesAt(e.target.value)}
-          style={inputStyle}
         />
       </div>
 
@@ -139,29 +116,14 @@ export default function CreateAGMForm() {
       <MotionEditor motions={motions} onChange={setMotions} />
 
       {formError && (
-        <p style={{ color: "#721c24", marginTop: 8 }}>
-          {formError}
-        </p>
+        <p className="field__error" style={{ marginBottom: 16 }}>{formError}</p>
       )}
 
-      <div style={{ marginTop: 16 }}>
-        <button type="submit" disabled={mutation.isPending}>
+      <div style={{ marginTop: 8 }}>
+        <button type="submit" className="btn btn--primary" disabled={mutation.isPending}>
           {mutation.isPending ? "Creating..." : "Create AGM"}
         </button>
       </div>
     </form>
   );
 }
-
-const fieldStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  marginBottom: 16,
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "6px 8px",
-  border: "1px solid #ced4da",
-  borderRadius: 4,
-  marginTop: 4,
-};

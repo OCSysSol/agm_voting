@@ -10,10 +10,14 @@ interface AGMListProps {
 
 export function AGMList({ agms, onEnterVoting, onViewSubmission }: AGMListProps) {
   if (agms.length === 0) {
-    return <p>No AGMs found for this building.</p>;
+    return (
+      <p className="state-message" style={{ padding: "24px 0 8px" }}>
+        No AGMs found for this building.
+      </p>
+    );
   }
   return (
-    <ul style={{ listStyle: "none", padding: 0 }}>
+    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
       {agms.map((agm) => (
         <li key={agm.id}>
           <AGMListItem

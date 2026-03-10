@@ -57,19 +57,24 @@ export default function BuildingDetailPage() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", buildingId] });
   }
 
-  if (isLoading) return <p>Loading lot owners...</p>;
-  if (error) return <p style={{ color: "#721c24" }}>Failed to load lot owners.</p>;
+  if (isLoading) return <p className="state-message">Loading lot owners...</p>;
+  if (error) return <p className="state-message state-message--error">Failed to load lot owners.</p>;
 
   return (
     <div>
-      <h1>{building ? building.name : "Building"}</h1>
-      {building && (
-        <p style={{ color: "#666" }}>Manager: {building.manager_email}</p>
-      )}
-
-      <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
-        <button onClick={handleAddNew}>Add Lot Owner</button>
-        <button onClick={() => navigate("/admin/agms/new")}>Create AGM</button>
+      <div className="admin-page-header">
+        <div>
+          <h1 style={{ marginBottom: 2 }}>{building ? building.name : "Building"}</h1>
+          {building && (
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-muted)" }}>
+              {building.manager_email}
+            </p>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn--secondary" onClick={handleAddNew}>Add Lot Owner</button>
+          <button className="btn btn--primary" onClick={() => navigate("/admin/agms/new")}>Create AGM</button>
+        </div>
       </div>
 
       {showForm && (
@@ -81,7 +86,9 @@ export default function BuildingDetailPage() {
         />
       )}
 
-      <LotOwnerTable lotOwners={lotOwners} onEdit={handleEdit} />
+      <div className="admin-card">
+        <LotOwnerTable lotOwners={lotOwners} onEdit={handleEdit} />
+      </div>
 
       <LotOwnerCSVUpload
         buildingId={buildingId!}

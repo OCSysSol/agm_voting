@@ -1,4 +1,3 @@
-import React from "react";
 import type { VoteChoice } from "../../types";
 
 interface VoteButtonProps {
@@ -9,28 +8,30 @@ interface VoteButtonProps {
 }
 
 const LABELS: Record<VoteChoice, string> = {
-  yes: "Yes",
-  no: "No",
+  yes: "For",
+  no: "Against",
   abstained: "Abstain",
+};
+
+const ICONS: Record<VoteChoice, string> = {
+  yes: "✓",
+  no: "✗",
+  abstained: "—",
 };
 
 export function VoteButton({ choice, selected, disabled, onClick }: VoteButtonProps) {
   return (
     <button
       type="button"
+      className={`vote-btn vote-btn--${choice}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      style={{
-        fontWeight: selected ? "bold" : "normal",
-        outline: selected ? "3px solid #1976d2" : undefined,
-        opacity: disabled ? 0.5 : 1,
-        padding: "8px 20px",
-        margin: "0 4px",
-        cursor: disabled ? "not-allowed" : "pointer",
-      }}
     >
-      {LABELS[choice]}
+      <span className="vote-btn__icon" aria-hidden="true">
+        {ICONS[choice]}
+      </span>
+      <span className="vote-btn__label">{LABELS[choice]}</span>
     </button>
   );
 }

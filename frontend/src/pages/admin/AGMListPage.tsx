@@ -1,4 +1,3 @@
-import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listAGMs } from "../../api/admin";
@@ -13,16 +12,20 @@ export default function AGMListPage() {
     queryFn: listAGMs,
   });
 
-  if (isLoading) return <p>Loading AGMs...</p>;
-  if (error) return <p style={{ color: "#721c24" }}>Failed to load AGMs.</p>;
+  if (isLoading) return <p className="state-message">Loading AGMs...</p>;
+  if (error) return <p className="state-message state-message--error">Failed to load AGMs.</p>;
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>AGMs</h1>
-        <button onClick={() => navigate("/admin/agms/new")}>Create AGM</button>
+      <div className="admin-page-header">
+        <h1>AGMs</h1>
+        <button className="btn btn--primary" onClick={() => navigate("/admin/agms/new")}>
+          Create AGM
+        </button>
       </div>
-      <AGMTable agms={agms} />
+      <div className="admin-card">
+        <AGMTable agms={agms} />
+      </div>
     </div>
   );
 }

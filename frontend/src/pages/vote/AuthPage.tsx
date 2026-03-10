@@ -91,12 +91,14 @@ export function AuthPage() {
   };
 
   return (
-    <AuthForm
-      agmTitle={agmTitle || "Loading..."}
-      buildingName={foundBuildingName || ""}
-      onSubmit={handleSubmit}
-      isLoading={mutation.isPending}
-      error={authError}
-    />
+    <main className="voter-content">
+      <AuthForm
+        agmTitle={agmTitle || "Loading..."}
+        buildingName={foundBuildingName || ""}
+        onSubmit={handleSubmit}
+        isLoading={mutation.isPending}
+        error={authError}
+      />
+    </main>
   );
 }

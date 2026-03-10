@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { closeAGM } from "../../api/admin";
 import type { AGMCloseOut } from "../../api/admin";
@@ -31,53 +31,34 @@ export default function CloseAGMButton({ agmId, agmTitle, onSuccess }: CloseAGMB
 
   return (
     <>
-      <button
-        onClick={() => setShowDialog(true)}
-        style={{ background: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 4, cursor: "pointer" }}
-      >
+      <button className="btn btn--danger" onClick={() => setShowDialog(true)}>
         Close Voting
       </button>
 
       {showDialog && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              background: "#fff",
-              padding: 24,
-              borderRadius: 8,
-              maxWidth: 400,
-              width: "90%",
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Close Voting</h3>
-            <p>
+        <div className="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="close-agm-title">
+          <div className="dialog">
+            <div className="dialog__icon dialog__icon--warning">⚠</div>
+            <h2 className="dialog__title" id="close-agm-title">Close Voting</h2>
+            <p className="dialog__body">
               Close voting for <strong>{agmTitle}</strong>? This cannot be undone.
+              Results will be emailed to all lot owners.
             </p>
-            {error && <p style={{ color: "#721c24" }}>{error}</p>}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {error && (
+              <p style={{ color: "var(--red)", fontSize: "0.875rem", marginBottom: 12 }}>{error}</p>
+            )}
+            <div className="dialog__actions">
               <button
+                className="btn btn--secondary"
                 onClick={() => { setShowDialog(false); setError(null); }}
                 disabled={mutation.isPending}
               >
                 Cancel
               </button>
               <button
+                className="btn btn--danger"
                 onClick={handleConfirm}
                 disabled={mutation.isPending}
-                style={{ background: "#dc3545", color: "#fff", border: "none", padding: "6px 14px", borderRadius: 4, cursor: "pointer" }}
               >
                 {mutation.isPending ? "Closing..." : "Confirm Close"}
               </button>

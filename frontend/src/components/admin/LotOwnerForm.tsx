@@ -42,20 +42,13 @@ export default function LotOwnerForm({
       setFormError(null);
       onSuccess();
     },
-    onError: (err) => {
-      setFormError(err.message);
-    },
+    onError: (err) => { setFormError(err.message); },
   });
 
   const editMutation = useMutation<LotOwner, Error, LotOwnerUpdateRequest>({
     mutationFn: (data) => updateLotOwner(editTarget!.id, data),
-    onSuccess: () => {
-      setFormError(null);
-      onSuccess();
-    },
-    onError: (err) => {
-      setFormError(err.message);
-    },
+    onSuccess: () => { setFormError(null); onSuccess(); },
+    onError: (err) => { setFormError(err.message); },
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -82,14 +75,8 @@ export default function LotOwnerForm({
       }
       editMutation.mutate(updateData);
     } else {
-      if (!lotNumber.trim()) {
-        setFormError("Lot number is required.");
-        return;
-      }
-      if (!email.trim()) {
-        setFormError("Email is required.");
-        return;
-      }
+      if (!lotNumber.trim()) { setFormError("Lot number is required."); return; }
+      if (!email.trim()) { setFormError("Email is required."); return; }
       addMutation.mutate({ lot_number: lotNumber, email, unit_entitlement: parsed });
     }
   }
@@ -97,71 +84,61 @@ export default function LotOwnerForm({
   const isPending = addMutation.isPending || editMutation.isPending;
 
   return (
-    <form onSubmit={handleSubmit} style={{ marginTop: 16, maxWidth: 400 }}>
-      <h3>{isEdit ? "Edit Lot Owner" : "Add Lot Owner"}</h3>
-
-      {!isEdit && (
-        <div style={fieldStyle}>
-          <label htmlFor="lot-number">Lot Number</label>
-          <input
-            id="lot-number"
-            type="text"
-            value={lotNumber}
-            onChange={(e) => setLotNumber(e.target.value)}
-            style={inputStyle}
-          />
-        </div>
-      )}
-
-      <div style={fieldStyle}>
-        <label htmlFor="lot-email">Email</label>
-        <input
-          id="lot-email"
-          type="text"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={inputStyle}
-        />
+    <div className="admin-card" style={{ marginBottom: 24 }}>
+      <div className="admin-card__header">
+        <h3 className="admin-card__title">{isEdit ? "Edit Lot Owner" : "Add Lot Owner"}</h3>
       </div>
+      <div className="admin-card__body">
+        <form onSubmit={handleSubmit} className="admin-form">
+          {!isEdit && (
+            <div className="field">
+              <label className="field__label" htmlFor="lot-number">Lot Number</label>
+              <input
+                id="lot-number"
+                className="field__input"
+                type="text"
+                value={lotNumber}
+                onChange={(e) => setLotNumber(e.target.value)}
+              />
+            </div>
+          )}
 
-      <div style={fieldStyle}>
-        <label htmlFor="lot-entitlement">Unit Entitlement</label>
-        <input
-          id="lot-entitlement"
-          type="number"
-          value={unitEntitlement}
-          onChange={(e) => setUnitEntitlement(e.target.value)}
-          style={inputStyle}
-        />
+          <div className="field">
+            <label className="field__label" htmlFor="lot-email">Email</label>
+            <input
+              id="lot-email"
+              className="field__input"
+              type="text"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="lot-entitlement">Unit Entitlement</label>
+            <input
+              id="lot-entitlement"
+              className="field__input"
+              type="number"
+              value={unitEntitlement}
+              onChange={(e) => setUnitEntitlement(e.target.value)}
+            />
+          </div>
+
+          {formError && (
+            <p className="field__error" style={{ marginBottom: 12 }}>{formError}</p>
+          )}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="submit" className="btn btn--primary" disabled={isPending}>
+              {isPending ? "Saving..." : isEdit ? "Save Changes" : "Add Lot Owner"}
+            </button>
+            <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={isPending}>
+              Cancel
+            </button>
+          </div>
+        </form>
       </div>
-
-      {formError && (
-        <p style={{ color: "#721c24", marginTop: 8 }}>
-          {formError}
-        </p>
-      )}
-
-      <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-        <button type="submit" disabled={isPending}>
-          {isPending ? "Saving..." : isEdit ? "Save Changes" : "Add Lot Owner"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }
-
-const fieldStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  marginBottom: 12,
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "6px 8px",
-  border: "1px solid #ced4da",
-  borderRadius: 4,
-  marginTop: 4,
-};

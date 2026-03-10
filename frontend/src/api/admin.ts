@@ -133,11 +133,27 @@ export interface AGMCreateRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Request types (continued)
+// ---------------------------------------------------------------------------
+
+export interface BuildingCreateRequest {
+  name: string;
+  manager_email: string;
+}
+
+// ---------------------------------------------------------------------------
 // Buildings
 // ---------------------------------------------------------------------------
 
 export async function listBuildings(): Promise<Building[]> {
   return apiFetch<Building[]>("/api/admin/buildings");
+}
+
+export async function createBuilding(data: BuildingCreateRequest): Promise<Building> {
+  return apiFetch<Building>("/api/admin/buildings", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 export async function importBuildings(file: File): Promise<BuildingImportResult> {

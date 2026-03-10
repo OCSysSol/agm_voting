@@ -208,6 +208,22 @@ async def import_buildings_from_excel(
     return {"created": created, "updated": updated}
 
 
+async def create_building(name: str, manager_email: str, db: AsyncSession) -> Building:
+    result = await db.execute(
+        select(Building).where(func.lower(Building.name) == func.lower(name))
+    )
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A building named '{name}' already exists",
+        )
+    building = Building(name=name, manager_email=manager_email)
+    db.add(building)
+    await db.commit()
+    await db.refresh(building)
+    return building
+
+
 async def list_buildings(db: AsyncSession) -> list[Building]:
     result = await db.execute(select(Building).order_by(Building.created_at))
     return list(result.scalars().all())

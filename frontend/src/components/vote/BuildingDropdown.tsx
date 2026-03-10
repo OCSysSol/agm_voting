@@ -10,10 +10,11 @@ interface BuildingDropdownProps {
 
 export function BuildingDropdown({ buildings, value, onChange, error }: BuildingDropdownProps) {
   return (
-    <div>
-      <label htmlFor="building-select">Select your building</label>
+    <div className="field">
+      <label className="field__label" htmlFor="building-select">Select your building</label>
       <select
         id="building-select"
+        className="field__select"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={!!error}
@@ -27,7 +28,7 @@ export function BuildingDropdown({ buildings, value, onChange, error }: Building
         ))}
       </select>
       {error && (
-        <span id="building-select-error" role="alert" style={{ color: "red" }}>
+        <span id="building-select-error" className="field__error" role="alert">
           {error}
         </span>
       )}

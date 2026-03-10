@@ -1,4 +1,3 @@
-import React from "react";
 import { useCountdown } from "../../hooks/useCountdown";
 import type { UseServerTimeResult } from "../../hooks/useServerTime";
 
@@ -26,7 +25,7 @@ export function CountdownTimer({ closesAt, serverTime }: CountdownTimerProps) {
       <div
         role="timer"
         aria-live="assertive"
-        style={{ color: "#d32f2f", fontWeight: "bold" }}
+        className="agm-header__timer agm-header__timer--expired"
       >
         Voting has closed
       </div>
@@ -37,12 +36,9 @@ export function CountdownTimer({ closesAt, serverTime }: CountdownTimerProps) {
     <div
       role="timer"
       aria-live="polite"
-      style={{ color: isWarning ? "#e65100" : undefined, fontWeight: isWarning ? "bold" : undefined }}
+      className={`agm-header__timer${isWarning ? " agm-header__timer--warning" : ""}`}
     >
-      {pad(hours)}:{pad(minutes)}:{pad(seconds)} remaining
-      {isWarning && (
-        <span style={{ marginLeft: "8px" }}>— closing soon</span>
-      )}
+      {pad(hours)}:{pad(minutes)}:{pad(seconds)}
     </div>
   );
 }

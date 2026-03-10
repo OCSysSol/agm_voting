@@ -1,5 +1,3 @@
-import React from "react";
-
 export interface MotionFormEntry {
   title: string;
   description: string;
@@ -20,74 +18,49 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
   }
 
   function updateMotion(index: number, field: keyof MotionFormEntry, value: string) {
-    const updated = motions.map((m, i) =>
-      i === index ? { ...m, [field]: value } : m
-    );
-    onChange(updated);
+    onChange(motions.map((m, i) => i === index ? { ...m, [field]: value } : m));
   }
 
   return (
-    <div>
-      <h4>Motions</h4>
+    <div style={{ marginBottom: 16 }}>
+      <p className="section-label" style={{ marginBottom: 12 }}>Motions</p>
       {motions.map((motion, index) => (
-        <div
-          key={index}
-          style={{
-            border: "1px solid #dee2e6",
-            borderRadius: 4,
-            padding: 12,
-            marginBottom: 12,
-          }}
-        >
-          <div style={fieldStyle}>
-            <label htmlFor={`motion-title-${index}`}>
-              Motion {index + 1} Title
-            </label>
+        <div key={index} className="motion-entry">
+          <div className="motion-entry__header">Motion {index + 1}</div>
+          <div className="field">
+            <label className="field__label" htmlFor={`motion-title-${index}`}>Title</label>
             <input
               id={`motion-title-${index}`}
+              className="field__input"
               type="text"
               value={motion.title}
               onChange={(e) => updateMotion(index, "title", e.target.value)}
-              style={inputStyle}
             />
           </div>
-          <div style={fieldStyle}>
-            <label htmlFor={`motion-desc-${index}`}>
-              Motion {index + 1} Description
-            </label>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label className="field__label" htmlFor={`motion-desc-${index}`}>Description</label>
             <textarea
               id={`motion-desc-${index}`}
+              className="field__input"
               value={motion.description}
               onChange={(e) => updateMotion(index, "description", e.target.value)}
               rows={3}
-              style={inputStyle}
+              style={{ resize: "vertical" }}
             />
           </div>
           <button
             type="button"
+            className="btn btn--danger"
+            style={{ fontSize: "0.75rem", padding: "5px 12px", textTransform: "none", letterSpacing: 0 }}
             onClick={() => removeMotion(index)}
-            style={{ color: "#721c24" }}
           >
-            Remove Motion
+            Remove
           </button>
         </div>
       ))}
-      <button type="button" onClick={addMotion}>
-        Add Motion
+      <button type="button" className="btn btn--secondary" style={{ marginTop: 4 }} onClick={addMotion}>
+        + Add Motion
       </button>
     </div>
   );
 }
-
-const fieldStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  marginBottom: 8,
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "6px 8px",
-  border: "1px solid #ced4da",
-  borderRadius: 4,
-  marginTop: 4,
-};

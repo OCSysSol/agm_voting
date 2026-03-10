@@ -23,6 +23,25 @@ class BuildingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BuildingCreate(BaseModel):
+    name: str
+    manager_email: str
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+    @field_validator("manager_email")
+    @classmethod
+    def email_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("manager_email must not be empty")
+        return v
+
+
 class BuildingImportResult(BaseModel):
     created: int
     updated: int

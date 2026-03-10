@@ -1,4 +1,3 @@
-import React from "react";
 import { useNavigate } from "react-router-dom";
 import type { Building } from "../../types";
 
@@ -10,32 +9,34 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
   const navigate = useNavigate();
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <table className="admin-table">
       <thead>
         <tr>
-          <th style={thStyle}>Name</th>
-          <th style={thStyle}>Manager Email</th>
-          <th style={thStyle}>Created At</th>
+          <th>Name</th>
+          <th>Manager Email</th>
+          <th>Created At</th>
         </tr>
       </thead>
       <tbody>
         {buildings.map((b) => (
-          <tr key={b.id} style={{ cursor: "pointer" }}>
-            <td style={tdStyle}>
+          <tr key={b.id}>
+            <td>
               <button
-                style={linkButtonStyle}
+                className="admin-table__link"
                 onClick={() => navigate(`/admin/buildings/${b.id}`)}
               >
                 {b.name}
               </button>
             </td>
-            <td style={tdStyle}>{b.manager_email}</td>
-            <td style={tdStyle}>{new Date(b.created_at).toLocaleString()}</td>
+            <td>{b.manager_email}</td>
+            <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+              {new Date(b.created_at).toLocaleString()}
+            </td>
           </tr>
         ))}
         {buildings.length === 0 && (
           <tr>
-            <td colSpan={3} style={{ ...tdStyle, textAlign: "center", color: "#666" }}>
+            <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
               No buildings found.
             </td>
           </tr>
@@ -44,25 +45,3 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
     </table>
   );
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "8px 12px",
-  borderBottom: "2px solid #dee2e6",
-  background: "#f8f9fa",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderBottom: "1px solid #dee2e6",
-};
-
-const linkButtonStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "#0066cc",
-  cursor: "pointer",
-  textDecoration: "underline",
-  padding: 0,
-  font: "inherit",
-};

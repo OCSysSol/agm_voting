@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -157,32 +157,42 @@ export function VotingPage() {
     setShowDialog(false);
   };
 
-  const isWarning =
-    currentAgm
-      ? Math.floor(
-          (new Date(currentAgm.voting_closes_at).getTime() - serverTime.getServerNow()) / 1000
-        ) <= 300 &&
-        Math.floor(
-          (new Date(currentAgm.voting_closes_at).getTime() - serverTime.getServerNow()) / 1000
-        ) > 0
-      : false;
+  const secsRemaining = currentAgm
+    ? Math.floor(
+        (new Date(currentAgm.voting_closes_at).getTime() - serverTime.getServerNow()) / 1000
+      )
+    : Infinity;
+
+  const isWarning = secsRemaining <= 300 && secsRemaining > 0;
 
   return (
-    <div>
+    <main className="voter-content">
       {isClosed && <ClosedBanner />}
+      {isWarning && !isClosed && (
+        <div role="alert" className="warning-banner">
+          <span aria-hidden="true">⚠</span>
+          Voting closes in 5 minutes — please submit your ballot
+        </div>
+      )}
+
       {currentAgm && (
-        <header>
-          <h1>{currentAgm.title}</h1>
-          <p>{buildingName}</p>
-          <p>Meeting: {formatLocalDateTime(currentAgm.meeting_at)}</p>
-          <p>Voting closes: {formatLocalDateTime(currentAgm.voting_closes_at)}</p>
+        <div className="agm-header">
+          <p className="agm-header__building">{buildingName}</p>
+          <h1 className="agm-header__title">{currentAgm.title}</h1>
+          <div className="agm-header__meta">
+            <span>
+              <strong>Meeting</strong>{" "}
+              {formatLocalDateTime(currentAgm.meeting_at)}
+            </span>
+            <span>
+              <strong>Closes</strong>{" "}
+              {formatLocalDateTime(currentAgm.voting_closes_at)}
+            </span>
+          </div>
+          <div className="agm-header__divider" />
+          <span className="agm-header__timer-label">Time remaining</span>
           <CountdownTimer closesAt={currentAgm.voting_closes_at} serverTime={serverTime} />
-          {isWarning && (
-            <div role="alert" style={{ color: "#e65100", fontWeight: "bold" }}>
-              Voting closes in 5 minutes — please submit your ballot
-            </div>
-          )}
-        </header>
+        </div>
       )}
 
       {motions && (
@@ -200,9 +210,11 @@ export function VotingPage() {
             />
           ))}
           {!isClosed && (
-            <button type="button" onClick={handleSubmitClick}>
-              Submit Votes
-            </button>
+            <div className="submit-section">
+              <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
+                Submit ballot
+              </button>
+            </div>
           )}
         </>
       )}
@@ -214,6 +226,6 @@ export function VotingPage() {
           onCancel={handleCancel}
         />
       )}
-    </div>
+    </main>
   );
 }

@@ -30,32 +30,27 @@ export default function EmailStatusBanner({
   });
 
   return (
-    <div
-      role="alert"
-      style={{
-        background: "#f8d7da",
-        border: "1px solid #f5c6cb",
-        borderRadius: 4,
-        padding: "12px 16px",
-        marginBottom: 16,
-      }}
-    >
-      <strong style={{ color: "#721c24" }}>Email delivery failed.</strong>
+    <div role="alert" className="email-error-banner">
+      <p className="email-error-banner__title">Email delivery failed.</p>
       {lastError && (
-        <span style={{ color: "#721c24", marginLeft: 8 }}>{lastError}</span>
+        <p className="email-error-banner__detail">{lastError}</p>
       )}
-      <div style={{ marginTop: 8 }}>
+      <div className="email-error-banner__actions">
         <button
+          className="btn btn--danger"
+          style={{ fontSize: "0.8rem", padding: "7px 16px" }}
           onClick={() => { setRetrySuccess(false); setRetryError(null); mutation.mutate(agmId); }}
           disabled={mutation.isPending}
         >
           {mutation.isPending ? "Retrying..." : "Retry Send"}
         </button>
         {retrySuccess && (
-          <span style={{ color: "#155724", marginLeft: 8 }}>Report queued for resend.</span>
+          <span style={{ color: "var(--green)", fontSize: "0.875rem", fontWeight: 600 }}>
+            ✓ Report queued for resend.
+          </span>
         )}
         {retryError && (
-          <span style={{ color: "#721c24", marginLeft: 8 }}>{retryError}</span>
+          <span style={{ color: "var(--red)", fontSize: "0.875rem" }}>{retryError}</span>
         )}
       </div>
     </div>

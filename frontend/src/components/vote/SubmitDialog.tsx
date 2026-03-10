@@ -1,5 +1,3 @@
-import React from "react";
-
 interface SubmitDialogProps {
   unansweredTitles: string[];
   onConfirm: () => void;
@@ -14,49 +12,40 @@ export function SubmitDialog({ unansweredTitles, onConfirm, onCancel }: SubmitDi
       role="dialog"
       aria-modal="true"
       aria-labelledby="submit-dialog-title"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
+      className="dialog-overlay"
     >
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: "8px",
-          padding: "24px",
-          maxWidth: "480px",
-          width: "100%",
-        }}
-      >
-        <h2 id="submit-dialog-title">
+      <div className="dialog">
+        <div className={`dialog__icon dialog__icon--${hasUnanswered ? "warning" : "confirm"}`}>
+          {hasUnanswered ? "⚠" : "✓"}
+        </div>
+        <h2 className="dialog__title" id="submit-dialog-title">
           {hasUnanswered ? "Unanswered motions" : "Confirm submission"}
         </h2>
         {hasUnanswered ? (
           <>
-            <p>
+            <p className="dialog__body">
               The following motions have no answer and will be recorded as{" "}
               <strong>Abstained</strong>. Confirm submission?
             </p>
-            <ul>
+            <ul className="dialog__list">
               {unansweredTitles.map((title) => (
-                <li key={title}>{title}</li>
+                <li className="dialog__list-item" key={title}>
+                  {title}
+                </li>
               ))}
             </ul>
           </>
         ) : (
-          <p>Are you sure? Votes cannot be changed after submission.</p>
+          <p className="dialog__body">
+            Are you sure? Votes cannot be changed after submission.
+          </p>
         )}
-        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-          <button type="button" onClick={onCancel}>
+        <div className="dialog__actions">
+          <button type="button" className="btn btn--secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" onClick={onConfirm}>
-            Submit
+          <button type="button" className="btn btn--primary" onClick={onConfirm}>
+            Submit ballot
           </button>
         </div>
       </div>

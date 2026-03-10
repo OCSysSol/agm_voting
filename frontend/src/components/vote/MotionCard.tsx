@@ -1,4 +1,3 @@
-import React from "react";
 import type { VoteChoice } from "../../types";
 import type { MotionOut } from "../../api/voter";
 import { VoteButton } from "./VoteButton";
@@ -37,16 +36,14 @@ export function MotionCard({
   return (
     <div
       data-testid={`motion-card-${motion.id}`}
-      style={{
-        border: highlight ? "2px solid #ff9800" : "1px solid #ccc",
-        borderRadius: "8px",
-        padding: "16px",
-        marginBottom: "16px",
-      }}
+      className={`motion-card${highlight ? " motion-card--highlight" : ""}`}
     >
-      <h3>{motion.title}</h3>
-      {motion.description && <p>{motion.description}</p>}
-      <div>
+      <p className="motion-card__number">Motion {motion.order_index}</p>
+      <h3 className="motion-card__title">{motion.title}</h3>
+      {motion.description && (
+        <p className="motion-card__description">{motion.description}</p>
+      )}
+      <div className="vote-buttons">
         {CHOICES.map((c) => (
           <VoteButton
             key={c}
@@ -57,7 +54,9 @@ export function MotionCard({
           />
         ))}
       </div>
-      <SaveIndicator status={status} onSave={saveNow} />
+      <div className="motion-card__footer">
+        <SaveIndicator status={status} onSave={saveNow} />
+      </div>
     </div>
   );
 }

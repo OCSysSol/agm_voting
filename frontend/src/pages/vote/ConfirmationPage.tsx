@@ -1,11 +1,10 @@
-import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMyBallot } from "../../api/voter";
 
 const CHOICE_LABELS: Record<string, string> = {
-  yes: "Yes",
-  no: "No",
+  yes: "For",
+  no: "Against",
   abstained: "Abstained",
 };
 
@@ -21,15 +20,29 @@ export function ConfirmationPage() {
   });
 
   if (isLoading) {
-    return <p>Loading your submission...</p>;
+    return (
+      <main className="voter-content">
+        <p className="state-message">Loading your submission...</p>
+      </main>
+    );
   }
 
   if (isError) {
     const err = error as Error;
     if (err.message.includes("404")) {
-      return <p>You did not submit a ballot for this meeting.</p>;
+      return (
+        <main className="voter-content">
+          <p className="state-message">You did not submit a ballot for this meeting.</p>
+        </main>
+      );
     }
-    return <p role="alert">Failed to load your ballot. Please try again.</p>;
+    return (
+      <main className="voter-content">
+        <p className="state-message state-message--error" role="alert">
+          Failed to load your ballot. Please try again.
+        </p>
+      </main>
+    );
   }
 
   /* c8 ignore next 3 */
@@ -40,28 +53,51 @@ export function ConfirmationPage() {
   const sortedVotes = [...data.votes].sort((a, b) => a.order_index - b.order_index);
 
   return (
-    <div>
-      <h1>Vote Confirmation</h1>
-      <p>
-        <strong>Building:</strong> {data.building_name}
-      </p>
-      <p>
-        <strong>AGM:</strong> {data.agm_title}
-      </p>
-      <p>
-        <strong>Voter:</strong> {data.voter_email}
-      </p>
-      <h2>Your votes</h2>
-      <ul>
-        {sortedVotes.map((v) => (
-          <li key={v.motion_id}>
-            <strong>{v.motion_title}:</strong> {CHOICE_LABELS[v.choice] ?? v.choice}
-          </li>
-        ))}
-      </ul>
-      <button onClick={() => navigate("/")} style={{ marginTop: 16 }}>
-        Back to Home
-      </button>
-    </div>
+    <main className="voter-content">
+      <div className="card">
+        <div className="confirmation">
+          <div className="confirmation__check" aria-hidden="true">✓</div>
+          <h1 className="confirmation__title">Ballot submitted</h1>
+          <p className="confirmation__subtitle">
+            Your votes have been recorded. Thank you for participating.
+          </p>
+        </div>
+
+        <div className="vote-meta">
+          <div className="vote-meta__row">
+            <span className="vote-meta__label">Building</span>
+            <span className="vote-meta__value">{data.building_name}</span>
+          </div>
+          <div className="vote-meta__row">
+            <span className="vote-meta__label">Meeting</span>
+            <span className="vote-meta__value">{data.agm_title}</span>
+          </div>
+          <div className="vote-meta__row">
+            <span className="vote-meta__label">Voter</span>
+            <span className="vote-meta__value">{data.voter_email}</span>
+          </div>
+        </div>
+
+        <div className="vote-summary">
+          <p className="vote-summary__heading">Your votes</p>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {sortedVotes.map((v) => (
+              <li className="vote-item" key={v.motion_id}>
+                <span className="vote-item__motion">{v.motion_title}</span>
+                <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
+                  {CHOICE_LABELS[v.choice] ?? v.choice}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="submit-section" style={{ borderTop: "none", marginTop: "24px", paddingTop: "0" }}>
+          <button className="btn btn--ghost" onClick={() => navigate("/")}>
+            ← Back to home
+          </button>
+        </div>
+      </div>
+    </main>
   );
 }
