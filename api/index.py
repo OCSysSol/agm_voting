@@ -29,6 +29,15 @@ if postgres_url and "DATABASE_URL" not in os.environ:
     asyncpg_url = asyncpg_url.replace("sslmode=require", "ssl=require")
     os.environ["DATABASE_URL"] = asyncpg_url
 
+# Sanitize DATABASE_URL regardless of how it was set: asyncpg rejects sslmode=require
+if "DATABASE_URL" in os.environ:
+    os.environ["DATABASE_URL"] = (
+        os.environ["DATABASE_URL"]
+        .replace("postgres://", "postgresql+asyncpg://", 1)
+        .replace("postgresql://", "postgresql+asyncpg://", 1)
+        .replace("sslmode=require", "ssl=require")
+    )
+
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
 __all__ = ["app"]
