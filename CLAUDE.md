@@ -26,16 +26,19 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
 1. **Create a new branch** from the current base (e.g. `git checkout -b feat/my-feature`)
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
-4. **Deploy to Vercel development** — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
-5. **Run the full E2E suite** against the deployed URL:
+4. **Ask the user for permission to deploy** — the Vercel development environment is shared; only one deploy can be tested at a time. Report local test results and request a deployment slot
+5. **Deploy to Vercel development** (only after approval) — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
+6. **Run the full E2E suite** against the deployed URL:
    ```bash
-   cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> npx playwright test
+   cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" npx playwright test
    ```
-6. **Fix any failures** before continuing
-7. **Report results to the user** — share the development URL and test summary, then **wait for explicit approval before pushing**
-8. **Push only after user approves** — `git push -u origin <branch>`
+7. **Fix any failures** before continuing
+8. **Report results to the user** — share the development URL and test summary, then **wait for explicit approval before pushing**
+9. **Push only after user approves** — `git push -u origin <branch>`
 
-The sub-agent must NEVER push to remote automatically. Always stop after step 6, report to the user, and wait for a go-ahead.
+The sub-agent must NEVER deploy or push to remote automatically. There are two mandatory approval gates:
+- **Before deploying** (step 4) — the dev environment is shared
+- **Before pushing** (step 8) — the user reviews results first
 
 #### Parallel agents (multiple features at once)
 
