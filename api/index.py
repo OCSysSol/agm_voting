@@ -55,9 +55,13 @@ if _db_url:  # pragma: no cover — runs at Lambda cold-start; cannot unit-test 
         from alembic.config import Config as _AlembicConfig  # pragma: no cover
         from alembic import command as _alembic_command  # pragma: no cover
 
-        _alembic_ini = os.path.join(os.path.dirname(__file__), "..", "backend", "alembic.ini")  # pragma: no cover
+        _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))  # pragma: no cover
+        _alembic_ini = os.path.join(_backend_dir, "alembic.ini")  # pragma: no cover
         _alembic_cfg = _AlembicConfig(_alembic_ini)  # pragma: no cover
         _alembic_cfg.set_main_option("sqlalchemy.url", _db_url)  # pragma: no cover
+        # script_location in alembic.ini is relative — resolve to absolute path so it
+        # works regardless of the Lambda's current working directory.
+        _alembic_cfg.set_main_option("script_location", os.path.join(_backend_dir, "alembic"))  # pragma: no cover
         _alembic_command.upgrade(_alembic_cfg, "head")  # pragma: no cover
     except Exception as _migration_exc:  # pragma: no cover
         import logging as _logging  # pragma: no cover
@@ -74,10 +78,12 @@ async def _debug_db_info():  # pragma: no cover
         from alembic.config import Config as _AConfig  # pragma: no cover
         from alembic import command as _acmd  # pragma: no cover
         import io  # pragma: no cover
-        _ini = os.path.join(os.path.dirname(__file__), "..", "backend", "alembic.ini")  # pragma: no cover
+        _bdir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))  # pragma: no cover
+        _ini = os.path.join(_bdir, "alembic.ini")  # pragma: no cover
         ini_exists = os.path.isfile(_ini)  # pragma: no cover
         cfg = _AConfig(_ini)  # pragma: no cover
         cfg.set_main_option("sqlalchemy.url", db_url)  # pragma: no cover
+        cfg.set_main_option("script_location", os.path.join(_bdir, "alembic"))  # pragma: no cover
         _acmd.upgrade(cfg, "head")  # pragma: no cover
         migration_result = "success"  # pragma: no cover
     except Exception as e:  # pragma: no cover
