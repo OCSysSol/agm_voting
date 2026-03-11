@@ -1,0 +1,325 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+AGM Voting App — a web application for body corporates to run weighted voting during Annual General Meetings. See `tasks/prd-agm-voting-app.md` for the full PRD.
+
+**Stack:** React (Vite) frontend · FastAPI backend · PostgreSQL · SQLAlchemy + Alembic · Resend (email)
+
+---
+
+## Development Workflow
+
+**PRD before code — always.** For every change (new feature, bug fix, UX feedback, or refactor):
+
+1. Update the relevant PRD in `tasks/` first — add or revise user stories, acceptance criteria, and functional requirements to reflect the change
+2. Then implement the code
+
+This applies equally to small bug fixes and large features. If feedback is received during implementation, pause, update the PRD, then continue.
+
+---
+
+## Example Files
+
+Two example files live in `examples/` at the project root. Use these as test fixtures for any import-related feature development and testing — do not create synthetic test data when these files can be used instead.
+
+### `examples/Owners_SBT.xlsx` — Lot owner import template
+
+Used for building/lot owner import (US-005, admin CSV/Excel import endpoint).
+
+| Column | Maps to | Notes |
+|--------|---------|-------|
+| `S/Plan` | _(ignored)_ | Strata plan identifier — not stored |
+| `Building Name` | `Building.name` | Used to identify or create the building |
+| `Street No` | _(ignored)_ | Not stored |
+| `Street Name` | _(ignored)_ | Not stored |
+| `Lot#` | `LotOwner.lot_number` | Integer lot identifier |
+| `Unit#` | _(ignored)_ | Unit number — not the entitlement |
+| `UOE2` | `LotOwner.unit_entitlement` | Unit of Entitlement — used for weighted voting |
+| `Email` | `LotOwner.email` | Voter email address |
+
+- 147 data rows (lots 53–199+), all under building "Sandridge Bay Towers (Building 6,7 & 8)"
+- Multiple lots share the same email — this is intentional (multi-lot owners)
+- `UOE2` value is 1 per lot in this example; real files will have varying entitlement values
+- Extra columns beyond those listed (including `Unit#`) should be silently ignored
+
+### `examples/AGM Motion test.xlsx` — AGM motion import template
+
+Used for AGM motion pre-fill at creation time (US-014, Excel motion import feature).
+
+| Column | Maps to | Notes |
+|--------|---------|-------|
+| `Motion` | `Motion.order_index` | Integer display order |
+| `Description` | `Motion.description` | Full motion text shown to voters |
+
+- 2 data rows: motion 1 "do you like Motion 1?" and motion 2 "do you approve this budget?"
+- Column names are case-insensitive during parsing
+- Completely blank rows are silently skipped
+
+---
+
+## Vercel Deployment Environments
+
+| Environment | Trigger | URL pattern |
+|---|---|---|
+| **Production** | Push to `master` | `agm-voting.vercel.app` |
+| **Preview** | Push to any other branch | `agm-voting-git-<branch>-ocss.vercel.app` |
+| **Development** | Manual via CLI (`vercel deploy`) | temporary URL |
+
+When investigating a Vercel deployment issue, always check which environment is affected before acting. Use `vercel env pull --environment preview` (or `production`) to retrieve the correct database URL for running migrations.
+
+**Database migrations on Vercel:** Alembic migrations are never run automatically on deploy — they must be applied manually using the unpooled connection string:
+
+```bash
+# Pull env vars for the target environment
+vercel env pull .env.vercel --environment preview --yes
+
+# Convert and run migration
+DB=$(grep DATABASE_URL_UNPOOLED .env.vercel | cut -d'"' -f2 | \
+  sed 's|postgresql://|postgresql+asyncpg://|' | sed 's|sslmode=require|ssl=require|')
+cd backend && uv run alembic -x dburl="$DB" upgrade head
+
+# Clean up
+rm ../.env.vercel
+```
+
+---
+
+## Container Management
+
+**Always use Podman** — never Docker — for all container and compose operations in this project.
+
+```bash
+# Start services
+podman compose up -d
+
+# Stop services
+podman compose down
+
+# View logs
+podman compose logs -f
+
+# Run a one-off command inside a container
+podman compose exec <service> <command>
+```
+
+- Use `podman compose` (not `docker compose` or `docker-compose`)
+- Use `podman` (not `docker`) for any direct container commands
+- The compose file is `podman-compose.yml` at the project root
+
+---
+
+## Testing Standards
+
+### Coverage Target
+
+**100% line coverage is required** — every line of code, both backend and frontend, must be exercised by at least one test. Coverage reports must be generated on every test run and a build/CI check should fail if coverage drops below 100%.
+
+- Backend: `pytest-cov` with `--cov-fail-under=100`
+- Frontend: Vitest with `coverage.thresholds` set to 100 for lines, functions, branches, and statements
+
+The only acceptable exclusions are lines explicitly marked with `# pragma: no cover` (backend) or `/* istanbul ignore */` (frontend), and these must have a comment justifying the exclusion.
+
+---
+
+### Backend Testing (pytest)
+
+Every API endpoint must have thorough tests. Apply the following techniques for all backend test suites.
+
+#### Input Partition Testing
+
+Divide inputs into equivalence classes and test at least one value from each class. For every endpoint parameter, identify:
+
+- Valid inputs (normal case)
+- Invalid type (e.g. string where integer expected)
+- Missing required fields
+- Null / empty values
+- Unexpected extra fields
+
+#### Boundary Value Analysis
+
+Test at the edges of valid ranges, not just the middle:
+
+- Min valid value, max valid value
+- One below min, one above max
+- Zero and negative numbers where relevant
+- Empty string vs single character vs max-length string
+
+#### State-Based Testing
+
+Many endpoints behave differently depending on entity state. Test each state transition explicitly:
+
+- AGM status: `open` → `closed` (test that actions valid in one state are rejected in the other)
+- Lot owner: authenticated session vs unauthenticated vs already-voted
+- Vote: before submission vs after submission (immutable)
+
+#### Error and Edge Cases
+
+- Duplicate records (e.g. same lot number in same building)
+- Foreign key violations (e.g. AGM ID that does not exist)
+- Concurrent requests (e.g. two submissions for the same lot at the same time)
+- Empty collections (e.g. AGM with zero motions, building with zero lot owners)
+
+#### Test Structure
+
+Each API test file should be organised with clearly labelled sections:
+
+```python
+# --- Happy path ---
+# --- Input validation ---
+# --- Boundary values ---
+# --- State / precondition errors ---
+# --- Edge cases ---
+```
+
+Tests that exercise DB state must use isolated transactions or a dedicated test database — never the development database.
+
+---
+
+### Frontend Testing (Vitest + React Testing Library)
+
+All React components and utility functions must be covered by unit and integration tests using Vitest and React Testing Library (RTL).
+
+#### Unit Tests (per component)
+
+- Render the component with required props and assert the output contains expected elements
+- Test every conditional render branch (e.g. loading state, error state, empty state, populated state)
+- Test all user interactions: clicks, form input, form submission, keyboard events
+- Assert that the correct callbacks are called with the correct arguments
+- Test components in isolation using mocked API calls (use `msw` — Mock Service Worker — to intercept fetch/axios requests)
+
+#### Integration Tests
+
+- Test complete user flows across multiple components wired together (e.g. building select → lot auth → vote page)
+- Use RTL's `userEvent` (not `fireEvent`) to simulate realistic user interactions
+- Assert on visible UI outcomes, not internal component state
+
+#### What to Test Per User Story
+
+- **US-002 Building selector:** dropdown renders all buildings, selecting one shows AGM details, submitting without selection shows error
+- **US-003 Auth form:** valid credentials advance to vote page, invalid credentials show error message, empty fields show validation errors
+- **US-004 Voting page:** all motions render, Yes/No selection highlights correctly, submit button triggers confirmation dialog, confirmed submission locks inputs
+- **US-005 CSV import:** file input accepts CSV, success shows import count, invalid file shows error
+- **US-009 Confirmation screen:** shows after submission, lists all motions with recorded votes, inputs are disabled
+
+---
+
+### End-to-End / Browser Testing (Playwright)
+
+Playwright automates a real browser (Chromium by default) and must be used to verify complete user journeys from browser open to final state. Tests run headlessly and should be part of CI.
+
+#### Setup
+
+Playwright runs against the Vite dev server (or a test server). Configure `baseURL` in `playwright.config.ts` to point to the local dev server.
+
+#### What to Cover with E2E Tests
+
+Write one E2E test per major user flow:
+
+1. **Full lot owner journey:** open app → select building → enter lot number + email → vote on all motions → submit → see confirmation screen
+2. **Failed authentication:** enter wrong lot number/email → see error → correct credentials → proceed
+3. **AGM closed state:** attempt to vote on a closed AGM → see "Voting has closed" message → see read-only confirmation if already submitted
+4. **CSV import flow:** navigate to host page → upload valid CSV → verify success message and record count
+5. **Close AGM and report:** manager closes AGM → confirm status changes → verify lot owners can no longer vote
+
+#### Playwright Best Practices
+
+- Use `page.getByRole()` and `page.getByLabel()` locators (not CSS selectors or `data-testid`) wherever possible — this tests accessibility as a side effect
+- Add `data-testid` attributes only when no semantic locator is available
+- Each test must be fully independent — seed the database to a known state before each test using API calls or a test fixture helper
+- Assert on visible UI state after each action, not just at the end of the flow
+- Use Playwright's `expect(page).toHaveURL()` and `expect(locator).toBeVisible()` assertions rather than arbitrary waits
+
+---
+
+### Example Scenarios by Domain
+
+#### Lot owner authentication (`POST /auth/verify`)
+
+- Valid lot number + matching email → success
+- Valid lot number + wrong email → 401
+- Lot number that does not exist → 401
+- Lot number belonging to a different building → 401
+- Empty lot number → 422
+- Lot number as integer vs string
+- Email with valid but unusual format (e.g. `user+tag@domain.co`)
+- Email exceeding max length
+
+#### Vote submission (`POST /agm/{id}/vote`)
+
+- All motions answered → success
+- Partial motions answered → define and test expected behaviour
+- Re-submission after already voted → 409 (votes are immutable)
+- Submission after AGM is closed → 403
+- Motion ID from a different AGM → 422
+- Unauthenticated request → 401
+
+#### AGM close (`POST /agm/{id}/close`)
+
+- Close an open AGM → success + email triggered
+- Close an already-closed AGM → 409
+- Close an AGM that does not exist → 404
+
+#### CSV import (`POST /building/{id}/import`)
+
+- Valid CSV with all required columns → success, returns count
+- CSV missing `unit_entitlement` column → 422
+- CSV with duplicate lot numbers → 422 with details of duplicates
+- Empty CSV (headers only) → success with count 0
+- CSV with extra/unknown columns → accepted, extra columns ignored
+- Non-CSV file upload → 415
+- Very large CSV (stress boundary)
+
+#### Unit entitlement / weighted vote tallies
+
+- All lots vote Yes → total entitlement equals sum of all entitlements
+- No lots vote → Yes count = 0, No count = 0
+- Mix of Yes/No → verify weighted sums are correct, not lot counts
+- Lots with entitlement = 0 (if permitted) → confirm they do not affect tally
+- Lots with very large entitlement values (integer overflow boundary)
+
+---
+
+## Commands
+
+```bash
+# Start databases (dev + test) — run from project root
+podman compose -f podman-compose.yml up -d
+
+# Install backend dependencies (run from backend/)
+uv sync --extra dev
+
+# Install frontend dependencies (run from frontend/)
+npm install
+
+# Run backend dev server (run from backend/)
+uv run uvicorn app.main:app --reload --port 8000
+
+# Run frontend dev server (run from frontend/)
+npm run dev
+
+# Run backend tests with coverage (run from backend/)
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=100 -v
+
+# Run a single backend test file (run from backend/)
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  uv run pytest tests/test_models.py -v
+
+# Run database migrations — dev DB (run from backend/)
+uv run alembic upgrade head
+
+# Run database migrations — test DB (run from backend/)
+uv run alembic -x dburl=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test upgrade head
+
+# Generate a new migration after model changes (run from backend/)
+uv run alembic revision --autogenerate -m "description"
+
+# Run frontend tests with coverage (run from frontend/)
+npm run test:coverage
+
+# Run Playwright e2e tests (run from frontend/, requires dev server running)
+npm run e2e
+```
