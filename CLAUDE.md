@@ -36,7 +36,8 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
 7. **Release the deployment slot** — notify the orchestrator the slot is free (regardless of whether tests passed or failed)
 8. **Fix all recorded failures** — work through every issue found in step 6. Do not re-deploy during this phase
 9. **Re-queue for deployment** — once all fixes are applied, signal the orchestrator again (back to step 4) for a fresh deployment and re-test
-10. **Push the branch** — `git push -u origin <branch>` — only after a clean full test run with zero failures
+10. **Report results to the user** — share the development URL and full test summary, then **wait for explicit approval before pushing**
+11. **Push the branch** — `git push -u origin <branch>` — only after the user approves
 
 #### Orchestrator responsibilities (deployment queue)
 
