@@ -28,12 +28,15 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
 4. **Signal the orchestrator** — report local test results and indicate readiness to deploy. Then **pause and wait** for the orchestrator to grant a deployment slot
 5. **Deploy to Vercel development** (only after orchestrator grants the slot) — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
-6. **Run the full E2E suite** against the deployed URL:
+6. **Run the full E2E suite** against the deployed URL — always run to completion regardless of failures:
    ```bash
    cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" npx playwright test
    ```
-7. **Fix any failures**, then notify the orchestrator that the deployment slot is free
-8. **Push the branch** — `git push -u origin <branch>` — once all tests pass
+   Do **not** stop early when a test fails. Collect the full list of failures.
+7. **Release the deployment slot** — notify the orchestrator the slot is free (regardless of whether tests passed or failed)
+8. **Fix all recorded failures** — work through every issue found in step 6. Do not re-deploy during this phase
+9. **Re-queue for deployment** — once all fixes are applied, signal the orchestrator again (back to step 4) for a fresh deployment and re-test
+10. **Push the branch** — `git push -u origin <branch>` — only after a clean full test run with zero failures
 
 #### Orchestrator responsibilities (deployment queue)
 
@@ -41,8 +44,9 @@ The Vercel development environment is shared — only one agent may deploy and r
 
 - Maintain a mental queue of agents waiting for the deployment slot
 - Grant the slot to one agent at a time (FIFO by default; use judgement to reprioritise if one feature is more urgent or less risky)
-- When the active agent reports its slot is free, immediately grant it to the next agent in the queue
+- When the active agent reports its slot is free (step 7), immediately grant it to the next agent in the queue — even if that agent is still fixing issues from a previous run, another waiting agent should get the slot
 - If only one agent is running, grant the slot as soon as it signals readiness — no delay
+- An agent fixing issues re-joins the back of the queue, not the front
 
 #### Parallel agents (multiple features at once)
 
