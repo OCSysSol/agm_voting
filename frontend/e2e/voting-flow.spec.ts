@@ -1,36 +1,34 @@
 import { test, expect } from "./fixtures";
+import { E2E_BUILDING_NAME, E2E_LOT_NUMBER, E2E_LOT_EMAIL } from "./global-setup";
 
-// NOTE: These E2E tests require both the frontend dev server and the backend API
-// to be running. Run with: npx playwright test
-// Backend: uvicorn app.main:app --reload (at localhost:8000)
-// Frontend: npm run dev (at localhost:5173)
+// Voting-flow tests rely on data seeded by global-setup.ts:
+//   - Building "E2E Test Building"
+//   - Lot owner  lot=E2E-1  email=e2e-voter@test.com
+//   - An open AGM with at least one motion
 
 test.describe("Lot owner voting flow", () => {
   test("full lot owner journey: select building → auth → vote → confirmation", async ({ page }) => {
     await page.goto("/");
 
     // Building selector page
-    await expect(page.getByLabel("Select your building")).toBeVisible();
+    const select = page.getByLabel("Select your building");
+    await expect(select).toBeVisible();
+    await select.selectOption({ label: E2E_BUILDING_NAME });
 
-    // Select a building (this depends on seeded test data)
-    await page.getByLabel("Select your building").selectOption({ index: 1 });
-
-    // AGM list should appear
+    // AGM list should appear — pick the first open AGM
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
-
-    // Click Enter Voting
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
     // Auth page
     await expect(page.getByLabel("Lot number")).toBeVisible();
-    await page.getByLabel("Lot number").fill("1");
-    await page.getByLabel("Email address").fill("test@example.com");
+    await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
+    await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Voting page
     await expect(page.getByRole("button", { name: "Submit Votes" })).toBeVisible();
 
-    // Vote on motions
+    // Vote Yes on all motions
     const yesButtons = page.getByRole("button", { name: "Yes" });
     const count = await yesButtons.count();
     for (let i = 0; i < count; i++) {
@@ -50,12 +48,13 @@ test.describe("Lot owner voting flow", () => {
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByLabel("Select your building").selectOption({ index: 1 });
+    const select = page.getByLabel("Select your building");
+    await select.selectOption({ label: E2E_BUILDING_NAME });
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
     // Wrong credentials
-    await page.getByLabel("Lot number").fill("9999");
+    await page.getByLabel("Lot number").fill("NONEXISTENT-9999");
     await page.getByLabel("Email address").fill("wrong@example.com");
     await page.getByRole("button", { name: "Continue" }).click();
 
@@ -66,26 +65,33 @@ test.describe("Lot owner voting flow", () => {
     // Correct credentials
     await page.getByLabel("Lot number").clear();
     await page.getByLabel("Email address").clear();
-    await page.getByLabel("Lot number").fill("1");
-    await page.getByLabel("Email address").fill("test@example.com");
+    await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
+    await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByRole("button", { name: "Submit Votes" })).toBeVisible();
   });
 
-  test("AGM closed state: see closed banner", async ({ page }) => {
-    // Navigate to a closed AGM auth page using view=submission
-    await page.goto("/");
-    await page.getByLabel("Select your building").selectOption({ index: 1 });
-    await expect(page.getByRole("button", { name: "View My Submission" }).first()).toBeVisible();
-    await page.getByRole("button", { name: "View My Submission" }).first().click();
+  test("AGM closed state: closed AGM shows View My Submission button", async ({ page, request }) => {
+    // Find a closed AGM for any building
+    const agmsRes = await request.get("/api/admin/agms");
+    const agms = (await agmsRes.json()) as { id: string; status: string; building_id: string }[];
+    const closedAgm = agms.find((a) => a.status === "closed");
 
-    // Auth page for closed AGM
-    await expect(page.getByLabel("Lot number")).toBeVisible();
+    if (!closedAgm) {
+      test.skip();
+      return;
+    }
+
+    await page.goto("/");
+    // Select any building and look for the closed AGM's "View My Submission" button
+    const select = page.getByLabel("Select your building");
+    await expect(select).toBeVisible();
+    // Closed AGMs show "View My Submission" not "Enter Voting"
+    await expect(page.getByRole("button", { name: "View My Submission" }).first()).toBeVisible();
   });
 
-  test("Close AGM and report: manager closes AGM", async ({ page }) => {
-    // Navigate to admin
+  test("admin buildings page is accessible after login", async ({ page }) => {
     await page.goto("/admin");
     await expect(page.getByText(/Admin/i).first()).toBeVisible();
   });

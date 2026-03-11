@@ -10,15 +10,34 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: "html",
+  globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",
     ignoreHTTPSErrors: true,
   },
   projects: [
+    // Auth setup — runs once before the admin project
     {
-      name: "chromium",
+      name: "setup",
+      testMatch: /global-setup\.ts/,
+    },
+    // Admin tests — reuse authenticated session from global setup
+    {
+      name: "admin",
+      testMatch: /e2e\/admin\/.*\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "e2e/.auth/admin.json",
+      },
+      dependencies: ["setup"],
+    },
+    // Public / voting tests — no auth required
+    {
+      name: "public",
+      testMatch: /e2e\/(smoke|voting-flow)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
     },
   ],
   // Only spin up the local dev server when not testing against a deployed URL

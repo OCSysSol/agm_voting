@@ -1,14 +1,15 @@
-name: Post-Deploy Smoke Tests
+name: Post-Deploy E2E Tests
 
 # Triggered by Vercel when it posts a deployment_status event back to GitHub.
-# Runs against the exact URL Vercel just deployed so we catch env-var and
-# migration issues before anyone notices them in the browser.
+# Runs the full Playwright E2E suite against the exact URL that was just
+# deployed so env-var gaps, migration misses, auth issues, and JS console
+# errors are caught immediately for every preview and production deploy.
 on:
   deployment_status:
 
 jobs:
-  smoke:
-    name: Playwright smoke tests
+  e2e:
+    name: Playwright E2E tests
     # Only run when the deployment finished successfully
     if: github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
@@ -30,13 +31,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install chromium --with-deps
 
-      - name: Run smoke tests
+      - name: Run full E2E suite
         working-directory: frontend
         env:
           PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.target_url }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-        run: npm run e2e:smoke
+        run: npm run e2e
 
       - name: Upload Playwright report
         if: always()
