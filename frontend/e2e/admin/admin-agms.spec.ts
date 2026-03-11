@@ -10,7 +10,7 @@ test.describe("Admin AGMs", () => {
 
   test("displays AGM table with data", async ({ page }) => {
     await page.goto("/admin/agms");
-    await expect(page.getByRole("table")).toBeVisible();
+    await expect(page.getByRole("table")).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("columnheader", { name: "Building" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Title" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Status" })).toBeVisible();

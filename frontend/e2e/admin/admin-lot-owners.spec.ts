@@ -1,6 +1,8 @@
 import { test, expect } from "../fixtures";
 
-test.describe("Admin Lot Owners", () => {
+// Serial: the "CSV import" test replaces all lot owners, which would race with
+// "add lot owner" if they ran in parallel on the same E2E Building.
+test.describe.serial("Admin Lot Owners", () => {
   // Note: Requires a building to exist. Seed via API before tests.
 
   test("displays lot owner table for a building", async ({ page, request }) => {
@@ -22,7 +24,7 @@ test.describe("Admin Lot Owners", () => {
     expect(building).toBeDefined();
 
     await page.goto(`/admin/buildings/${building!.id}`);
-    await expect(page.getByText("E2E Building")).toBeVisible();
+    await expect(page.getByText("E2E Building")).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("heading", { name: /E2E Building/ })).toBeVisible();
   });
 

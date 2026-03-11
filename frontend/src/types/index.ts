@@ -4,6 +4,7 @@ export type AGMStatus = "open" | "closed";
 export type VoteChoice = "yes" | "no" | "abstained";
 export type VoteStatus = "draft" | "submitted";
 export type EmailDeliveryStatus = "pending" | "delivered" | "failed";
+export type MotionType = "general" | "special";
 export type FinancialPosition = "normal" | "in_arrear";
 
 export interface Building {
@@ -42,6 +43,7 @@ export interface Motion {
   title: string;
   description: string | null;
   order_index: number;
+  motion_type: MotionType;
 }
 
 export interface AGMLotWeight {
