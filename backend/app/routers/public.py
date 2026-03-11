@@ -117,9 +117,3 @@ async def get_agm_summary(
             for m in motions
         ],
     )
-
-
-@router.get("/debug/db-url", include_in_schema=False)
-async def debug_db_url():
-    import os
-    return {"url": os.environ.get("DATABASE_URL_UNPOOLED", "not set")}
