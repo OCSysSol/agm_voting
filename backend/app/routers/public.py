@@ -22,13 +22,6 @@ from app.schemas.building import BuildingOut
 router = APIRouter()
 
 
-@router.get("/admin/debug/db-url", include_in_schema=False)
-async def debug_db_url() -> dict:
-    """Temporary: return DATABASE_URL_UNPOOLED for migration runbook."""
-    import os
-    return {"url": os.environ.get("DATABASE_URL_UNPOOLED", "not set")}
-
-
 @router.get("/server-time")
 async def server_time() -> dict:
     """Return current UTC time for client countdown timer anchoring."""
