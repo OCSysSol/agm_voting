@@ -37,6 +37,7 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.target_url }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
         run: npm run e2e
 
       - name: Upload Playwright report

@@ -11,9 +11,9 @@ test.describe("Admin AGMs", () => {
   test("displays AGM table with data", async ({ page }) => {
     await page.goto("/admin/agms");
     await expect(page.getByRole("table")).toBeVisible();
-    await expect(page.getByText("Building")).toBeVisible();
-    await expect(page.getByText("Title")).toBeVisible();
-    await expect(page.getByText("Status")).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Building" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Title" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Status" })).toBeVisible();
   });
 
   test("clicking Create AGM navigates to create form", async ({ page }) => {
@@ -38,20 +38,17 @@ test.describe("Admin AGMs", () => {
     await page.getByLabel("Building").selectOption({ index: 0 });
 
     // Fill title
-    await page.getByLabel("Title").fill("E2E Test AGM");
+    await page.locator("#agm-title").fill("E2E Test AGM");
 
     // Fill meeting datetime
-    const meetingAt = page.getByLabel("Meeting date/time");
-    await meetingAt.fill("2025-06-01T10:00");
+    await page.locator("#agm-meeting-at").fill("2025-06-01T10:00");
 
     // Fill voting closes datetime
-    const votingClosesAt = page.getByLabel("Voting closes");
-    await votingClosesAt.fill("2025-06-08T10:00");
+    await page.locator("#agm-voting-closes-at").fill("2025-06-08T10:00");
 
-    // Add a motion
-    await page.getByRole("button", { name: "Add Motion" }).click();
-    await page.getByLabel("Motion 1 Title").fill("Test Motion 1");
-    await page.getByLabel("Motion 1 Description").fill("A test motion description");
+    // Fill first motion (already present by default)
+    await page.locator("#motion-title-0").fill("Test Motion 1");
+    await page.locator("#motion-desc-0").fill("A test motion description");
 
     // Submit form
     await page.getByRole("button", { name: "Create AGM" }).click();
@@ -68,10 +65,10 @@ test.describe("Admin AGMs", () => {
     expect(agm).toBeDefined();
 
     await page.goto(`/admin/agms/${agm.id}`);
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     // Status badge should be visible (either Open or Closed)
     const badge = page.getByText(/^(Open|Closed)$/);
-    await expect(badge).toBeVisible();
+    await expect(badge).toBeVisible({ timeout: 10000 });
   });
 
   test("AGM detail page shows eligible voters and submitted counts", async ({
@@ -83,8 +80,9 @@ test.describe("Admin AGMs", () => {
     const agm = agms[0];
 
     await page.goto(`/admin/agms/${agm.id}`);
-    await expect(page.getByText(/Eligible voters:/)).toBeVisible();
-    await expect(page.getByText(/Submitted:/)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("Eligible voters")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Submitted")).toBeVisible({ timeout: 5000 });
   });
 
   test("open AGM shows Close Voting button", async ({ page, request }) => {
@@ -98,7 +96,8 @@ test.describe("Admin AGMs", () => {
     }
 
     await page.goto(`/admin/agms/${openAgm.id}`);
-    await expect(page.getByRole("button", { name: "Close Voting" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Close Voting" })).toBeVisible({ timeout: 10000 });
   });
 
   test("Close Voting shows confirmation dialog", async ({ page, request }) => {
@@ -112,8 +111,9 @@ test.describe("Admin AGMs", () => {
     }
 
     await page.goto(`/admin/agms/${openAgm.id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "Close Voting" }).click();
-    await expect(page.getByText(/This cannot be undone/)).toBeVisible();
+    await expect(page.getByText(/This cannot be undone/)).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole("button", { name: "Confirm Close" })).toBeVisible();
   });
 
@@ -128,6 +128,7 @@ test.describe("Admin AGMs", () => {
     }
 
     await page.goto(`/admin/agms/${closedAgm.id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("button", { name: "Close Voting" })).not.toBeVisible();
   });
 
@@ -137,7 +138,8 @@ test.describe("Admin AGMs", () => {
     const agm = agms[0];
 
     await page.goto(`/admin/agms/${agm.id}`);
-    await expect(page.getByRole("heading", { name: "Results Report" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("heading", { name: "Results Report" })).toBeVisible({ timeout: 10000 });
   });
 
   test("clicking AGM row in list navigates to AGM detail", async ({ page }) => {

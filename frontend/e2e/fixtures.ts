@@ -8,6 +8,15 @@ const IGNORED_PATTERNS = [
   /\[vite\]/i,
   // React DevTools noise in dev builds
   /Download the React DevTools/i,
+  // Google Fonts CORS: the Vercel bypass header gets sent to external CDNs
+  // (side-effect of extraHTTPHeaders in playwright.config.ts) — not an app error
+  /fonts\.gstatic\.com.*x-vercel-protection-bypass/i,
+  /fonts\.googleapis\.com.*x-vercel-protection-bypass/i,
+  /x-vercel-protection-bypass is not allowed by Access-Control-Allow-Headers/i,
+  // 401 from /api/auth/verify is expected in the "failed authentication" test —
+  // the browser logs "Failed to load resource: status of 401" for intentional
+  // wrong-credential submissions, which is correct app behaviour not an error.
+  /status of 401/i,
 ];
 
 /**

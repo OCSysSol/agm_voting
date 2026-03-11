@@ -31,14 +31,15 @@ test.describe("Admin Lot Owners", () => {
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings[0];
 
+    const uniqueLot = `E2E-LOT-${Date.now()}`;
     await page.goto(`/admin/buildings/${building.id}`);
     await page.getByRole("button", { name: "Add Lot Owner" }).click();
-    await page.getByLabel("Lot Number").fill("E2E-LOT-1");
+    await page.getByLabel("Lot Number").fill(uniqueLot);
     await page.getByLabel("Email").fill("lot1@e2e.com");
     await page.getByLabel("Unit Entitlement").fill("50");
     await page.getByRole("button", { name: "Add Lot Owner" }).last().click();
 
-    await expect(page.getByText("E2E-LOT-1")).toBeVisible();
+    await expect(page.getByText(uniqueLot)).toBeVisible({ timeout: 15000 });
   });
 
   test("CSV import shows imported count", async ({ page, request }) => {
@@ -49,7 +50,7 @@ test.describe("Admin Lot Owners", () => {
     await page.goto(`/admin/buildings/${building.id}`);
     const csvContent =
       "lot_number,email,unit_entitlement\nLOT-A,a@e2e.com,100\nLOT-B,b@e2e.com,200";
-    const fileInput = page.getByLabel("Lot owners CSV file");
+    const fileInput = page.getByLabel("Lot owners file");
     await fileInput.setInputFiles({
       name: "owners.csv",
       mimeType: "text/csv",

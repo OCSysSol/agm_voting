@@ -17,12 +17,7 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
   },
   projects: [
-    // Auth setup — runs once before the admin project
-    {
-      name: "setup",
-      testMatch: /global-setup\.ts/,
-    },
-    // Admin tests — reuse authenticated session from global setup
+    // Admin tests — reuse authenticated session created by globalSetup
     {
       name: "admin",
       testMatch: /e2e\/admin\/.*\.spec\.ts/,
@@ -30,14 +25,15 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         storageState: "e2e/.auth/admin.json",
       },
-      dependencies: ["setup"],
     },
-    // Public / voting tests — no auth required
+    // Public / voting tests — use bypass cookie only (no admin session)
     {
       name: "public",
       testMatch: /e2e\/(smoke|voting-flow)\.spec\.ts/,
-      use: { ...devices["Desktop Chrome"] },
-      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "e2e/.auth/public.json",
+      },
     },
   ],
   // Only spin up the local dev server when not testing against a deployed URL
