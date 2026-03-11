@@ -65,6 +65,15 @@ if _db_url:  # pragma: no cover — runs at Lambda cold-start; cannot unit-test 
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
+# TEMP: debug endpoint to verify DB URL and migration state
+@app.get("/api/debug/db-info", include_in_schema=False)  # pragma: no cover
+async def _debug_db_info():  # pragma: no cover
+    import subprocess  # pragma: no cover
+    return {  # pragma: no cover
+        "DATABASE_URL": os.environ.get("DATABASE_URL", "")[:60] + "...",
+        "DATABASE_URL_UNPOOLED": os.environ.get("DATABASE_URL_UNPOOLED", "")[:60] + "...",
+    }
+
 # Serve the React SPA from the bundled frontend/dist directory.
 # frontend/dist is included in the Lambda via vercel.json includeFiles.
 _dist_dir = os.path.join(os.path.dirname(__file__), "static")
