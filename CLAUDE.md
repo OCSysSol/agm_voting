@@ -24,7 +24,7 @@ This applies equally to small bug fixes and large features. If feedback is recei
 A change is only complete when all of the following are true:
 
 1. All local tests pass (`npm run test:coverage` and backend pytest with coverage)
-2. Deployed to the **development** Vercel environment (`vercel deploy` from project root)
+2. Deployed to the **development** Vercel environment only — run `vercel deploy` from project root (never `--prod`)
 3. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
 4. The full test suite is run against the deployed development instance to confirm parity
 
@@ -73,9 +73,11 @@ Used for AGM motion pre-fill at creation time (US-014, Excel motion import featu
 
 | Environment | Trigger | URL pattern |
 |---|---|---|
-| **Production** | Push to `master` | `agm-voting.vercel.app` |
-| **Preview** | Push to any other branch | `agm-voting-git-<branch>-ocss.vercel.app` |
-| **Development** | Manual via CLI (`vercel deploy`) | temporary URL |
+| **Production** | Push to `master` (git only) | `agm-voting.vercel.app` |
+| **Preview** | Push to any other branch (git only) | `agm-voting-git-<branch>-ocss.vercel.app` |
+| **Development** | CLI only — `vercel deploy` from project root | temporary URL |
+
+**IMPORTANT — CLI deployments go to Development only.** Never run `vercel deploy --prod` or target preview from the CLI. Production and Preview are exclusively managed by git push.
 
 When investigating a Vercel deployment issue, always check which environment is affected before acting. Use `vercel env pull --environment preview` (or `production`) to retrieve the correct database URL for running migrations.
 
