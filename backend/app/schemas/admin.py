@@ -58,7 +58,7 @@ class BuildingImportResult(BaseModel):
 class LotOwnerOut(BaseModel):
     id: uuid.UUID
     lot_number: str
-    email: str
+    emails: list[str]
     unit_entitlement: int
     financial_position: str
 
@@ -67,9 +67,9 @@ class LotOwnerOut(BaseModel):
 
 class LotOwnerCreate(BaseModel):
     lot_number: str
-    email: str
     unit_entitlement: int
     financial_position: str = "normal"
+    emails: list[str] = []
 
     @field_validator("unit_entitlement")
     @classmethod
@@ -85,13 +85,6 @@ class LotOwnerCreate(BaseModel):
             raise ValueError("lot_number must not be empty")
         return v
 
-    @field_validator("email")
-    @classmethod
-    def email_non_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("email must not be empty")
-        return v
-
     @field_validator("financial_position")
     @classmethod
     def financial_position_valid(cls, v: str) -> str:
@@ -101,7 +94,6 @@ class LotOwnerCreate(BaseModel):
 
 
 class LotOwnerUpdate(BaseModel):
-    email: str | None = None
     unit_entitlement: int | None = None
     financial_position: str | None = None
 
@@ -121,13 +113,25 @@ class LotOwnerUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "LotOwnerUpdate":
-        if self.email is None and self.unit_entitlement is None and self.financial_position is None:
-            raise ValueError("At least one of email, unit_entitlement, or financial_position must be provided")
+        if self.unit_entitlement is None and self.financial_position is None:
+            raise ValueError("At least one of unit_entitlement or financial_position must be provided")
         return self
+
+
+class AddEmailRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def email_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("email must not be empty")
+        return v
 
 
 class LotOwnerImportResult(BaseModel):
     imported: int
+    emails: int
 
 
 # ---------------------------------------------------------------------------

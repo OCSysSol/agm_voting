@@ -2,6 +2,8 @@
 Authentication endpoint:
   POST /api/auth/verify
 """
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.agm import AGM, AGMStatus
 from app.models.ballot_submission import BallotSubmission
-from app.models.building import Building
 from app.models.lot_owner import LotOwner
-from app.schemas.auth import AuthVerifyRequest, AuthVerifyResponse
+from app.models.lot_owner_email import LotOwnerEmail
+from app.schemas.auth import AuthVerifyRequest, AuthVerifyResponse, LotInfo
 from app.services.auth_service import create_session
 
 router = APIRouter()
@@ -24,23 +26,25 @@ async def verify_auth(
     db: AsyncSession = Depends(get_db),
 ) -> AuthVerifyResponse:
     """
-    Authenticate a lot owner by lot_number + email + building_id,
-    verify the AGM belongs to that building and is open,
-    create a session, and return whether a ballot was already submitted.
+    Authenticate a voter by email + building_id.
+    Looks up all lot owners for this building that have the given email.
+    Returns the list of lots associated with that email along with their submission status.
     """
-    # 1. Verify lot_number + email + building_id exists
-    lot_result = await db.execute(
-        select(LotOwner).where(
+    # 1. Find all LotOwnerEmail records matching email for this building
+    emails_result = await db.execute(
+        select(LotOwnerEmail)
+        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        .where(
+            LotOwnerEmail.email == request.email,
             LotOwner.building_id == request.building_id,
-            LotOwner.lot_number == request.lot_number,
-            LotOwner.email == request.email,
         )
     )
-    lot_owner = lot_result.scalar_one_or_none()
-    if lot_owner is None:
+    email_records = list(emails_result.scalars().all())
+
+    if not email_records:
         raise HTTPException(
             status_code=401,
-            detail="Lot number and email address do not match our records",
+            detail="Email address not found for this building",
         )
 
     # 2. Verify AGM belongs to building_id
@@ -54,14 +58,38 @@ async def verify_auth(
     if agm is None:
         raise HTTPException(status_code=404, detail="AGM not found for this building")
 
-    # 3. Check for existing ballot submission
-    submission_result = await db.execute(
+    # 3. Build lot info for each lot owner linked to this email
+    lot_owner_ids = [er.lot_owner_id for er in email_records]
+
+    lots_result = await db.execute(
+        select(LotOwner).where(LotOwner.id.in_(lot_owner_ids))
+    )
+    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
+
+    # 4. Check submissions per lot owner
+    submissions_result = await db.execute(
         select(BallotSubmission).where(
             BallotSubmission.agm_id == request.agm_id,
-            BallotSubmission.voter_email == request.email,
+            BallotSubmission.lot_owner_id.in_(lot_owner_ids),
         )
     )
-    already_submitted = submission_result.scalar_one_or_none() is not None
+    submitted_lot_ids: set[uuid.UUID] = {s.lot_owner_id for s in submissions_result.scalars().all()}
+
+    lots = []
+    for lot_owner_id in lot_owner_ids:
+        lo = lot_owners.get(lot_owner_id)
+        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
+            continue
+        fp = lo.financial_position
+        lots.append(LotInfo(
+            lot_owner_id=lo.id,
+            lot_number=lo.lot_number,
+            financial_position=fp.value if hasattr(fp, "value") else fp,
+            already_submitted=lo.id in submitted_lot_ids,
+        ))
+
+    # Sort by lot_number for consistent ordering
+    lots.sort(key=lambda l: l.lot_number)
 
     # 5. Create session
     token = await create_session(
@@ -80,7 +108,7 @@ async def verify_auth(
     )
 
     return AuthVerifyResponse(
-        already_submitted=already_submitted,
+        lots=lots,
         voter_email=request.email,
         agm_status=agm.status.value,
     )

@@ -16,6 +16,7 @@ from app.database import get_db
 from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
+    AddEmailRequest,
     AGMBallotResetOut,
     AGMCloseOut,
     AGMCreate,
@@ -147,7 +148,7 @@ async def list_lot_owners(
     db: AsyncSession = Depends(get_db),
 ) -> list[LotOwnerOut]:
     owners = await admin_service.list_lot_owners(building_id, db)
-    return [LotOwnerOut.model_validate(o) for o in owners]
+    return [LotOwnerOut(**o) for o in owners]
 
 
 @router.post(
@@ -180,7 +181,7 @@ async def add_lot_owner(
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
     owner = await admin_service.add_lot_owner(building_id, data, db)
-    return LotOwnerOut.model_validate(owner)
+    return LotOwnerOut(**owner)
 
 
 @router.patch(
@@ -193,7 +194,36 @@ async def update_lot_owner(
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
     owner = await admin_service.update_lot_owner(lot_owner_id, data, db)
-    return LotOwnerOut.model_validate(owner)
+    return LotOwnerOut(**owner)
+
+
+@router.post(
+    "/lot-owners/{lot_owner_id}/emails",
+    response_model=LotOwnerOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_email_to_lot_owner(
+    lot_owner_id: uuid.UUID,
+    data: AddEmailRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    """Add an email address to a lot owner."""
+    owner = await admin_service.add_email_to_lot_owner(lot_owner_id, data.email, db)
+    return LotOwnerOut(**owner)
+
+
+@router.delete(
+    "/lot-owners/{lot_owner_id}/emails/{email}",
+    response_model=LotOwnerOut,
+)
+async def remove_email_from_lot_owner(
+    lot_owner_id: uuid.UUID,
+    email: str,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    """Remove an email address from a lot owner."""
+    owner = await admin_service.remove_email_from_lot_owner(lot_owner_id, email, db)
+    return LotOwnerOut(**owner)
 
 
 # ---------------------------------------------------------------------------

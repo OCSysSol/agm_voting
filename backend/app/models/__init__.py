@@ -1,9 +1,10 @@
 from app.models.base import Base, TimestampMixin
 from app.models.building import Building
 from app.models.lot_owner import LotOwner, FinancialPosition
+from app.models.lot_owner_email import LotOwnerEmail
 from app.models.agm import AGM, AGMStatus
 from app.models.motion import Motion, MotionType
-from app.models.agm_lot_weight import AGMLotWeight
+from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
 from app.models.vote import Vote, VoteChoice, VoteStatus
 from app.models.ballot_submission import BallotSubmission
 from app.models.session_record import SessionRecord
@@ -15,11 +16,13 @@ __all__ = [
     "Building",
     "LotOwner",
     "FinancialPosition",
+    "LotOwnerEmail",
     "AGM",
     "AGMStatus",
     "Motion",
     "MotionType",
     "AGMLotWeight",
+    "FinancialPositionSnapshot",
     "Vote",
     "VoteChoice",
     "VoteStatus",

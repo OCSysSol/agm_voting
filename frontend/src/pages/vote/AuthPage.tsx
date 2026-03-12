@@ -56,12 +56,11 @@ export function AuthPage() {
   }, [buildings, agmId]);
 
   const mutation = useMutation({
-    mutationFn: ({ lotNumber, email }: { lotNumber: string; email: string }) => {
+    mutationFn: ({ email }: { email: string }) => {
       if (!foundBuildingId || !agmId) {
         return Promise.reject(new Error("Missing building or AGM context"));
       }
       return verifyAuth({
-        lot_number: lotNumber,
         email,
         building_id: foundBuildingId,
         agm_id: agmId,
@@ -70,7 +69,13 @@ export function AuthPage() {
     onSuccess: (data) => {
       /* c8 ignore next */
       if (!agmId) return;
-      if (data.agm_status === "closed" || data.already_submitted) {
+      const allSubmitted = data.lots.length > 0 && data.lots.every((l) => l.already_submitted);
+      const pendingLotIds = data.lots
+        .filter((l) => !l.already_submitted)
+        .map((l) => l.lot_owner_id);
+      // Persist pending lot IDs in sessionStorage so VotingPage can submit on behalf of them
+      sessionStorage.setItem(`agm_lots_${agmId}`, JSON.stringify(pendingLotIds));
+      if (data.agm_status === "closed" || allSubmitted) {
         navigate(`/vote/${agmId}/confirmation`);
       } else {
         navigate(`/vote/${agmId}/voting`);
@@ -85,9 +90,9 @@ export function AuthPage() {
     },
   });
 
-  const handleSubmit = (lotNumber: string, email: string) => {
+  const handleSubmit = (_lotNumber: string, email: string) => {
     setAuthError("");
-    mutation.mutate({ lotNumber, email });
+    mutation.mutate({ email });
   };
 
   return (

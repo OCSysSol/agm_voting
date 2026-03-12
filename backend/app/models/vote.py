@@ -30,8 +30,8 @@ class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (
         UniqueConstraint(
-            "agm_id", "motion_id", "voter_email",
-            name="uq_votes_agm_motion_voter",
+            "agm_id", "motion_id", "lot_owner_id",
+            name="uq_votes_agm_motion_lot_owner",
         ),
     )
 
@@ -48,6 +48,10 @@ class Vote(Base):
         nullable=False,
     )
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
+    lot_owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("lot_owners.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     choice: Mapped[VoteChoice | None] = mapped_column(
         Enum(VoteChoice, name="votechoice"),
         nullable=True,

@@ -15,14 +15,20 @@ export interface AGMOut {
 }
 
 export interface AuthVerifyRequest {
-  lot_number: string;
   email: string;
   building_id: string;
   agm_id: string;
 }
 
-export interface AuthVerifyResponse {
+export interface LotInfo {
+  lot_owner_id: string;
+  lot_number: string;
+  financial_position: string;
   already_submitted: boolean;
+}
+
+export interface AuthVerifyResponse {
+  lots: LotInfo[];
   voter_email: string;
   agm_status: string;
 }
@@ -59,9 +65,15 @@ export interface VoteSummaryItem {
   choice: VoteChoice;
 }
 
+export interface LotBallotResult {
+  lot_owner_id: string;
+  lot_number: string;
+  votes: VoteSummaryItem[];
+}
+
 export interface SubmitResponse {
   submitted: boolean;
-  votes: VoteSummaryItem[];
+  lots: LotBallotResult[];
 }
 
 export interface BallotVoteItem {
@@ -69,13 +81,26 @@ export interface BallotVoteItem {
   motion_title: string;
   order_index: number;
   choice: VoteChoice;
+  eligible: boolean;
+}
+
+export interface LotBallotSummary {
+  lot_owner_id: string;
+  lot_number: string;
+  financial_position: string;
+  votes: BallotVoteItem[];
 }
 
 export interface MyBallotResponse {
   voter_email: string;
   agm_title: string;
   building_name: string;
-  votes: BallotVoteItem[];
+  submitted_lots: LotBallotSummary[];
+  remaining_lot_owner_ids: string[];
+}
+
+export interface SubmitBallotRequest {
+  lot_owner_ids: string[];
 }
 
 export interface ServerTimeResponse {
@@ -116,9 +141,10 @@ export function saveDraft(agmId: string, req: DraftSaveRequest): Promise<DraftSa
   });
 }
 
-export function submitBallot(agmId: string): Promise<SubmitResponse> {
+export function submitBallot(agmId: string, lotOwnerIds: string[]): Promise<SubmitResponse> {
   return apiFetch<SubmitResponse>(`/api/agm/${agmId}/submit`, {
     method: "POST",
+    body: JSON.stringify({ lot_owner_ids: lotOwnerIds }),
   });
 }
 

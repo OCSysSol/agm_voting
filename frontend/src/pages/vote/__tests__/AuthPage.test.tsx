@@ -66,10 +66,14 @@ describe("AuthPage", () => {
     });
   });
 
-  it("navigates to confirmation when already_submitted=true", async () => {
+  it("navigates to confirmation when all lots already_submitted=true", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () =>
-        HttpResponse.json({ already_submitted: true, voter_email: "owner@example.com", agm_status: "open" })
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "42", financial_position: "normal", already_submitted: true }],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+        })
       )
     );
     mockNavigate.mockClear();
@@ -83,7 +87,11 @@ describe("AuthPage", () => {
   it("navigates to confirmation when agm_status=closed (submission view)", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () =>
-        HttpResponse.json({ already_submitted: false, voter_email: "owner@example.com", agm_status: "closed" })
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "42", financial_position: "normal", already_submitted: false }],
+          voter_email: "owner@example.com",
+          agm_status: "closed",
+        })
       )
     );
     mockNavigate.mockClear();
@@ -115,7 +123,7 @@ describe("AuthPage", () => {
       http.post(`${BASE}/api/auth/verify`, () =>
         new Promise<Response>((res) => {
           resolve = () =>
-            res(HttpResponse.json({ already_submitted: false, voter_email: "x@y.com", agm_status: "open" }) as Response);
+            res(HttpResponse.json({ lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false }], voter_email: "x@y.com", agm_status: "open" }) as Response);
         })
       )
     );

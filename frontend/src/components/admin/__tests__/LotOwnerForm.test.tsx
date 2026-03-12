@@ -6,17 +6,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import LotOwnerForm from "../LotOwnerForm";
+import { addEmailToLotOwner, removeEmailFromLotOwner } from "../../../api/admin";
 import type { LotOwner } from "../../../types";
 
 const existingLotOwner: LotOwner = {
   id: "lo1",
   building_id: "b1",
   lot_number: "1A",
-  email: "owner1@example.com",
+  emails: ["owner1@example.com"],
   unit_entitlement: 100,
   financial_position: "normal",
-  created_at: "2024-01-01T00:00:00Z",
-  updated_at: "2024-01-01T00:00:00Z",
 };
 
 function renderAddForm(onSuccess = vi.fn(), onCancel = vi.fn()) {
@@ -139,20 +138,21 @@ describe("LotOwnerForm - Add mode", () => {
 });
 
 describe("LotOwnerForm - Edit mode", () => {
-  it("renders edit form with existing values", () => {
+  it("renders edit form with existing values (no email field in edit mode)", () => {
     renderEditForm(existingLotOwner);
-    expect(screen.getByLabelText("Email")).toHaveValue("owner1@example.com");
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(100);
     expect(screen.queryByLabelText("Lot Number")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
   });
 
-  it("submits edit form and calls onSuccess", async () => {
+  it("submits edit form with changed unit entitlement and calls onSuccess", async () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();
     renderEditForm(existingLotOwner, onSuccess);
-    await user.clear(screen.getByLabelText("Email"));
-    await user.type(screen.getByLabelText("Email"), "updated@example.com");
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "999");
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
@@ -162,7 +162,6 @@ describe("LotOwnerForm - Edit mode", () => {
   it("shows validation error for negative entitlement on edit (client-side)", async () => {
     const user = userEvent.setup();
     renderEditForm(existingLotOwner);
-    // Clear and type negative value
     const entitlementInput = screen.getByLabelText("Unit Entitlement");
     await user.clear(entitlementInput);
     await user.type(entitlementInput, "-10");
@@ -177,18 +176,6 @@ describe("LotOwnerForm - Edit mode", () => {
     expect(screen.getByText("No changes detected.")).toBeInTheDocument();
   });
 
-  it("updates email field in edit mode", async () => {
-    const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm({ ...existingLotOwner, email: "old@example.com", unit_entitlement: 50 }, onSuccess);
-    await user.clear(screen.getByLabelText("Email"));
-    await user.type(screen.getByLabelText("Email"), "changed@example.com");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
-    });
-  });
-
   it("shows server error message on edit mutation failure", async () => {
     server.use(
       http.patch("http://localhost:8000/api/admin/lot-owners/:lotOwnerId", () => {
@@ -197,9 +184,9 @@ describe("LotOwnerForm - Edit mode", () => {
     );
     const user = userEvent.setup();
     renderEditForm(existingLotOwner);
-    // Change email so it's different from existing
-    await user.clear(screen.getByLabelText("Email"));
-    await user.type(screen.getByLabelText("Email"), "newemail@example.com");
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "999");
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => {
       expect(screen.getByText(/500/)).toBeInTheDocument();
@@ -210,7 +197,6 @@ describe("LotOwnerForm - Edit mode", () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();
     renderEditForm(existingLotOwner, onSuccess);
-    // Change only unit entitlement (different from 100)
     const entitlementInput = screen.getByLabelText("Unit Entitlement");
     await user.clear(entitlementInput);
     await user.type(entitlementInput, "999");
@@ -229,13 +215,13 @@ describe("LotOwnerForm - Edit mode", () => {
       <QueryClientProvider client={queryClient}>
         <LotOwnerForm
           buildingId="b1"
-          editTarget={{ ...existingLotOwner, email: "other@example.com", id: "lo2" }}
+          editTarget={{ ...existingLotOwner, unit_entitlement: 999, id: "lo2" }}
           onSuccess={vi.fn()}
           onCancel={vi.fn()}
         />
       </QueryClientProvider>
     );
-    expect(screen.getByLabelText("Email")).toHaveValue("other@example.com");
+    expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(999);
   });
 
   it("renders financial position dropdown in edit mode with current value", () => {
@@ -290,5 +276,37 @@ describe("LotOwnerForm - Add mode financial position", () => {
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
     });
+  });
+});
+
+describe("addEmailToLotOwner API function", () => {
+  it("adds an email and returns updated lot owner", async () => {
+    const result = await addEmailToLotOwner("lo1", "added@example.com");
+    expect(result.emails).toContain("added@example.com");
+  });
+
+  it("handles server error when adding email", async () => {
+    server.use(
+      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails", () => {
+        return HttpResponse.json({ detail: "Conflict" }, { status: 409 });
+      })
+    );
+    await expect(addEmailToLotOwner("lo1", "dup@example.com")).rejects.toThrow();
+  });
+});
+
+describe("removeEmailFromLotOwner API function", () => {
+  it("removes an email and returns updated lot owner", async () => {
+    const result = await removeEmailFromLotOwner("lo1", "owner1@example.com");
+    expect(result.emails).not.toContain("owner1@example.com");
+  });
+
+  it("handles server error when removing email", async () => {
+    server.use(
+      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails/:email", () => {
+        return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+      })
+    );
+    await expect(removeEmailFromLotOwner("lo1", "nonexistent@example.com")).rejects.toThrow();
   });
 });

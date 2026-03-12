@@ -55,7 +55,7 @@ export default function LotOwnerTable({ lotOwners, onEdit }: LotOwnerTableProps)
               <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
                 {lo.lot_number}
               </td>
-              <td>{lo.email}</td>
+              <td>{(lo.emails ?? []).join(", ")}</td>
               <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
                 {lo.unit_entitlement}
               </td>

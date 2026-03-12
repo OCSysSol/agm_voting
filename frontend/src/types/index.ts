@@ -19,11 +19,9 @@ export interface LotOwner {
   id: string;
   building_id: string;
   lot_number: string;
-  email: string;
+  emails: string[];
   unit_entitlement: number;
   financial_position: FinancialPosition;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface AGM {

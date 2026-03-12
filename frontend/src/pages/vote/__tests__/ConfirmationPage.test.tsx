@@ -94,10 +94,18 @@ describe("ConfirmationPage", () => {
           voter_email: "voter@test.com",
           agm_title: "Test AGM",
           building_name: "Test Building",
-          votes: [
-            { motion_id: "m2", motion_title: "Second Motion", order_index: 1, choice: "no" },
-            { motion_id: "m1", motion_title: "First Motion", order_index: 0, choice: "yes" },
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m2", motion_title: "Second Motion", order_index: 1, choice: "no", eligible: true },
+                { motion_id: "m1", motion_title: "First Motion", order_index: 0, choice: "yes", eligible: true },
+              ],
+            },
           ],
+          remaining_lot_owner_ids: [],
         })
       )
     );
@@ -116,9 +124,17 @@ describe("ConfirmationPage", () => {
           voter_email: "voter@test.com",
           agm_title: "Test AGM",
           building_name: "Test Building",
-          votes: [
-            { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "abstained" },
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "abstained", eligible: true },
+              ],
+            },
           ],
+          remaining_lot_owner_ids: [],
         })
       )
     );
@@ -146,15 +162,59 @@ describe("ConfirmationPage", () => {
           voter_email: "voter@test.com",
           agm_title: "Test AGM",
           building_name: "Test Building",
-          votes: [
-            { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "unknown_choice" },
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "unknown_choice", eligible: true },
+              ],
+            },
           ],
+          remaining_lot_owner_ids: [],
         })
       )
     );
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("unknown_choice")).toBeInTheDocument();
+    });
+  });
+
+  it("renders multi-lot ballot with lot headers", async () => {
+    server.use(
+      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          agm_title: "Test AGM",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+              ],
+            },
+            {
+              lot_owner_id: "lo2",
+              lot_number: "2B",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "no", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Lot 1A")).toBeInTheDocument();
+      expect(screen.getByText("Lot 2B")).toBeInTheDocument();
     });
   });
 });
