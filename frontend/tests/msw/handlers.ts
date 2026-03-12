@@ -96,6 +96,7 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       title: "Motion 1",
       description: "Description 1",
       order_index: 0,
+      motion_type: "general" as const,
       tally: {
         yes: { voter_count: 2, entitlement_sum: 200 },
         no: { voter_count: 1, entitlement_sum: 100 },
@@ -147,6 +148,7 @@ export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
       title: "First Motion",
       description: null,
       order_index: 0,
+      motion_type: "general" as const,
     },
   ],
 };
@@ -268,7 +270,7 @@ export const adminHandlers = [
   }),
 
   http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import`, () => {
-    return HttpResponse.json<LotOwnerImportResult>({ imported: 5 });
+    return HttpResponse.json<LotOwnerImportResult>({ imported: 5, emails: 5 });
   }),
 
   http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import-proxies`, () => {

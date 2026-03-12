@@ -56,7 +56,8 @@ export interface GeneralMeetingListItem {
 }
 
 export interface VoterEntry {
-  lot_number: string;
+  voter_email?: string;
+  lot_number?: string;
   entitlement: number;
 }
 

@@ -1,16 +1,13 @@
-import React, { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { fetchBuildings, fetchGeneralMeetings, verifyAuth } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
-
-  const _viewMode = searchParams.get("view"); // reserved for future use
 
   // We need building info — fetch all buildings then find the one for this meeting
   const { data: buildings } = useQuery({
@@ -19,11 +16,11 @@ export function AuthPage() {
   });
 
   // Find which building has this meeting
-  const [foundBuildingId, setFoundBuildingId] = React.useState<string | null>(null);
-  const [foundBuildingName, setFoundBuildingName] = React.useState<string>("");
-  const [meetingTitle, setMeetingTitle] = React.useState<string>("");
+  const [foundBuildingId, setFoundBuildingId] = useState<string | null>(null);
+  const [foundBuildingName, setFoundBuildingName] = useState<string>("");
+  const [meetingTitle, setMeetingTitle] = useState<string>("");
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!buildings || !meetingId) return;
 
     const findBuilding = async () => {

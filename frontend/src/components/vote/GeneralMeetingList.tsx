@@ -1,4 +1,3 @@
-import React from "react";
 import type { GeneralMeetingOut } from "../../api/voter";
 import { GeneralMeetingListItem } from "./GeneralMeetingListItem";
 
