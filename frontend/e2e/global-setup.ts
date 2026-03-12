@@ -107,7 +107,7 @@ export default async function globalSetup(_config: FullConfig) {
   // so any silent API failure surfaces here rather than as a mysterious 401 in
   // the voting-flow tests.
   const lotOwnersRes = await api.get(`/api/admin/buildings/${building.id}/lot-owners`);
-  const lotOwners = (await lotOwnersRes.json()) as { lot_number: string; emails: string[] }[];
+  const lotOwners = (await lotOwnersRes.json()) as { id: string; lot_number: string; emails: string[] }[];
   const existingLotOwner = lotOwners.find((l) => l.lot_number === E2E_LOT_NUMBER);
   if (!existingLotOwner) {
     const createRes = await api.post(`/api/admin/buildings/${building.id}/lot-owners`, {
@@ -122,11 +122,21 @@ export default async function globalSetup(_config: FullConfig) {
         `Failed to create E2E lot owner — status ${createRes.status()}: ${await createRes.text()}`
       );
     }
+  } else if (!existingLotOwner.emails?.includes(E2E_LOT_EMAIL)) {
+    // Lot owner exists but is missing the required email — add it via the emails endpoint
+    const addEmailRes = await api.post(`/api/admin/lot-owners/${existingLotOwner.id}/emails`, {
+      data: { email: E2E_LOT_EMAIL },
+    });
+    if (!addEmailRes.ok()) {
+      throw new Error(
+        `Failed to add email to E2E lot owner — status ${addEmailRes.status()}: ${await addEmailRes.text()}`
+      );
+    }
   }
 
   // Final assertion: lot owner must exist with the correct email before tests run.
   const verifyRes = await api.get(`/api/admin/buildings/${building.id}/lot-owners`);
-  const verifiedOwners = (await verifyRes.json()) as { lot_number: string; emails: string[] }[];
+  const verifiedOwners = (await verifyRes.json()) as { id: string; lot_number: string; emails: string[] }[];
   const verified = verifiedOwners.find(
     (l) => l.lot_number === E2E_LOT_NUMBER && l.emails?.includes(E2E_LOT_EMAIL)
   );
