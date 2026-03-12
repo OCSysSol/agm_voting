@@ -20,7 +20,8 @@ export default function LotOwnerForm({
   const isEdit = editTarget !== null;
 
   const [lotNumber, setLotNumber] = useState(editTarget?.lot_number ?? "");
-  const [email, setEmail] = useState(editTarget?.email ?? "");
+  // In add mode: single email input for the first email address
+  const [email, setEmail] = useState(editTarget?.emails?.[0] ?? "");
   const [unitEntitlement, setUnitEntitlement] = useState(
     editTarget?.unit_entitlement.toString() ?? ""
   );
@@ -31,7 +32,7 @@ export default function LotOwnerForm({
 
   useEffect(() => {
     setLotNumber(editTarget?.lot_number ?? "");
-    setEmail(editTarget?.email ?? "");
+    setEmail(editTarget?.emails?.[0] ?? "");
     setUnitEntitlement(editTarget?.unit_entitlement.toString() ?? "");
     setFinancialPosition(editTarget?.financial_position ?? "normal");
     setFormError(null);
@@ -71,7 +72,6 @@ export default function LotOwnerForm({
 
     if (isEdit) {
       const updateData: LotOwnerUpdateRequest = {};
-      if (email !== editTarget!.email) updateData.email = email;
       if (parsed !== editTarget!.unit_entitlement) updateData.unit_entitlement = parsed;
       if (financialPosition !== editTarget!.financial_position) updateData.financial_position = financialPosition;
       if (Object.keys(updateData).length === 0) {
@@ -82,7 +82,7 @@ export default function LotOwnerForm({
     } else {
       if (!lotNumber.trim()) { setFormError("Lot number is required."); return; }
       if (!email.trim()) { setFormError("Email is required."); return; }
-      addMutation.mutate({ lot_number: lotNumber, email, unit_entitlement: parsed, financial_position: financialPosition });
+      addMutation.mutate({ lot_number: lotNumber, emails: [email], unit_entitlement: parsed, financial_position: financialPosition });
     }
   }
 
@@ -108,16 +108,18 @@ export default function LotOwnerForm({
             </div>
           )}
 
-          <div className="field">
-            <label className="field__label" htmlFor="lot-email">Email</label>
-            <input
-              id="lot-email"
-              className="field__input"
-              type="text"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
+          {!isEdit && (
+            <div className="field">
+              <label className="field__label" htmlFor="lot-email">Email</label>
+              <input
+                id="lot-email"
+                className="field__input"
+                type="text"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="field">
             <label className="field__label" htmlFor="lot-entitlement">Unit Entitlement</label>

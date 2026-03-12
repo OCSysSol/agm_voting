@@ -12,6 +12,7 @@ export interface BuildingImportResult {
 
 export interface LotOwnerImportResult {
   imported: number;
+  emails: number;
 }
 
 export interface MotionOut {
@@ -111,15 +112,37 @@ export interface EmailDeliveryInfo {
 
 export interface LotOwnerCreateRequest {
   lot_number: string;
-  email: string;
+  emails: string[];
   unit_entitlement: number;
   financial_position?: string;
 }
 
 export interface LotOwnerUpdateRequest {
-  email?: string;
   unit_entitlement?: number;
   financial_position?: string;
+}
+
+export interface AddEmailRequest {
+  email: string;
+}
+
+export async function addEmailToLotOwner(
+  lotOwnerId: string,
+  email: string
+): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/emails`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function removeEmailFromLotOwner(
+  lotOwnerId: string,
+  email: string
+): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/emails/${encodeURIComponent(email)}`, {
+    method: "DELETE",
+  });
 }
 
 export interface MotionCreateRequest {

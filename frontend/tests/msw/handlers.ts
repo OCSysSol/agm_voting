@@ -35,21 +35,17 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     id: "lo1",
     building_id: "b1",
     lot_number: "1A",
-    email: "owner1@example.com",
+    emails: ["owner1@example.com"],
     unit_entitlement: 100,
     financial_position: "normal",
-    created_at: "2024-01-01T00:00:00Z",
-    updated_at: "2024-01-01T00:00:00Z",
   },
   {
     id: "lo2",
     building_id: "b1",
     lot_number: "2B",
-    email: "owner2@example.com",
+    emails: ["owner2@example.com"],
     unit_entitlement: 200,
     financial_position: "normal",
-    created_at: "2024-01-01T00:00:00Z",
-    updated_at: "2024-01-01T00:00:00Z",
   },
 ];
 
@@ -200,17 +196,35 @@ export const adminHandlers = [
       id: "lo-new",
       building_id: "b1",
       lot_number: body?.lot_number ?? "NEW",
-      email: "new@example.com",
+      emails: ["new@example.com"],
       unit_entitlement: 50,
       financial_position: "normal",
-      created_at: "2024-03-01T00:00:00Z",
-      updated_at: "2024-03-01T00:00:00Z",
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),
 
+  http.post(`${BASE}/api/admin/lot-owners/:lotOwnerId/emails`, async ({ request, params }) => {
+    const body = await request.json() as { email?: string };
+    const updated: LotOwner = {
+      ...ADMIN_LOT_OWNERS[0],
+      id: params.lotOwnerId as string,
+      emails: [...ADMIN_LOT_OWNERS[0].emails, body?.email ?? "new@example.com"],
+    };
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete(`${BASE}/api/admin/lot-owners/:lotOwnerId/emails/:email`, ({ params }) => {
+    const emailToRemove = decodeURIComponent(params.email as string);
+    const updated: LotOwner = {
+      ...ADMIN_LOT_OWNERS[0],
+      id: params.lotOwnerId as string,
+      emails: ADMIN_LOT_OWNERS[0].emails.filter((e) => e !== emailToRemove),
+    };
+    return HttpResponse.json(updated);
+  }),
+
   http.patch(`${BASE}/api/admin/lot-owners/:lotOwnerId`, async ({ request }) => {
-    const body = await request.json() as { unit_entitlement?: number; email?: string };
+    const body = await request.json() as { unit_entitlement?: number; financial_position?: string };
     if (body?.unit_entitlement !== undefined && body.unit_entitlement < 0) {
       return HttpResponse.json(
         { detail: "unit_entitlement must be >= 0" },
@@ -219,8 +233,8 @@ export const adminHandlers = [
     }
     const updated: LotOwner = {
       ...ADMIN_LOT_OWNERS[0],
-      email: body?.email ?? ADMIN_LOT_OWNERS[0].email,
       unit_entitlement: body?.unit_entitlement ?? ADMIN_LOT_OWNERS[0].unit_entitlement,
+      financial_position: (body?.financial_position as "normal" | "in_arrear") ?? ADMIN_LOT_OWNERS[0].financial_position,
     };
     return HttpResponse.json(updated);
   }),
