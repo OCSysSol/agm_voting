@@ -22,6 +22,7 @@ export interface LotOwner {
   emails: string[];
   unit_entitlement: number;
   financial_position: FinancialPosition;
+  proxy_email: string | null;
 }
 
 export interface AGM {

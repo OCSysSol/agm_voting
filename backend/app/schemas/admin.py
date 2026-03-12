@@ -61,6 +61,7 @@ class LotOwnerOut(BaseModel):
     emails: list[str]
     unit_entitlement: int
     financial_position: str
+    proxy_email: str | None = None
 
     model_config = {"from_attributes": True}
 

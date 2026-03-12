@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import LotOwnerForm from "../LotOwnerForm";
-import { addEmailToLotOwner, removeEmailFromLotOwner } from "../../../api/admin";
+import { addEmailToLotOwner, getLotOwner, removeEmailFromLotOwner } from "../../../api/admin";
 import type { LotOwner } from "../../../types";
 
 const existingLotOwner: LotOwner = {
@@ -16,6 +16,7 @@ const existingLotOwner: LotOwner = {
   emails: ["owner1@example.com"],
   unit_entitlement: 100,
   financial_position: "normal",
+  proxy_email: null,
 };
 
 function renderAddForm(onSuccess = vi.fn(), onCancel = vi.fn()) {
@@ -308,5 +309,23 @@ describe("removeEmailFromLotOwner API function", () => {
       })
     );
     await expect(removeEmailFromLotOwner("lo1", "nonexistent@example.com")).rejects.toThrow();
+  });
+});
+
+describe("getLotOwner API function", () => {
+  it("returns lot owner with proxy_email when proxy is nominated", async () => {
+    const result = await getLotOwner("lo2");
+    expect(result.lot_number).toBe("2B");
+    expect(result.proxy_email).toBe("proxy@example.com");
+  });
+
+  it("returns lot owner with null proxy_email when no proxy is set", async () => {
+    const result = await getLotOwner("lo1");
+    expect(result.lot_number).toBe("1A");
+    expect(result.proxy_email).toBeNull();
+  });
+
+  it("handles 404 error when lot owner not found", async () => {
+    await expect(getLotOwner("lo-nonexistent")).rejects.toThrow();
   });
 });

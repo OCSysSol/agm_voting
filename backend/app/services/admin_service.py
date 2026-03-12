@@ -27,6 +27,7 @@ from app.models import (
     FinancialPositionSnapshot,
     LotOwner,
     LotOwnerEmail,
+    LotProxy,
     Motion,
     Vote,
     VoteStatus,
@@ -298,6 +299,15 @@ async def get_building_or_404(building_id: uuid.UUID, db: AsyncSession) -> Build
     return building
 
 
+async def _get_proxy_email(lot_owner_id: uuid.UUID, db: AsyncSession) -> str | None:
+    """Return the proxy_email for a lot owner, or None if no proxy is set."""
+    proxy_result = await db.execute(
+        select(LotProxy.proxy_email).where(LotProxy.lot_owner_id == lot_owner_id)
+    )
+    row = proxy_result.first()
+    return row[0] if row is not None else None
+
+
 async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> list[dict]:
     await get_building_or_404(building_id, db)
     result = await db.execute(
@@ -305,21 +315,48 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> list[dict
     )
     owners = list(result.scalars().all())
 
-    # Load emails for each owner
+    # Load emails and proxy for each owner
     out = []
     for owner in owners:
         emails_result = await db.execute(
             select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
         )
         emails = [r[0] for r in emails_result.all() if r[0] is not None]
+        proxy_email = await _get_proxy_email(owner.id, db)
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
             "emails": emails,
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": owner.financial_position.value if hasattr(owner.financial_position, "value") else owner.financial_position,
+            "proxy_email": proxy_email,
         })
     return out
+
+
+async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
+    """Return a single lot owner by ID, including proxy_email."""
+    result = await db.execute(
+        select(LotOwner).where(LotOwner.id == lot_owner_id)
+    )
+    lot_owner = result.scalar_one_or_none()
+    if lot_owner is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+    proxy_email = await _get_proxy_email(lot_owner_id, db)
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": proxy_email,
+    }
 
 
 _CSV_LOT_OWNER_ALIASES: dict[str, str] = {
@@ -651,6 +688,7 @@ async def add_lot_owner(
         "emails": email_strs,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": None,
     }
 
 
@@ -679,12 +717,14 @@ async def update_lot_owner(
     )
     emails = [r[0] for r in emails_result.all() if r[0] is not None]
 
+    proxy_email = await _get_proxy_email(lot_owner_id, db)
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": proxy_email,
     }
 
 
@@ -718,6 +758,7 @@ async def add_email_to_lot_owner(
         select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
     )
     emails = [r[0] for r in emails_result.all() if r[0] is not None]
+    proxy_email = await _get_proxy_email(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -725,6 +766,7 @@ async def add_email_to_lot_owner(
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": proxy_email,
     }
 
 
@@ -758,6 +800,7 @@ async def remove_email_from_lot_owner(
         select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
     )
     emails = [r[0] for r in emails_result.all() if r[0] is not None]
+    proxy_email = await _get_proxy_email(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -765,6 +808,7 @@ async def remove_email_from_lot_owner(
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": proxy_email,
     }
 
 

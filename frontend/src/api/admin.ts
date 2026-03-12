@@ -248,6 +248,10 @@ export async function listLotOwners(buildingId: string): Promise<LotOwner[]> {
   return apiFetch<LotOwner[]>(`/api/admin/buildings/${buildingId}/lot-owners`);
 }
 
+export async function getLotOwner(lotOwnerId: string): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}`);
+}
+
 export async function addLotOwner(
   buildingId: string,
   data: LotOwnerCreateRequest

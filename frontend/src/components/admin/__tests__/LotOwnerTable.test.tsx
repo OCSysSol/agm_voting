@@ -13,6 +13,7 @@ const lotOwners: LotOwner[] = [
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
     financial_position: "normal",
+    proxy_email: null,
   },
   {
     id: "lo2",
@@ -21,6 +22,7 @@ const lotOwners: LotOwner[] = [
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
     financial_position: "in_arrear",
+    proxy_email: "proxy@example.com",
   },
 ];
 
@@ -47,12 +49,13 @@ describe("LotOwnerTable", () => {
     expect(onEdit).toHaveBeenCalledWith(lotOwners[0]);
   });
 
-  it("renders table headers including Financial Position", () => {
+  it("renders table headers including Financial Position and Proxy", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("Lot Number")).toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByText("Unit Entitlement")).toBeInTheDocument();
     expect(screen.getByText("Financial Position")).toBeInTheDocument();
+    expect(screen.getByText("Proxy")).toBeInTheDocument();
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
@@ -64,5 +67,15 @@ describe("LotOwnerTable", () => {
   it("shows Normal text for normal lot owner", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("Normal")).toBeInTheDocument();
+  });
+
+  it("shows proxy email when proxy is nominated", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    expect(screen.getByText("proxy@example.com")).toBeInTheDocument();
+  });
+
+  it("shows None when no proxy is nominated", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    expect(screen.getByText("None")).toBeInTheDocument();
   });
 });

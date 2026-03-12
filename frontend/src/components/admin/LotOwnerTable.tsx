@@ -46,6 +46,7 @@ export default function LotOwnerTable({ lotOwners, onEdit }: LotOwnerTableProps)
             <th>Email</th>
             <th>Unit Entitlement</th>
             <th>Financial Position</th>
+            <th>Proxy</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -62,6 +63,9 @@ export default function LotOwnerTable({ lotOwners, onEdit }: LotOwnerTableProps)
               <td>
                 <FinancialPositionBadge position={lo.financial_position} />
               </td>
+              <td style={{ fontSize: "0.875rem", color: lo.proxy_email ? "inherit" : "var(--text-muted, #888)" }}>
+                {lo.proxy_email ?? "None"}
+              </td>
               <td>
                 <button className="btn btn--secondary" style={{ padding: "5px 14px", fontSize: "0.8rem" }} onClick={() => onEdit(lo)}>
                   Edit
@@ -71,7 +75,7 @@ export default function LotOwnerTable({ lotOwners, onEdit }: LotOwnerTableProps)
           ))}
           {lotOwners.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
+              <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
                 No lot owners found.
               </td>
             </tr>

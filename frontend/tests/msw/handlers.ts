@@ -38,6 +38,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
     financial_position: "normal",
+    proxy_email: null,
   },
   {
     id: "lo2",
@@ -46,6 +47,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
     financial_position: "normal",
+    proxy_email: "proxy@example.com",
   },
 ];
 
@@ -184,6 +186,14 @@ export const adminHandlers = [
     return HttpResponse.json(ADMIN_LOT_OWNERS);
   }),
 
+  http.get(`${BASE}/api/admin/lot-owners/:lotOwnerId`, ({ params }) => {
+    const owner = ADMIN_LOT_OWNERS.find((lo) => lo.id === params.lotOwnerId);
+    if (!owner) {
+      return HttpResponse.json({ detail: "Lot owner not found" }, { status: 404 });
+    }
+    return HttpResponse.json(owner);
+  }),
+
   http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners`, async ({ request }) => {
     const body = await request.json() as { lot_number?: string };
     if (body?.lot_number === "DUPLICATE") {
@@ -199,6 +209,7 @@ export const adminHandlers = [
       emails: ["new@example.com"],
       unit_entitlement: 50,
       financial_position: "normal",
+      proxy_email: null,
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),

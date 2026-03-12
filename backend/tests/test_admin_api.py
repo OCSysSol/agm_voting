@@ -35,6 +35,7 @@ from app.models import (
     EmailDelivery,
     EmailDeliveryStatus,
     LotOwner,
+    LotProxy,
     Motion,
     Vote,
     VoteChoice,
@@ -409,6 +410,71 @@ class TestListLotOwners:
             f"/api/admin/buildings/{uuid.uuid4()}/lot-owners"
         )
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/lot-owners/{lot_owner_id}
+# ---------------------------------------------------------------------------
+
+
+class TestGetLotOwner:
+    # --- Happy path ---
+
+    async def test_returns_lot_owner_without_proxy(
+        self, client: AsyncClient, building_with_owners: Building, db_session: AsyncSession
+    ):
+        # Get the first lot owner ID from the list
+        list_response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lot_owner_id = owners[0]["id"]
+
+        response = await client.get(f"/api/admin/lot-owners/{lot_owner_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == lot_owner_id
+        assert "lot_number" in data
+        assert "emails" in data
+        assert "unit_entitlement" in data
+        assert "financial_position" in data
+        assert data["proxy_email"] is None
+
+    async def test_returns_lot_owner_with_proxy(
+        self, client: AsyncClient, building_with_owners: Building, db_session: AsyncSession
+    ):
+        # Get the first lot owner ID from the list and add a proxy
+        list_response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lot_owner_id = owners[0]["id"]
+
+        # Seed a proxy for this lot owner
+        proxy = LotProxy(
+            lot_owner_id=uuid.UUID(lot_owner_id),
+            proxy_email="proxy@example.com",
+        )
+        db_session.add(proxy)
+        await db_session.flush()
+
+        response = await client.get(f"/api/admin/lot-owners/{lot_owner_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "proxy@example.com"
+
+    # --- Input validation ---
+
+    async def test_invalid_uuid_returns_422(self, client: AsyncClient):
+        response = await client.get("/api/admin/lot-owners/not-a-uuid")
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_nonexistent_lot_owner_returns_404(self, client: AsyncClient):
+        response = await client.get(f"/api/admin/lot-owners/{uuid.uuid4()}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Lot owner not found"
 
 
 # ---------------------------------------------------------------------------

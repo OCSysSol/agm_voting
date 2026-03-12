@@ -184,6 +184,18 @@ async def add_lot_owner(
     return LotOwnerOut(**owner)
 
 
+@router.get(
+    "/lot-owners/{lot_owner_id}",
+    response_model=LotOwnerOut,
+)
+async def get_lot_owner(
+    lot_owner_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    owner = await admin_service.get_lot_owner(lot_owner_id, db)
+    return LotOwnerOut(**owner)
+
+
 @router.patch(
     "/lot-owners/{lot_owner_id}",
     response_model=LotOwnerOut,
