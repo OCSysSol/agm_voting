@@ -24,7 +24,9 @@ from app.models import (
     EmailDelivery,
     EmailDeliveryStatus,
     FinancialPosition,
+    FinancialPositionSnapshot,
     LotOwner,
+    LotOwnerEmail,
     Motion,
     Vote,
     VoteStatus,
@@ -232,8 +234,7 @@ async def list_buildings(db: AsyncSession) -> list[Building]:
 
 async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
     """
-    Archive a building and any lot owners whose email does not appear
-    in another non-archived building.
+    Archive a building and any lot owners that have no emails in another non-archived building.
     """
     building = await get_building_or_404(building_id, db)
 
@@ -252,18 +253,31 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
     owners = list(owners_result.scalars().all())
 
     for owner in owners:
-        # Check if this email appears in any other non-archived building
-        other_result = await db.execute(
-            select(LotOwner)
-            .join(Building, LotOwner.building_id == Building.id)
-            .where(
-                LotOwner.email == owner.email,
-                LotOwner.building_id != building_id,
-                Building.is_archived == False,  # noqa: E712
-            )
+        # Get all emails for this lot owner
+        emails_result = await db.execute(
+            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
         )
-        other = other_result.scalar_one_or_none()
-        if other is None:
+        owner_emails = [r[0] for r in emails_result.all() if r[0]]
+
+        # Check if any of these emails appear in another non-archived building
+        found_in_other = False
+        for email in owner_emails:
+            other_result = await db.execute(
+                select(LotOwner)
+                .join(Building, LotOwner.building_id == Building.id)
+                .join(LotOwnerEmail, LotOwnerEmail.lot_owner_id == LotOwner.id)
+                .where(
+                    LotOwnerEmail.email == email,
+                    LotOwner.building_id != building_id,
+                    Building.is_archived == False,  # noqa: E712
+                )
+            )
+            other = other_result.scalar_one_or_none()
+            if other is not None:
+                found_in_other = True
+                break
+
+        if not found_in_other:
             owner.is_archived = True
 
     await db.commit()
@@ -284,12 +298,28 @@ async def get_building_or_404(building_id: uuid.UUID, db: AsyncSession) -> Build
     return building
 
 
-async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> list[LotOwner]:
+async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> list[dict]:
     await get_building_or_404(building_id, db)
     result = await db.execute(
         select(LotOwner).where(LotOwner.building_id == building_id)
     )
-    return list(result.scalars().all())
+    owners = list(result.scalars().all())
+
+    # Load emails for each owner
+    out = []
+    for owner in owners:
+        emails_result = await db.execute(
+            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
+        )
+        emails = [r[0] for r in emails_result.all() if r[0] is not None]
+        out.append({
+            "id": owner.id,
+            "lot_number": owner.lot_number,
+            "emails": emails,
+            "unit_entitlement": owner.unit_entitlement,
+            "financial_position": owner.financial_position.value if hasattr(owner.financial_position, "value") else owner.financial_position,
+        })
+    return out
 
 
 _CSV_LOT_OWNER_ALIASES: dict[str, str] = {
@@ -323,9 +353,9 @@ async def import_lot_owners_from_csv(
     db: AsyncSession,
 ) -> dict[str, int]:
     """
-    Parse a CSV of lot owners and replace all existing lot owners for the building.
-    Accepts canonical headers (lot_number, unit_entitlement) or SBT aliases (Lot#, UOE2).
-    Returns {"imported": int}.
+    Parse a CSV of lot owners. Multiple rows with the same lot_number create one lot with
+    multiple LotOwnerEmail records. Blank email is allowed (no email entry created).
+    Returns {"imported": int, "emails": int}.
     """
     await get_building_or_404(building_id, db)
 
@@ -340,7 +370,7 @@ async def import_lot_owners_from_csv(
     reader = csv.DictReader(io.StringIO(text), fieldnames=normalised_fieldnames)
     next(reader)  # skip original header row
 
-    required_headers = {"lot_number", "email", "unit_entitlement"}
+    required_headers = {"lot_number", "unit_entitlement"}
     missing = required_headers - set(normalised_fieldnames)
     if missing:
         raise HTTPException(
@@ -351,8 +381,8 @@ async def import_lot_owners_from_csv(
     rows = list(reader)
 
     errors: list[str] = []
-    seen_lot_numbers: dict[str, int] = {}
-    parsed_rows: list[dict] = []
+    # Parse rows: group by lot_number
+    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
 
     for i, row in enumerate(rows, start=2):
         lot_number = row.get("lot_number", "").strip()
@@ -364,16 +394,6 @@ async def import_lot_owners_from_csv(
 
         if not lot_number:
             row_errors.append(f"Row {i}: lot_number is empty")
-        else:
-            if lot_number in seen_lot_numbers:
-                row_errors.append(
-                    f"Row {i}: duplicate lot_number '{lot_number}' (first seen at row {seen_lot_numbers[lot_number]})"
-                )
-            else:
-                seen_lot_numbers[lot_number] = i
-
-        if not email:
-            row_errors.append(f"Row {i}: email is empty")
 
         unit_entitlement = None
         if not unit_entitlement_raw:
@@ -399,52 +419,23 @@ async def import_lot_owners_from_csv(
         if row_errors:
             errors.extend(row_errors)
         else:
-            parsed_rows.append(
-                {
-                    "lot_number": lot_number,
-                    "email": email,
+            if lot_number not in lot_data:
+                lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
+                    "emails": set(),
                 }
-            )
+            else:
+                # If lot already seen, the unit_entitlement and financial_position should be consistent
+                # Use values from first occurrence
+                pass
+            if email:
+                lot_data[lot_number]["emails"].add(email)
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
-    # Load existing lot owners keyed by lot_number to preserve IDs
-    # (and therefore AGMLotWeight snapshots for open/closed AGMs)
-    existing_result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id)
-    )
-    existing: dict[str, LotOwner] = {
-        lo.lot_number: lo for lo in existing_result.scalars().all()
-    }
-
-    new_lot_numbers: set[str] = {row["lot_number"] for row in parsed_rows}
-
-    # Upsert: update existing, insert new
-    for row_data in parsed_rows:
-        if row_data["lot_number"] in existing:
-            lo = existing[row_data["lot_number"]]
-            lo.email = row_data["email"]
-            lo.unit_entitlement = row_data["unit_entitlement"]
-            lo.financial_position = row_data["financial_position"]
-        else:
-            db.add(LotOwner(
-                building_id=building_id,
-                lot_number=row_data["lot_number"],
-                email=row_data["email"],
-                unit_entitlement=row_data["unit_entitlement"],
-                financial_position=row_data["financial_position"],
-            ))
-
-    # Delete lot owners that are no longer in the import
-    for lot_number, lo in existing.items():
-        if lot_number not in new_lot_numbers:
-            await db.delete(lo)
-
-    await db.commit()
-    return {"imported": len(parsed_rows)}
+    return await _upsert_lot_owners(building_id, lot_data, db)
 
 
 async def import_lot_owners_from_excel(
@@ -453,9 +444,9 @@ async def import_lot_owners_from_excel(
     db: AsyncSession,
 ) -> dict[str, int]:
     """
-    Parse an Excel file of lot owners and replace all existing lot owners for the building.
-    Required columns (case-insensitive): Lot#, UOE2, Email.
-    Returns {"imported": int}.
+    Parse an Excel file of lot owners. Multiple rows with the same Lot# create one lot
+    with multiple LotOwnerEmail records. Blank email is allowed.
+    Returns {"imported": int, "emails": int}.
     """
     await get_building_or_404(building_id, db)
 
@@ -478,7 +469,7 @@ async def import_lot_owners_from_excel(
 
     headers = [str(h).strip().lower() if h is not None else "" for h in header_row]
 
-    required_headers = {"lot#", "uoe2", "email"}
+    required_headers = {"lot#", "uoe2"}
     missing = required_headers - set(headers)
     if missing:
         raise HTTPException(
@@ -488,7 +479,7 @@ async def import_lot_owners_from_excel(
 
     lot_idx = headers.index("lot#")
     uoe2_idx = headers.index("uoe2")
-    email_idx = headers.index("email")
+    email_idx = headers.index("email") if "email" in headers else None
     fp_idx = headers.index("financial position") if "financial position" in headers else (
         headers.index("financial_position") if "financial_position" in headers else None
     )
@@ -497,8 +488,7 @@ async def import_lot_owners_from_excel(
     wb.close()
 
     errors: list[str] = []
-    seen_lot_numbers: dict[str, int] = {}
-    parsed_rows: list[dict] = []
+    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
 
     row_num = 0
     for raw_row in data_rows:
@@ -508,12 +498,12 @@ async def import_lot_owners_from_excel(
         row_num += 1
 
         def _cell(idx: int) -> str:
-            if idx < len(raw_row) and raw_row[idx] is not None:
+            if idx is not None and idx < len(raw_row) and raw_row[idx] is not None:
                 return str(raw_row[idx]).strip()
             return ""
 
         lot_number = _cell(lot_idx)
-        email = _cell(email_idx)
+        email = _cell(email_idx) if email_idx is not None else ""
         unit_entitlement_raw = _cell(uoe2_idx)
         financial_position_raw = _cell(fp_idx) if fp_idx is not None else ""
 
@@ -521,16 +511,6 @@ async def import_lot_owners_from_excel(
 
         if not lot_number:
             row_errors.append(f"Row {row_num}: lot_number is empty")
-        else:
-            if lot_number in seen_lot_numbers:
-                row_errors.append(
-                    f"Row {row_num}: duplicate lot_number '{lot_number}' (first seen at row {seen_lot_numbers[lot_number]})"
-                )
-            else:
-                seen_lot_numbers[lot_number] = row_num
-
-        if not email:
-            row_errors.append(f"Row {row_num}: email is empty")
 
         unit_entitlement = None
         if not unit_entitlement_raw:
@@ -556,20 +536,32 @@ async def import_lot_owners_from_excel(
         if row_errors:
             errors.extend(row_errors)
         else:
-            parsed_rows.append(
-                {
-                    "lot_number": lot_number,
-                    "email": email,
+            if lot_number not in lot_data:
+                lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
+                    "emails": set(),
                 }
-            )
+            if email:
+                lot_data[lot_number]["emails"].add(email)
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
+    return await _upsert_lot_owners(building_id, lot_data, db)
+
+
+async def _upsert_lot_owners(
+    building_id: uuid.UUID,
+    lot_data: dict[str, dict],
+    db: AsyncSession,
+) -> dict[str, int]:
+    """
+    Upsert lot owners from parsed lot_data.
+    lot_data: {lot_number -> {unit_entitlement, financial_position, emails: set}}
+    Returns {"imported": int, "emails": int}.
+    """
     # Load existing lot owners keyed by lot_number to preserve IDs
-    # (and therefore AGMLotWeight snapshots for open/closed AGMs)
     existing_result = await db.execute(
         select(LotOwner).where(LotOwner.building_id == building_id)
     )
@@ -577,23 +569,32 @@ async def import_lot_owners_from_excel(
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
-    new_lot_numbers: set[str] = {row["lot_number"] for row in parsed_rows}
+    new_lot_numbers: set[str] = set(lot_data.keys())
 
     # Upsert: update existing, insert new
-    for row_data in parsed_rows:
-        if row_data["lot_number"] in existing:
-            lo = existing[row_data["lot_number"]]
-            lo.email = row_data["email"]
-            lo.unit_entitlement = row_data["unit_entitlement"]
-            lo.financial_position = row_data["financial_position"]
+    for lot_number, data in lot_data.items():
+        if lot_number in existing:
+            lo = existing[lot_number]
+            lo.unit_entitlement = data["unit_entitlement"]
+            lo.financial_position = data["financial_position"]
+            await db.flush()
+            # Replace emails: delete existing, insert new set
+            await db.execute(
+                delete(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
+            )
+            for email in data["emails"]:
+                db.add(LotOwnerEmail(lot_owner_id=lo.id, email=email))
         else:
-            db.add(LotOwner(
+            new_lo = LotOwner(
                 building_id=building_id,
-                lot_number=row_data["lot_number"],
-                email=row_data["email"],
-                unit_entitlement=row_data["unit_entitlement"],
-                financial_position=row_data["financial_position"],
-            ))
+                lot_number=lot_number,
+                unit_entitlement=data["unit_entitlement"],
+                financial_position=data["financial_position"],
+            )
+            db.add(new_lo)
+            await db.flush()
+            for email in data["emails"]:
+                db.add(LotOwnerEmail(lot_owner_id=new_lo.id, email=email))
 
     # Delete lot owners that are no longer in the import
     for lot_number, lo in existing.items():
@@ -601,14 +602,16 @@ async def import_lot_owners_from_excel(
             await db.delete(lo)
 
     await db.commit()
-    return {"imported": len(parsed_rows)}
+
+    total_emails = sum(len(data["emails"]) for data in lot_data.values())
+    return {"imported": len(lot_data), "emails": total_emails}
 
 
 async def add_lot_owner(
     building_id: uuid.UUID,
     data: LotOwnerCreate,
     db: AsyncSession,
-) -> LotOwner:
+) -> dict:
     await get_building_or_404(building_id, db)
 
     # Check uniqueness within building
@@ -628,21 +631,34 @@ async def add_lot_owner(
     lot_owner = LotOwner(
         building_id=building_id,
         lot_number=data.lot_number,
-        email=data.email,
         unit_entitlement=data.unit_entitlement,
         financial_position=FinancialPosition(data.financial_position),
     )
     db.add(lot_owner)
+    await db.flush()
+
+    email_strs = []
+    for email in data.emails:
+        if email.strip():
+            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=email.strip()))
+            email_strs.append(email.strip())
+
     await db.commit()
-    await db.refresh(lot_owner)
-    return lot_owner
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": email_strs,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+    }
 
 
 async def update_lot_owner(
     lot_owner_id: uuid.UUID,
     data: LotOwnerUpdate,
     db: AsyncSession,
-) -> LotOwner:
+) -> dict:
     result = await db.execute(
         select(LotOwner).where(LotOwner.id == lot_owner_id)
     )
@@ -650,16 +666,106 @@ async def update_lot_owner(
     if lot_owner is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    if data.email is not None:
-        lot_owner.email = data.email
     if data.unit_entitlement is not None:
         lot_owner.unit_entitlement = data.unit_entitlement
     if data.financial_position is not None:
         lot_owner.financial_position = FinancialPosition(data.financial_position)
 
     await db.commit()
-    await db.refresh(lot_owner)
-    return lot_owner
+
+    # Load emails
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+    }
+
+
+async def add_email_to_lot_owner(
+    lot_owner_id: uuid.UUID,
+    email: str,
+    db: AsyncSession,
+) -> dict:
+    """Add an email to a lot owner. Returns the updated lot owner dict."""
+    result = await db.execute(
+        select(LotOwner).where(LotOwner.id == lot_owner_id)
+    )
+    lot_owner = result.scalar_one_or_none()
+    if lot_owner is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    # Check if email already exists for this lot owner
+    existing = await db.execute(
+        select(LotOwnerEmail).where(
+            LotOwnerEmail.lot_owner_id == lot_owner_id,
+            LotOwnerEmail.email == email,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Email already exists for this lot owner")
+
+    db.add(LotOwnerEmail(lot_owner_id=lot_owner_id, email=email))
+    await db.commit()
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+    }
+
+
+async def remove_email_from_lot_owner(
+    lot_owner_id: uuid.UUID,
+    email: str,
+    db: AsyncSession,
+) -> dict:
+    """Remove an email from a lot owner. Returns the updated lot owner dict."""
+    result = await db.execute(
+        select(LotOwner).where(LotOwner.id == lot_owner_id)
+    )
+    lot_owner = result.scalar_one_or_none()
+    if lot_owner is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    email_result = await db.execute(
+        select(LotOwnerEmail).where(
+            LotOwnerEmail.lot_owner_id == lot_owner_id,
+            LotOwnerEmail.email == email,
+        )
+    )
+    email_obj = email_result.scalar_one_or_none()
+    if email_obj is None:
+        raise HTTPException(status_code=404, detail="Email not found for this lot owner")
+
+    await db.delete(email_obj)
+    await db.commit()
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -707,18 +813,20 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
         )
         db.add(motion)
 
-    # Snapshot lot weights
+    # Snapshot lot weights (include financial_position_snapshot)
     lot_owners_result = await db.execute(
         select(LotOwner).where(LotOwner.building_id == data.building_id)
     )
     lot_owners = list(lot_owners_result.scalars().all())
 
     for lot_owner in lot_owners:
+        fp = lot_owner.financial_position
+        fp_snapshot = FinancialPositionSnapshot(fp.value if hasattr(fp, "value") else fp)
         weight = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lot_owner.id,
-            voter_email=lot_owner.email,
             unit_entitlement_snapshot=lot_owner.unit_entitlement,
+            financial_position_snapshot=fp_snapshot,
         )
         db.add(weight)
 
@@ -804,43 +912,54 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     )
     weight_rows = weights_result.all()
 
-    # Build per-voter entitlement and per-email lot list from snapshot
-    voter_entitlement: dict[str, int] = {}
-    email_lots: dict[str, list[dict]] = {}
-    for w, lot_num in weight_rows:
-        voter_entitlement[w.voter_email] = (
-            voter_entitlement.get(w.voter_email, 0) + w.unit_entitlement_snapshot
-        )
-        email_lots.setdefault(w.voter_email, []).append(
-            {"voter_email": w.voter_email, "lot_number": lot_num, "entitlement": w.unit_entitlement_snapshot}
-        )
+    # Build per-lot_owner_id entitlement and lot info
+    lot_entitlement: dict[uuid.UUID, int] = {}
+    lot_info: dict[uuid.UUID, dict] = {}  # lot_owner_id -> {lot_number, emails, entitlement}
 
-    # Fallback: if snapshot is empty (AGM created before lot owners were imported),
-    # use current lot owner entitlements so tallies are not all zero.
-    if not voter_entitlement:
+    for w, lot_num in weight_rows:
+        lot_entitlement[w.lot_owner_id] = w.unit_entitlement_snapshot
+        # Get emails for this lot owner
+        emails_result = await db.execute(
+            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == w.lot_owner_id)
+        )
+        emails = [r[0] for r in emails_result.all() if r[0]]
+        lot_info[w.lot_owner_id] = {
+            "lot_owner_id": w.lot_owner_id,
+            "lot_number": lot_num,
+            "emails": emails,
+            "entitlement": w.unit_entitlement_snapshot,
+        }
+
+    # Fallback: if snapshot is empty
+    if not lot_entitlement:
         current_result = await db.execute(
             select(LotOwner).where(LotOwner.building_id == agm.building_id)
         )
         for lo in current_result.scalars().all():
-            voter_entitlement[lo.email] = (
-                voter_entitlement.get(lo.email, 0) + lo.unit_entitlement
+            lot_entitlement[lo.id] = lo.unit_entitlement
+            emails_result = await db.execute(
+                select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lo.id)
             )
-            email_lots.setdefault(lo.email, []).append(
-                {"voter_email": lo.email, "lot_number": lo.lot_number, "entitlement": lo.unit_entitlement}
-            )
+            emails = [r[0] for r in emails_result.all() if r[0]]
+            lot_info[lo.id] = {
+                "lot_owner_id": lo.id,
+                "lot_number": lo.lot_number,
+                "emails": emails,
+                "entitlement": lo.unit_entitlement,
+            }
 
-    eligible_emails: set[str] = set(voter_entitlement.keys())
-    total_eligible_voters = len(eligible_emails)
+    eligible_lot_owner_ids: set[uuid.UUID] = set(lot_entitlement.keys())
+    total_eligible_voters = len(eligible_lot_owner_ids)
 
     # Load ballot submissions
     submissions_result = await db.execute(
         select(BallotSubmission).where(BallotSubmission.agm_id == agm_id)
     )
     submissions = list(submissions_result.scalars().all())
-    submitted_emails: set[str] = {s.voter_email for s in submissions}
-    total_submitted = len(submitted_emails)
+    submitted_lot_owner_ids: set[uuid.UUID] = {s.lot_owner_id for s in submissions}
+    total_submitted = len(submitted_lot_owner_ids)
 
-    # Load submitted votes
+    # Load submitted votes (joined with lot owner info via voter_email)
     votes_result = await db.execute(
         select(Vote).where(
             Vote.agm_id == agm_id,
@@ -849,42 +968,55 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     )
     submitted_votes = list(votes_result.scalars().all())
 
-    def _tally(emails: set[str]) -> dict:
+    def _tally(lot_owner_ids: set[uuid.UUID]) -> dict:
         return {
-            "voter_count": len(emails),
-            "entitlement_sum": sum(voter_entitlement.get(e, 0) for e in emails),
+            "voter_count": len(lot_owner_ids),
+            "entitlement_sum": sum(lot_entitlement.get(lid, 0) for lid in lot_owner_ids),
         }
 
-    def _lots(emails: set[str]) -> list[dict]:
-        result: list[dict] = []
-        for email in emails:
-            result.extend(email_lots.get(email, []))
-        return result
+    def _lots(lot_owner_ids: set[uuid.UUID]) -> list[dict]:
+        result_list: list[dict] = []
+        for lid in lot_owner_ids:
+            info = lot_info.get(lid)
+            if info:
+                # Use first email as voter_email for backward compat display
+                voter_email = info["emails"][0] if info["emails"] else ""
+                result_list.append({
+                    "voter_email": voter_email,
+                    "lot_number": info["lot_number"],
+                    "entitlement": info["entitlement"],
+                })
+        return result_list
 
-    # Build per-motion tallies
+    # Build per-motion tallies - votes now carry lot_owner_id directly
+    # Also build lot_owner_id -> voter_email from submissions for tally
+    lot_owner_to_email: dict[uuid.UUID, str] = {sub.lot_owner_id: sub.voter_email for sub in submissions}
+
     motion_details = []
     for motion in motions:
-        # Group votes for this motion by email
-        motion_votes: dict[str, str] = {}
+        # Group votes for this motion by lot_owner_id
+        motion_votes: dict[uuid.UUID, str] = {}
         for vote in submitted_votes:
-            if vote.motion_id == motion.id and vote.voter_email in submitted_emails:
-                choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
-                motion_votes[vote.voter_email] = choice or "abstained"
+            if vote.motion_id == motion.id:
+                lot_id = vote.lot_owner_id
+                if lot_id is not None and lot_id in submitted_lot_owner_ids:
+                    choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
+                    motion_votes[lot_id] = choice or "abstained"
 
-        yes_emails: set[str] = set()
-        no_emails: set[str] = set()
-        abstained_emails: set[str] = set()
+        yes_ids: set[uuid.UUID] = set()
+        no_ids: set[uuid.UUID] = set()
+        abstained_ids: set[uuid.UUID] = set()
 
-        for email in submitted_emails:
-            choice = motion_votes.get(email, "abstained")
+        for lot_id in submitted_lot_owner_ids:
+            choice = motion_votes.get(lot_id, "abstained")
             if choice == "yes":
-                yes_emails.add(email)
+                yes_ids.add(lot_id)
             elif choice == "no":
-                no_emails.add(email)
+                no_ids.add(lot_id)
             else:
-                abstained_emails.add(email)
+                abstained_ids.add(lot_id)
 
-        absent_emails: set[str] = eligible_emails - submitted_emails
+        absent_ids: set[uuid.UUID] = eligible_lot_owner_ids - submitted_lot_owner_ids
 
         motion_details.append(
             {
@@ -894,16 +1026,16 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                 "order_index": motion.order_index,
                 "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
                 "tally": {
-                    "yes": _tally(yes_emails),
-                    "no": _tally(no_emails),
-                    "abstained": _tally(abstained_emails),
-                    "absent": _tally(absent_emails),
+                    "yes": _tally(yes_ids),
+                    "no": _tally(no_ids),
+                    "abstained": _tally(abstained_ids),
+                    "absent": _tally(absent_ids),
                 },
                 "voter_lists": {
-                    "yes": _lots(yes_emails),
-                    "no": _lots(no_emails),
-                    "abstained": _lots(abstained_emails),
-                    "absent": _lots(absent_emails),
+                    "yes": _lots(yes_ids),
+                    "no": _lots(no_ids),
+                    "abstained": _lots(abstained_ids),
+                    "absent": _lots(absent_ids),
                 },
             }
         )
@@ -1015,7 +1147,7 @@ async def reset_agm_ballots(agm_id: uuid.UUID, db: AsyncSession) -> dict:
 
     # Delete submitted votes for this AGM (must come before ballot submissions
     # to avoid any application-level FK issues, even though there is no DB-level
-    # FK from votes → ballot_submissions).
+    # FK from votes -> ballot_submissions).
     await db.execute(
         delete(Vote).where(Vote.agm_id == agm_id, Vote.status == VoteStatus.submitted)
     )

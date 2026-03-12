@@ -29,7 +29,6 @@ class LotOwner(Base):
         nullable=False,
     )
     lot_number: Mapped[str] = mapped_column(String, nullable=False)
-    email: Mapped[str] = mapped_column(String, nullable=False)
     unit_entitlement: Mapped[int] = mapped_column(Integer, nullable=False)
     financial_position: Mapped[FinancialPosition] = mapped_column(
         Enum(FinancialPosition, name="financialposition"),
@@ -54,6 +53,12 @@ class LotOwner(Base):
     building: Mapped["Building"] = relationship(  # noqa: F821
         "Building", back_populates="lot_owners"
     )
+    emails: Mapped[list["LotOwnerEmail"]] = relationship(  # noqa: F821
+        "LotOwnerEmail", back_populates="lot_owner", cascade="all, delete-orphan"
+    )
     agm_lot_weights: Mapped[list["AGMLotWeight"]] = relationship(  # noqa: F821
         "AGMLotWeight", back_populates="lot_owner", cascade="all, delete-orphan"
+    )
+    ballot_submissions: Mapped[list["BallotSubmission"]] = relationship(  # noqa: F821
+        "BallotSubmission", back_populates="lot_owner", cascade="all, delete-orphan"
     )

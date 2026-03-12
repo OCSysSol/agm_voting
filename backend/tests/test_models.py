@@ -4,11 +4,12 @@ Unit tests for all SQLAlchemy models.
 Covers:
 - Building: create, name uniqueness constraint
 - LotOwner: create, lot_number uniqueness per building, unit_entitlement >= 0
+- LotOwnerEmail: create, unique constraint (lot_owner_id, email)
 - AGM: create open status default, voting_closes_at > meeting_at constraint
 - Motion: create, order_index uniqueness per AGM
-- AGMLotWeight: create, UniqueConstraint(agm_id, lot_owner_id)
+- AGMLotWeight: create, UniqueConstraint(agm_id, lot_owner_id), financial_position_snapshot
 - Vote: create draft, UniqueConstraint(agm_id, motion_id, voter_email), status transitions
-- BallotSubmission: create, UniqueConstraint(agm_id, voter_email)
+- BallotSubmission: create, UniqueConstraint(agm_id, lot_owner_id)
 - SessionRecord: create
 - EmailDelivery: create, unique per agm_id
 """
@@ -28,7 +29,9 @@ from app.models import (
     Building,
     EmailDelivery,
     EmailDeliveryStatus,
+    FinancialPositionSnapshot,
     LotOwner,
+    LotOwnerEmail,
     Motion,
     SessionRecord,
     Vote,
@@ -51,11 +54,10 @@ def make_building(name: str = "Test Building", email: str = "mgr@example.com") -
     return Building(name=name, manager_email=email)
 
 
-def make_lot_owner(building: Building, lot_number: str = "1A", email: str = "owner@example.com", entitlement: int = 100) -> LotOwner:
+def make_lot_owner(building: Building, lot_number: str = "1A", entitlement: int = 100) -> LotOwner:
     return LotOwner(
         building_id=building.id,
         lot_number=lot_number,
-        email=email,
         unit_entitlement=entitlement,
     )
 
@@ -171,7 +173,6 @@ class TestLotOwner:
         assert lo.id is not None
         assert lo.building_id == b.id
         assert lo.lot_number == "1A"
-        assert lo.email == "owner@example.com"
         assert lo.unit_entitlement == 100
 
     async def test_lot_owner_zero_entitlement(self, db_session: AsyncSession):
@@ -195,14 +196,14 @@ class TestLotOwner:
         await db_session.flush()
         assert lo.unit_entitlement == 2_147_483_647
 
-    async def test_multiple_lots_same_email(self, db_session: AsyncSession):
-        """Multiple lots can share the same email within a building."""
+    async def test_multiple_lots_no_email_required(self, db_session: AsyncSession):
+        """Lot owners do not require email — emails are optional in lot_owner_emails."""
         b = make_building("Multi Lot Building")
         db_session.add(b)
         await db_session.flush()
 
-        lo1 = make_lot_owner(b, lot_number="1A", email="shared@example.com")
-        lo2 = make_lot_owner(b, lot_number="1B", email="shared@example.com")
+        lo1 = make_lot_owner(b, lot_number="1A")
+        lo2 = make_lot_owner(b, lot_number="1B")
         db_session.add_all([lo1, lo2])
         await db_session.flush()
         assert lo1.id != lo2.id
@@ -219,7 +220,7 @@ class TestLotOwner:
         db_session.add(lo1)
         await db_session.flush()
 
-        lo2 = make_lot_owner(b, lot_number="SAME", email="other@example.com")
+        lo2 = make_lot_owner(b, lot_number="SAME")
         db_session.add(lo2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -260,6 +261,101 @@ class TestLotOwner:
         db_session.add(lo)
         await db_session.flush()
         assert lo.lot_number == "42"
+
+
+# ---------------------------------------------------------------------------
+# LotOwnerEmail tests
+# ---------------------------------------------------------------------------
+
+
+class TestLotOwnerEmail:
+    """Tests for LotOwnerEmail model."""
+
+    # --- Happy path ---
+
+    async def test_create_lot_owner_email(self, db_session: AsyncSession):
+        b = make_building("Email Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email="owner@example.com")
+        db_session.add(email_rec)
+        await db_session.flush()
+
+        assert email_rec.id is not None
+        assert email_rec.lot_owner_id == lo.id
+        assert email_rec.email == "owner@example.com"
+
+    async def test_multiple_emails_per_lot_owner(self, db_session: AsyncSession):
+        b = make_building("Multi Email Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        e1 = LotOwnerEmail(lot_owner_id=lo.id, email="first@example.com")
+        e2 = LotOwnerEmail(lot_owner_id=lo.id, email="second@example.com")
+        db_session.add_all([e1, e2])
+        await db_session.flush()
+        assert e1.id != e2.id
+
+    async def test_same_email_different_lot_owners(self, db_session: AsyncSession):
+        b = make_building("Shared Email Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo1 = make_lot_owner(b, lot_number="1A")
+        lo2 = make_lot_owner(b, lot_number="2B")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+
+        e1 = LotOwnerEmail(lot_owner_id=lo1.id, email="shared@example.com")
+        e2 = LotOwnerEmail(lot_owner_id=lo2.id, email="shared@example.com")
+        db_session.add_all([e1, e2])
+        await db_session.flush()  # Should NOT raise
+        assert e1.id != e2.id
+
+    async def test_null_email_allowed(self, db_session: AsyncSession):
+        """Email can be null."""
+        b = make_building("Null Email Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email=None)
+        db_session.add(email_rec)
+        await db_session.flush()
+        assert email_rec.email is None
+
+    # --- Constraints ---
+
+    async def test_unique_constraint_owner_email(self, db_session: AsyncSession):
+        """Same (lot_owner_id, email) pair raises IntegrityError."""
+        b = make_building("Dup Email Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        e1 = LotOwnerEmail(lot_owner_id=lo.id, email="dup@example.com")
+        db_session.add(e1)
+        await db_session.flush()
+
+        e2 = LotOwnerEmail(lot_owner_id=lo.id, email="dup@example.com")
+        db_session.add(e2)
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +610,6 @@ class TestAGMLotWeight:
         weight = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lo.id,
-            voter_email=lo.email,
             unit_entitlement_snapshot=250,
         )
         db_session.add(weight)
@@ -522,7 +617,7 @@ class TestAGMLotWeight:
 
         assert weight.id is not None
         assert weight.unit_entitlement_snapshot == 250
-        assert weight.voter_email == "owner@example.com"
+        assert weight.financial_position_snapshot == FinancialPositionSnapshot.normal
 
     async def test_snapshot_zero_entitlement(self, db_session: AsyncSession):
         b = make_building("Zero Snapshot Bldg")
@@ -540,12 +635,34 @@ class TestAGMLotWeight:
         weight = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lo.id,
-            voter_email=lo.email,
             unit_entitlement_snapshot=0,
         )
         db_session.add(weight)
         await db_session.flush()
         assert weight.unit_entitlement_snapshot == 0
+
+    async def test_in_arrear_snapshot(self, db_session: AsyncSession):
+        b = make_building("Arrear Snapshot Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        weight = AGMLotWeight(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(weight)
+        await db_session.flush()
+        assert weight.financial_position_snapshot == FinancialPositionSnapshot.in_arrear
 
     # --- Input validation / constraints ---
 
@@ -563,11 +680,11 @@ class TestAGMLotWeight:
         db_session.add(agm)
         await db_session.flush()
 
-        w1 = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, voter_email=lo.email, unit_entitlement_snapshot=100)
+        w1 = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=100)
         db_session.add(w1)
         await db_session.flush()
 
-        w2 = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, voter_email=lo.email, unit_entitlement_snapshot=200)
+        w2 = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=200)
         db_session.add(w2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -585,7 +702,7 @@ class TestAGMLotWeight:
         db_session.add(agm)
         await db_session.flush()
 
-        w = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, voter_email=lo.email, unit_entitlement_snapshot=-5)
+        w = AGMLotWeight(agm_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=-5)
         db_session.add(w)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -605,8 +722,8 @@ class TestAGMLotWeight:
         db_session.add_all([agm1, agm2])
         await db_session.flush()
 
-        w1 = AGMLotWeight(agm_id=agm1.id, lot_owner_id=lo.id, voter_email=lo.email, unit_entitlement_snapshot=100)
-        w2 = AGMLotWeight(agm_id=agm2.id, lot_owner_id=lo.id, voter_email=lo.email, unit_entitlement_snapshot=150)
+        w1 = AGMLotWeight(agm_id=agm1.id, lot_owner_id=lo.id, unit_entitlement_snapshot=100)
+        w2 = AGMLotWeight(agm_id=agm2.id, lot_owner_id=lo.id, unit_entitlement_snapshot=150)
         db_session.add_all([w1, w2])
         await db_session.flush()  # Should NOT raise
 
@@ -709,15 +826,19 @@ class TestVote:
 
     # --- Input validation / constraints ---
 
-    async def test_unique_constraint_agm_motion_voter(self, db_session: AsyncSession):
-        """Same (agm_id, motion_id, voter_email) raises IntegrityError."""
-        _, agm, motion = await self._setup_vote_context(db_session, " Dup")
+    async def test_unique_constraint_agm_motion_lot_owner(self, db_session: AsyncSession):
+        """Same (agm_id, motion_id, lot_owner_id) raises IntegrityError."""
+        b, agm, motion = await self._setup_vote_context(db_session, " Dup")
 
-        v1 = Vote(agm_id=agm.id, motion_id=motion.id, voter_email="dup@example.com", choice=VoteChoice.yes)
+        lo = make_lot_owner(b, lot_number="Dup1")
+        db_session.add(lo)
+        await db_session.flush()
+
+        v1 = Vote(agm_id=agm.id, motion_id=motion.id, voter_email="dup@example.com", lot_owner_id=lo.id, choice=VoteChoice.yes)
         db_session.add(v1)
         await db_session.flush()
 
-        v2 = Vote(agm_id=agm.id, motion_id=motion.id, voter_email="dup@example.com", choice=VoteChoice.no)
+        v2 = Vote(agm_id=agm.id, motion_id=motion.id, voter_email="dup@example.com", lot_owner_id=lo.id, choice=VoteChoice.no)
         db_session.add(v2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -750,6 +871,24 @@ class TestVote:
         assert vote.created_at is not None
         assert vote.updated_at is not None
 
+    async def test_vote_with_lot_owner_id(self, db_session: AsyncSession):
+        b, agm, motion = await self._setup_vote_context(db_session, " LotOwner")
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        vote = Vote(
+            agm_id=agm.id,
+            motion_id=motion.id,
+            voter_email="voter@example.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+        assert vote.lot_owner_id == lo.id
+
 
 # ---------------------------------------------------------------------------
 # BallotSubmission tests
@@ -764,44 +903,53 @@ class TestBallotSubmission:
         db_session.add(b)
         await db_session.flush()
 
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
 
-        return b, agm
+        return b, lo, agm
 
     # --- Happy path ---
 
     async def test_create_ballot_submission(self, db_session: AsyncSession):
-        _, agm = await self._setup(db_session, " Create")
+        _, lo, agm = await self._setup(db_session, " Create")
 
-        sub = BallotSubmission(agm_id=agm.id, voter_email="voter@example.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="voter@example.com")
         db_session.add(sub)
         await db_session.flush()
 
         assert sub.id is not None
         assert sub.agm_id == agm.id
+        assert sub.lot_owner_id == lo.id
         assert sub.voter_email == "voter@example.com"
         assert sub.submitted_at is not None
 
     # --- Input validation / constraints ---
 
-    async def test_unique_constraint_agm_voter(self, db_session: AsyncSession):
-        """Same (agm_id, voter_email) pair raises IntegrityError."""
-        _, agm = await self._setup(db_session, " Dup")
+    async def test_unique_constraint_agm_lot_owner(self, db_session: AsyncSession):
+        """Same (agm_id, lot_owner_id) pair raises IntegrityError."""
+        _, lo, agm = await self._setup(db_session, " Dup")
 
-        s1 = BallotSubmission(agm_id=agm.id, voter_email="dup@example.com")
+        s1 = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="dup@example.com")
         db_session.add(s1)
         await db_session.flush()
 
-        s2 = BallotSubmission(agm_id=agm.id, voter_email="dup@example.com")
+        s2 = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="dup@example.com")
         db_session.add(s2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
 
-    async def test_same_voter_different_agms_allowed(self, db_session: AsyncSession):
+    async def test_same_lot_owner_different_agms_allowed(self, db_session: AsyncSession):
         b = make_building("Same Voter Diff AGM Bldg")
         db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
         await db_session.flush()
 
         agm1 = make_agm(b, title="AGM Alpha")
@@ -809,8 +957,8 @@ class TestBallotSubmission:
         db_session.add_all([agm1, agm2])
         await db_session.flush()
 
-        s1 = BallotSubmission(agm_id=agm1.id, voter_email="voter@example.com")
-        s2 = BallotSubmission(agm_id=agm2.id, voter_email="voter@example.com")
+        s1 = BallotSubmission(agm_id=agm1.id, lot_owner_id=lo.id, voter_email="voter@example.com")
+        s2 = BallotSubmission(agm_id=agm2.id, lot_owner_id=lo.id, voter_email="voter@example.com")
         db_session.add_all([s1, s2])
         await db_session.flush()  # Should NOT raise
 

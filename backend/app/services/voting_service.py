@@ -9,10 +9,22 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agm import AGM, AGMStatus
+from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
 from app.models.ballot_submission import BallotSubmission
-from app.models.motion import Motion
+from app.models.lot_owner import LotOwner
+from app.models.lot_owner_email import LotOwnerEmail
+from app.models.motion import Motion, MotionType
 from app.models.vote import Vote, VoteChoice, VoteStatus
-from app.schemas.voting import BallotVoteItem, DraftItem, SubmitResponse, VoteSummaryItem
+from app.schemas.voting import (
+    BallotVoteItem,
+    DraftItem,
+    DraftsResponse,
+    LotBallotResult,
+    LotBallotSummary,
+    MyBallotResponse,
+    SubmitResponse,
+    VoteSummaryItem,
+)
 
 
 async def save_draft(
@@ -21,9 +33,10 @@ async def save_draft(
     motion_id: uuid.UUID,
     voter_email: str,
     choice: VoteChoice | None,
+    lot_owner_id: uuid.UUID | None = None,
 ) -> None:
     """
-    Upsert a draft Vote for (agm_id, motion_id, voter_email).
+    Upsert a draft Vote for (agm_id, motion_id, voter_email[, lot_owner_id]).
     If choice is None, delete the existing draft record.
     Raises 422 if motion does not belong to agm_id.
     Raises 403 if agm is closed.
@@ -38,13 +51,21 @@ async def save_draft(
     if agm.status != AGMStatus.open:
         raise HTTPException(status_code=403, detail="Voting is closed for this AGM")
 
-    # Check not already submitted
-    submission_result = await db.execute(
-        select(BallotSubmission).where(
-            BallotSubmission.agm_id == agm_id,
-            BallotSubmission.voter_email == voter_email,
+    # Check not already submitted — check by lot_owner_id if provided, else by voter_email
+    if lot_owner_id is not None:
+        submission_result = await db.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.lot_owner_id == lot_owner_id,
+            )
         )
-    )
+    else:
+        submission_result = await db.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.voter_email == voter_email,
+            )
+        )
     if submission_result.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
 
@@ -58,24 +79,31 @@ async def save_draft(
             status_code=422, detail="Motion does not belong to this AGM"
         )
 
+    # Build the filter for the vote record
+    vote_filter = [
+        Vote.agm_id == agm_id,
+        Vote.motion_id == motion_id,
+        Vote.voter_email == voter_email,
+        Vote.status == VoteStatus.draft,
+    ]
+    if lot_owner_id is not None:
+        vote_filter.append(Vote.lot_owner_id == lot_owner_id)
+
     if choice is None:
         # Delete the draft if it exists
-        await db.execute(
-            delete(Vote).where(
-                Vote.agm_id == agm_id,
-                Vote.motion_id == motion_id,
-                Vote.voter_email == voter_email,
-                Vote.status == VoteStatus.draft,
-            )
-        )
+        await db.execute(delete(Vote).where(*vote_filter))
     else:
         # Upsert: look for existing draft
+        existing_filter = [
+            Vote.agm_id == agm_id,
+            Vote.motion_id == motion_id,
+            Vote.voter_email == voter_email,
+        ]
+        if lot_owner_id is not None:
+            existing_filter.append(Vote.lot_owner_id == lot_owner_id)
+
         existing_result = await db.execute(
-            select(Vote).where(
-                Vote.agm_id == agm_id,
-                Vote.motion_id == motion_id,
-                Vote.voter_email == voter_email,
-            )
+            select(Vote).where(*existing_filter)
         )
         existing = existing_result.scalar_one_or_none()
         if existing is not None:
@@ -86,6 +114,7 @@ async def save_draft(
                 agm_id=agm_id,
                 motion_id=motion_id,
                 voter_email=voter_email,
+                lot_owner_id=lot_owner_id,
                 choice=choice,
                 status=VoteStatus.draft,
             )
@@ -98,29 +127,36 @@ async def get_drafts(
     db: AsyncSession,
     agm_id: uuid.UUID,
     voter_email: str,
+    lot_owner_id: uuid.UUID | None = None,
 ) -> list[DraftItem]:
     """Return all current draft choices for the voter for this AGM."""
-    result = await db.execute(
-        select(Vote).where(
-            Vote.agm_id == agm_id,
-            Vote.voter_email == voter_email,
-            Vote.status == VoteStatus.draft,
-            Vote.choice.is_not(None),
-        )
-    )
+    filters = [
+        Vote.agm_id == agm_id,
+        Vote.voter_email == voter_email,
+        Vote.status == VoteStatus.draft,
+        Vote.choice.is_not(None),
+    ]
+    if lot_owner_id is not None:
+        filters.append(Vote.lot_owner_id == lot_owner_id)
+
+    result = await db.execute(select(Vote).where(*filters))
     votes = result.scalars().all()
-    return [DraftItem(motion_id=v.motion_id, choice=v.choice) for v in votes]
+    return [DraftItem(motion_id=v.motion_id, choice=v.choice, lot_owner_id=v.lot_owner_id) for v in votes]
 
 
 async def submit_ballot(
     db: AsyncSession,
     agm_id: uuid.UUID,
     voter_email: str,
+    lot_owner_ids: list[uuid.UUID],
 ) -> SubmitResponse:
     """
-    Formally submit the ballot for the voter.
+    Formally submit the ballot for the specified lot owners.
+    Creates one BallotSubmission per lot_owner_id in a single transaction.
     Raises 403 if agm is closed.
-    Raises 409 if already submitted (returns same summary).
+    Raises 409 if any lot already submitted (no partial commit).
+    Raises 403 if any lot_owner_id doesn't belong to authenticated voter_email.
+    Silently drops General Motion votes for in-arrear lots.
     """
     # Fetch AGM
     agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
@@ -131,138 +167,169 @@ async def submit_ballot(
     if agm.status != AGMStatus.open:
         raise HTTPException(status_code=403, detail="Voting is closed for this AGM")
 
-    # Check if already submitted
-    existing_sub_result = await db.execute(
+    if not lot_owner_ids:
+        raise HTTPException(status_code=422, detail="At least one lot_owner_id is required")
+
+    # Verify all lot_owner_ids belong to the authenticated voter_email
+    for lot_owner_id in lot_owner_ids:
+        email_check = await db.execute(
+            select(LotOwnerEmail).where(
+                LotOwnerEmail.lot_owner_id == lot_owner_id,
+                LotOwnerEmail.email == voter_email,
+            )
+        )
+        if email_check.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Lot owner {lot_owner_id} does not belong to authenticated voter",
+            )
+
+    # Check if any lots are already submitted
+    existing_subs = await db.execute(
         select(BallotSubmission).where(
             BallotSubmission.agm_id == agm_id,
-            BallotSubmission.voter_email == voter_email,
+            BallotSubmission.lot_owner_id.in_(lot_owner_ids),
         )
     )
-    existing_sub = existing_sub_result.scalar_one_or_none()
-    if existing_sub is not None:
-        # Return existing summary
-        votes_result = await db.execute(
-            select(Vote, Motion)
-            .join(Motion, Vote.motion_id == Motion.id)
-            .where(
-                Vote.agm_id == agm_id,
-                Vote.voter_email == voter_email,
-                Vote.status == VoteStatus.submitted,
-            )
-            .order_by(Motion.order_index)
-        )
-        rows = votes_result.all()
-        vote_items = [
-            VoteSummaryItem(
-                motion_id=row.Motion.id,
-                motion_title=row.Motion.title,
-                choice=row.Vote.choice,
-            )
-            for row in rows
-        ]
+    already_submitted = list(existing_subs.scalars().all())
+    if already_submitted:
         raise HTTPException(
             status_code=409,
-            detail="Ballot already submitted for this voter",
+            detail="One or more lots have already submitted ballots",
         )
 
     # Get all motions for this AGM
     motions_result = await db.execute(
         select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
     )
-    motions = motions_result.scalars().all()
+    motions = list(motions_result.scalars().all())
 
-    # Get existing draft votes
-    drafts_result = await db.execute(
-        select(Vote).where(
-            Vote.agm_id == agm_id,
-            Vote.voter_email == voter_email,
-            Vote.status == VoteStatus.draft,
+    # Get AGMLotWeight records for financial position snapshots
+    weights_result = await db.execute(
+        select(AGMLotWeight).where(
+            AGMLotWeight.agm_id == agm_id,
+            AGMLotWeight.lot_owner_id.in_(lot_owner_ids),
         )
     )
-    drafts = {v.motion_id: v for v in drafts_result.scalars().all()}
+    weight_by_lot: dict[uuid.UUID, AGMLotWeight] = {
+        w.lot_owner_id: w for w in weights_result.scalars().all()
+    }
 
-    # First pass: promote drafts with a choice, collect motions needing new votes,
-    # and delete any null-choice drafts
-    motions_needing_new_vote: list[Motion] = []
-    vote_items: list[VoteSummaryItem] = []
+    # Get lot number info
+    lot_owners_result = await db.execute(
+        select(LotOwner).where(LotOwner.id.in_(lot_owner_ids))
+    )
+    lot_owners_by_id: dict[uuid.UUID, LotOwner] = {
+        lo.id: lo for lo in lot_owners_result.scalars().all()
+    }
 
-    for motion in motions:
-        draft = drafts.get(motion.id)
-        if draft is not None and draft.choice is not None:
-            draft.status = VoteStatus.submitted
+    lot_results: list[LotBallotResult] = []
+
+    for lot_owner_id in lot_owner_ids:
+        weight = weight_by_lot.get(lot_owner_id)
+        is_in_arrear = (
+            weight is not None
+            and weight.financial_position_snapshot == FinancialPositionSnapshot.in_arrear
+        )
+        lo = lot_owners_by_id.get(lot_owner_id)
+        lot_number = lo.lot_number if lo else str(lot_owner_id)
+
+        # Get existing draft votes for this lot
+        drafts_result = await db.execute(
+            select(Vote).where(
+                Vote.agm_id == agm_id,
+                Vote.voter_email == voter_email,
+                Vote.lot_owner_id == lot_owner_id,
+                Vote.status == VoteStatus.draft,
+            )
+        )
+        drafts = {v.motion_id: v for v in drafts_result.scalars().all()}
+
+        motions_needing_new_vote: list[Motion] = []
+        vote_items: list[VoteSummaryItem] = []
+
+        for motion in motions:
+            # In-arrear lots cannot vote on General Motions
+            if is_in_arrear and motion.motion_type == MotionType.general:
+                # Drop any draft for this motion and skip
+                if motion.id in drafts:
+                    await db.delete(drafts[motion.id])
+                continue
+
+            draft = drafts.get(motion.id)
+            if draft is not None and draft.choice is not None:
+                draft.status = VoteStatus.submitted
+                vote_items.append(
+                    VoteSummaryItem(
+                        motion_id=motion.id,
+                        motion_title=motion.title,
+                        choice=draft.choice,
+                    )
+                )
+            else:
+                if draft is not None and draft.choice is None:
+                    await db.delete(draft)
+                motions_needing_new_vote.append(motion)
+
+        # Flush deletes before inserting
+        await db.flush()
+
+        for motion in motions_needing_new_vote:
+            new_vote = Vote(
+                agm_id=agm_id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lot_owner_id,
+                choice=VoteChoice.abstained,
+                status=VoteStatus.submitted,
+            )
+            db.add(new_vote)
             vote_items.append(
                 VoteSummaryItem(
                     motion_id=motion.id,
                     motion_title=motion.title,
-                    choice=draft.choice,
+                    choice=VoteChoice.abstained,
                 )
             )
-        else:
-            if draft is not None and draft.choice is None:
-                # Delete null-choice draft before inserting new abstained vote
-                await db.delete(draft)
-            motions_needing_new_vote.append(motion)
 
-    # Flush all deletes before inserting new abstained votes to avoid unique constraint
-    await db.flush()
+        # Re-sort vote_items to match motion order
+        motion_order = {m.id: m.order_index for m in motions}
+        vote_items.sort(key=lambda v: motion_order.get(v.motion_id, 0))
 
-    for motion in motions_needing_new_vote:
-        new_vote = Vote(
+        # Insert BallotSubmission
+        submission = BallotSubmission(
             agm_id=agm_id,
-            motion_id=motion.id,
+            lot_owner_id=lot_owner_id,
             voter_email=voter_email,
-            choice=VoteChoice.abstained,
-            status=VoteStatus.submitted,
+            submitted_at=datetime.now(UTC),
         )
-        db.add(new_vote)
-        vote_items.append(
-            VoteSummaryItem(
-                motion_id=motion.id,
-                motion_title=motion.title,
-                choice=VoteChoice.abstained,
-            )
-        )
+        db.add(submission)
+        await db.flush()
 
-    # Re-sort vote_items to match motion order
-    motion_order = {m.id: m.order_index for m in motions}
-    vote_items.sort(key=lambda v: motion_order[v.motion_id])
+        lot_results.append(LotBallotResult(
+            lot_owner_id=lot_owner_id,
+            lot_number=lot_number,
+            votes=vote_items,
+        ))
 
-    # Insert BallotSubmission
-    submission = BallotSubmission(
-        agm_id=agm_id,
-        voter_email=voter_email,
-        submitted_at=datetime.now(UTC),
-    )
-    db.add(submission)
-    await db.flush()
-
-    return SubmitResponse(submitted=True, votes=vote_items)
+    return SubmitResponse(submitted=True, lots=lot_results)
 
 
 async def get_my_ballot(
     db: AsyncSession,
     agm_id: uuid.UUID,
     voter_email: str,
-):
-    """Return the submitted ballot for the confirmation screen."""
-    from app.models.building import Building
-    from app.schemas.voting import MyBallotResponse
+    lot_owner_ids: list[uuid.UUID] | None = None,
+) -> MyBallotResponse:
+    """Return the submitted ballot(s) for the confirmation screen.
 
-    # Verify submission exists
-    sub_result = await db.execute(
-        select(BallotSubmission).where(
-            BallotSubmission.agm_id == agm_id,
-            BallotSubmission.voter_email == voter_email,
-        )
-    )
-    sub = sub_result.scalar_one_or_none()
-    if sub is None:
-        raise HTTPException(status_code=404, detail="No submitted ballot found")
+    If lot_owner_ids is provided, return only those lots' ballots.
+    Also returns remaining unsubmitted lot_owner_ids for the voter.
+    """
+    from app.models.building import Building
 
     # Get AGM with building
-    agm_result = await db.execute(
-        select(AGM).where(AGM.id == agm_id)
-    )
+    agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
     agm = agm_result.scalar_one_or_none()
     if agm is None:
         raise HTTPException(status_code=404, detail="AGM not found")  # pragma: no cover
@@ -272,34 +339,163 @@ async def get_my_ballot(
     )
     building = building_result.scalar_one_or_none()
 
-    # Get submitted votes with motion details
+    # Find all lot owners for this voter email in this building
+    all_email_lots_result = await db.execute(
+        select(LotOwnerEmail)
+        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        .where(
+            LotOwnerEmail.email == voter_email,
+            LotOwner.building_id == agm.building_id,
+        )
+    )
+    all_lot_owner_ids = [r.lot_owner_id for r in all_email_lots_result.scalars().all()]
+
+    # Get all submissions for this AGM and voter
+    all_subs_result = await db.execute(
+        select(BallotSubmission).where(
+            BallotSubmission.agm_id == agm_id,
+            BallotSubmission.lot_owner_id.in_(all_lot_owner_ids),
+        )
+    )
+    all_subs = list(all_subs_result.scalars().all())
+    submitted_lot_ids = {s.lot_owner_id for s in all_subs}
+    remaining_lot_owner_ids = [lid for lid in all_lot_owner_ids if lid not in submitted_lot_ids]
+
+    # If specific lot_owner_ids requested, filter to those; else show all submitted
+    if lot_owner_ids is not None:
+        target_lot_ids = [lid for lid in lot_owner_ids if lid in submitted_lot_ids]
+    else:
+        target_lot_ids = list(submitted_lot_ids)
+
+    if not target_lot_ids:
+        raise HTTPException(status_code=404, detail="No submitted ballot found")
+
+    # Get lot owner info
+    lot_owners_result = await db.execute(
+        select(LotOwner).where(LotOwner.id.in_(target_lot_ids))
+    )
+    lot_owners_by_id: dict[uuid.UUID, LotOwner] = {
+        lo.id: lo for lo in lot_owners_result.scalars().all()
+    }
+
+    # Get AGMLotWeight for financial position snapshot
+    weights_result = await db.execute(
+        select(AGMLotWeight).where(
+            AGMLotWeight.agm_id == agm_id,
+            AGMLotWeight.lot_owner_id.in_(target_lot_ids),
+        )
+    )
+    weight_by_lot: dict[uuid.UUID, AGMLotWeight] = {
+        w.lot_owner_id: w for w in weights_result.scalars().all()
+    }
+
+    # Get all motions
+    motions_result = await db.execute(
+        select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+    )
+    motions = list(motions_result.scalars().all())
+
+    # Get submitted votes for these lots
     votes_result = await db.execute(
         select(Vote, Motion)
         .join(Motion, Vote.motion_id == Motion.id)
         .where(
             Vote.agm_id == agm_id,
             Vote.voter_email == voter_email,
+            Vote.lot_owner_id.in_(target_lot_ids),
             Vote.status == VoteStatus.submitted,
         )
         .order_by(Motion.order_index)
     )
     rows = votes_result.all()
 
-    from app.schemas.voting import BallotVoteItem
+    # Group votes by lot_owner_id
+    votes_by_lot: dict[uuid.UUID, list] = {}
+    for vote, motion in rows:
+        lid = vote.lot_owner_id
+        if lid not in votes_by_lot:
+            votes_by_lot[lid] = []
+        votes_by_lot[lid].append((vote, motion))
 
-    ballot_votes = [
-        BallotVoteItem(
-            motion_id=row.Motion.id,
-            motion_title=row.Motion.title,
-            order_index=row.Motion.order_index,
-            choice=row.Vote.choice,
+    submitted_lots = []
+    for lot_owner_id in target_lot_ids:
+        lo = lot_owners_by_id.get(lot_owner_id)
+        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
+            continue
+        weight = weight_by_lot.get(lot_owner_id)
+        is_in_arrear = (
+            weight is not None
+            and weight.financial_position_snapshot == FinancialPositionSnapshot.in_arrear
         )
-        for row in rows
-    ]
+        fp_str = "in_arrear" if is_in_arrear else "normal"
+
+        lot_votes: list[BallotVoteItem] = []
+        lot_vote_rows = votes_by_lot.get(lot_owner_id, [])
+        voted_motion_ids = {m.id for _, m in lot_vote_rows}
+
+        for motion in motions:
+            if is_in_arrear and motion.motion_type == MotionType.general:
+                # Show as "not eligible"
+                lot_votes.append(BallotVoteItem(
+                    motion_id=motion.id,
+                    motion_title=motion.title,
+                    order_index=motion.order_index,
+                    choice=VoteChoice.abstained,
+                    eligible=False,
+                ))
+            elif motion.id in voted_motion_ids:
+                for vote, m in lot_vote_rows:
+                    if m.id == motion.id:
+                        lot_votes.append(BallotVoteItem(
+                            motion_id=m.id,
+                            motion_title=m.title,
+                            order_index=m.order_index,
+                            choice=vote.choice,
+                            eligible=True,
+                        ))
+                        break
+            else:
+                # Motion voted on via old path (no lot_owner_id on vote) — try to find it
+                fallback_result = await db.execute(
+                    select(Vote).where(
+                        Vote.agm_id == agm_id,
+                        Vote.motion_id == motion.id,
+                        Vote.voter_email == voter_email,
+                        Vote.status == VoteStatus.submitted,
+                    )
+                )
+                fallback_vote = fallback_result.scalar_one_or_none()
+                if fallback_vote is not None:
+                    lot_votes.append(BallotVoteItem(
+                        motion_id=motion.id,
+                        motion_title=motion.title,
+                        order_index=motion.order_index,
+                        choice=fallback_vote.choice,
+                        eligible=True,
+                    ))
+                else:
+                    lot_votes.append(BallotVoteItem(
+                        motion_id=motion.id,
+                        motion_title=motion.title,
+                        order_index=motion.order_index,
+                        choice=VoteChoice.abstained,
+                        eligible=True,
+                    ))
+
+        submitted_lots.append(LotBallotSummary(
+            lot_owner_id=lot_owner_id,
+            lot_number=lo.lot_number,
+            financial_position=fp_str,
+            votes=lot_votes,
+        ))
+
+    # Sort by lot_number
+    submitted_lots.sort(key=lambda l: l.lot_number)
 
     return MyBallotResponse(
         voter_email=voter_email,
         agm_title=agm.title,
-        building_name=building.name,
-        votes=ballot_votes,
+        building_name=building.name if building else "",
+        submitted_lots=submitted_lots,
+        remaining_lot_owner_ids=remaining_lot_owner_ids,
     )

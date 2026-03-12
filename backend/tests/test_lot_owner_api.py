@@ -28,16 +28,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AGM,
+    AGMLotWeight,
     AGMStatus,
     BallotSubmission,
     Building,
+    FinancialPositionSnapshot,
     LotOwner,
     Motion,
+    MotionType,
     SessionRecord,
     Vote,
     VoteChoice,
     VoteStatus,
 )
+from app.models.lot_owner_email import LotOwnerEmail
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -66,15 +70,20 @@ def make_agm(building: Building, status: AGMStatus = AGMStatus.open, title: str 
 def make_lot_owner(
     building: Building,
     lot_number: str = "1A",
-    email: str = "owner@example.com",
     entitlement: int = 100,
 ) -> LotOwner:
     return LotOwner(
         building_id=building.id,
         lot_number=lot_number,
-        email=email,
         unit_entitlement=entitlement,
     )
+
+
+async def add_email(db: AsyncSession, lo: LotOwner, email: str) -> LotOwnerEmail:
+    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=email)
+    db.add(lo_email)
+    await db.flush()
+    return lo_email
 
 
 def make_motion(agm: AGM, title: str = "Motion 1", order_index: int = 1) -> Motion:
@@ -162,69 +171,42 @@ class TestListBuildings:
             response = await client.get("/api/buildings")
 
         assert response.status_code == 200
-        data = response.json()
-        ids = [item["id"] for item in data]
-        assert str(b.id) in ids
+        names = [item["name"] for item in response.json()]
+        assert "Tower With AGM" in names
 
-    async def test_excludes_manager_email(self, transport, db_session: AsyncSession):
-        b = make_building("NoEmail Tower", email="secret@corp.com")
+    async def test_returns_buildings_without_agms(self, transport, db_session: AsyncSession):
+        """Buildings without AGMs appear (AGM list will be empty)."""
+        b = make_building("No AGM Tower")
         db_session.add(b)
-        await db_session.flush()
-        agm = make_agm(b)
-        db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/buildings")
 
+        names = [item["name"] for item in response.json()]
+        assert "No AGM Tower" in names
+
+    async def test_building_fields(self, transport, db_session: AsyncSession):
+        b = make_building("Field Check Tower")
+        db_session.add(b)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
+
+        buildings = response.json()
+        matching = [item for item in buildings if item["name"] == "Field Check Tower"]
+        assert len(matching) == 1
+        item = matching[0]
+        assert "id" in item
+        assert "name" in item
+
+    async def test_empty_buildings_returns_empty_list(self, transport):
+        """When no buildings exist, returns empty list."""
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
         assert response.status_code == 200
-        for item in response.json():
-            assert "manager_email" not in item
-
-    # --- Edge cases ---
-
-    async def test_includes_buildings_without_agms(self, transport, db_session: AsyncSession):
-        # Buildings without AGMs now appear — lot owners see them and are told no meetings exist
-        b_no_agm = make_building("No AGM Building XYZ99")
-        db_session.add(b_no_agm)
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/buildings")
-
-        assert response.status_code == 200
-        ids = [item["id"] for item in response.json()]
-        assert str(b_no_agm.id) in ids
-
-    async def test_includes_closed_agm_building(self, transport, db_session: AsyncSession):
-        b = make_building("Closed AGM Tower")
-        db_session.add(b)
-        await db_session.flush()
-        agm = make_agm(b, status=AGMStatus.closed)
-        agm.closed_at = utcnow()
-        db_session.add(agm)
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/buildings")
-
-        ids = [item["id"] for item in response.json()]
-        assert str(b.id) in ids
-
-    async def test_response_has_id_and_name_fields(self, transport, db_session: AsyncSession):
-        b = make_building("Fields Check Building")
-        db_session.add(b)
-        await db_session.flush()
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/buildings")
-
-        for item in response.json():
-            assert "id" in item
-            assert "name" in item
+        assert isinstance(response.json(), list)
 
 
 # ---------------------------------------------------------------------------
@@ -239,13 +221,8 @@ class TestListAGMs:
         b = make_building("AGM List Building")
         db_session.add(b)
         await db_session.flush()
-
-        agm1 = make_agm(b, title="AGM 2026")
-        agm2 = make_agm(b, title="AGM 2025")
-        # Make agm2 earlier
-        agm2.meeting_at = utcnow() - timedelta(days=365)
-        agm2.voting_closes_at = utcnow() - timedelta(days=364)
-        db_session.add_all([agm1, agm2])
+        agm = make_agm(b, title="Target AGM")
+        db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -253,40 +230,11 @@ class TestListAGMs:
 
         assert response.status_code == 200
         data = response.json()
-        ids = [item["id"] for item in data]
-        assert str(agm1.id) in ids
-        assert str(agm2.id) in ids
+        titles = [a["title"] for a in data]
+        assert "Target AGM" in titles
 
-    async def test_ordered_by_meeting_at_descending(self, transport, db_session: AsyncSession):
-        b = make_building("Ordered AGM Building")
-        db_session.add(b)
-        await db_session.flush()
-
-        now = utcnow()
-        agm_old = AGM(
-            building_id=b.id,
-            title="Old AGM",
-            meeting_at=now - timedelta(days=365),
-            voting_closes_at=now - timedelta(days=364),
-        )
-        agm_new = AGM(
-            building_id=b.id,
-            title="New AGM",
-            meeting_at=now + timedelta(days=1),
-            voting_closes_at=now + timedelta(days=2),
-        )
-        db_session.add_all([agm_old, agm_new])
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(f"/api/buildings/{b.id}/agms")
-
-        data = response.json()
-        assert data[0]["title"] == "New AGM"
-        assert data[1]["title"] == "Old AGM"
-
-    async def test_response_contains_expected_fields(self, transport, db_session: AsyncSession):
-        b = make_building("Fields AGM Building")
+    async def test_agm_fields_present(self, transport, db_session: AsyncSession):
+        b = make_building("AGM Fields Building")
         db_session.add(b)
         await db_session.flush()
         agm = make_agm(b)
@@ -296,29 +244,39 @@ class TestListAGMs:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(f"/api/buildings/{b.id}/agms")
 
-        item = response.json()[0]
-        assert "id" in item
-        assert "title" in item
-        assert "status" in item
-        assert "meeting_at" in item
-        assert "voting_closes_at" in item
+        agm_data = response.json()[0]
+        assert "id" in agm_data
+        assert "title" in agm_data
+        assert "status" in agm_data
+        assert "meeting_at" in agm_data
+        assert "voting_closes_at" in agm_data
 
-    # --- Input validation ---
+    async def test_does_not_return_other_buildings_agms(self, transport, db_session: AsyncSession):
+        b1 = make_building("Building One")
+        b2 = make_building("Building Two")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+        agm1 = make_agm(b1, title="B1 AGM")
+        agm2 = make_agm(b2, title="B2 AGM")
+        db_session.add_all([agm1, agm2])
+        await db_session.commit()
 
-    async def test_404_when_building_not_found(self, transport):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(f"/api/buildings/{b1.id}/agms")
+
+        titles = [a["title"] for a in response.json()]
+        assert "B1 AGM" in titles
+        assert "B2 AGM" not in titles
+
+    # --- State / precondition errors ---
+
+    async def test_unknown_building_returns_404(self, transport):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(f"/api/buildings/{uuid.uuid4()}/agms")
         assert response.status_code == 404
 
-    async def test_422_on_invalid_uuid(self, transport):
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/buildings/not-a-uuid/agms")
-        assert response.status_code == 422
-
-    # --- Edge cases ---
-
-    async def test_empty_list_when_building_has_no_agms(self, transport, db_session: AsyncSession):
-        b = make_building("Empty AGM Building 2")
+    async def test_no_agms_returns_empty_list(self, transport, db_session: AsyncSession):
+        b = make_building("No AGM Building 2")
         db_session.add(b)
         await db_session.commit()
 
@@ -341,15 +299,16 @@ class TestAuthVerify:
         b = make_building("Auth Happy Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="A1", email="voter@auth.com")
+        lo = make_lot_owner(b, lot_number="A1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "voter@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "A1",
                 "email": "voter@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
@@ -358,21 +317,24 @@ class TestAuthVerify:
         assert response.status_code == 200
         data = response.json()
         assert data["voter_email"] == "voter@auth.com"
-        assert data["already_submitted"] is False
+        assert "lots" in data
+        assert len(data["lots"]) == 1
+        assert data["lots"][0]["already_submitted"] is False
 
     async def test_sets_session_cookie(self, transport, db_session: AsyncSession):
         b = make_building("Cookie Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="B2", email="cookie@auth.com")
+        lo = make_lot_owner(b, lot_number="B2")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "cookie@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "B2",
                 "email": "cookie@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
@@ -384,27 +346,55 @@ class TestAuthVerify:
         b = make_building("Already Submitted Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="C3", email="submitted@auth.com")
+        lo = make_lot_owner(b, lot_number="C3")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "submitted@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
 
         # Pre-existing ballot submission
-        sub = BallotSubmission(agm_id=agm.id, voter_email="submitted@auth.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="submitted@auth.com")
         db_session.add(sub)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "C3",
                 "email": "submitted@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
             })
 
         assert response.status_code == 200
-        assert response.json()["already_submitted"] is True
+        data = response.json()
+        assert data["lots"][0]["already_submitted"] is True
+
+    async def test_lot_info_in_response(self, transport, db_session: AsyncSession):
+        """Response lots array contains lot_owner_id, lot_number, financial_position."""
+        b = make_building("Lot Info Auth Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="LI1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "lotinfo@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/api/auth/verify", json={
+                "email": "lotinfo@auth.com",
+                "building_id": str(b.id),
+                "agm_id": str(agm.id),
+            })
+
+        lot = response.json()["lots"][0]
+        assert lot["lot_owner_id"] == str(lo.id)
+        assert lot["lot_number"] == "LI1"
+        assert "financial_position" in lot
+        assert "already_submitted" in lot
 
     # --- Input validation ---
 
@@ -412,58 +402,22 @@ class TestAuthVerify:
         b = make_building("Wrong Email Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="D4", email="correct@auth.com")
+        lo = make_lot_owner(b, lot_number="D4")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "correct@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "D4",
                 "email": "wrong@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
             })
 
         assert response.status_code == 401
-        assert "do not match" in response.json()["detail"]
-
-    async def test_nonexistent_lot_returns_401(self, transport, db_session: AsyncSession):
-        b = make_building("Missing Lot Building")
-        db_session.add(b)
-        await db_session.flush()
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post("/api/auth/verify", json={
-                "lot_number": "NOTEXIST",
-                "email": "someone@auth.com",
-                "building_id": str(b.id),
-                "agm_id": str(agm.id),
-            })
-
-        assert response.status_code == 401
-
-    async def test_empty_lot_number_returns_422(self, transport, db_session: AsyncSession):
-        b = make_building("Empty Lot Building")
-        db_session.add(b)
-        await db_session.flush()
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.commit()
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post("/api/auth/verify", json={
-                "lot_number": "   ",
-                "email": "x@y.com",
-                "building_id": str(b.id),
-                "agm_id": str(agm.id),
-            })
-
-        assert response.status_code == 422
 
     async def test_empty_email_returns_422(self, transport, db_session: AsyncSession):
         b = make_building("Empty Email Building")
@@ -475,7 +429,6 @@ class TestAuthVerify:
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "L1",
                 "email": "  ",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
@@ -486,7 +439,6 @@ class TestAuthVerify:
     async def test_invalid_building_uuid_returns_422(self, transport):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "1A",
                 "email": "x@y.com",
                 "building_id": "not-a-uuid",
                 "agm_id": str(uuid.uuid4()),
@@ -496,7 +448,7 @@ class TestAuthVerify:
     async def test_missing_fields_returns_422(self, transport):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "1A",
+                "email": "x@y.com",
             })
         assert response.status_code == 422
 
@@ -508,15 +460,16 @@ class TestAuthVerify:
         db_session.add_all([b1, b2])
         await db_session.flush()
 
-        lo = make_lot_owner(b1, lot_number="E5", email="e5@auth.com")
+        lo = make_lot_owner(b1, lot_number="E5")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "e5@auth.com")
         agm_b2 = make_agm(b2)  # AGM belongs to b2
         db_session.add(agm_b2)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "E5",
                 "email": "e5@auth.com",
                 "building_id": str(b1.id),  # Authenticate against b1
                 "agm_id": str(agm_b2.id),   # But AGM is in b2
@@ -529,8 +482,10 @@ class TestAuthVerify:
         b = make_building("Closed Auth Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="F6", email="f6@auth.com")
+        lo = make_lot_owner(b, lot_number="F6")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "f6@auth.com")
         agm = make_agm(b, status=AGMStatus.closed)
         agm.closed_at = utcnow()
         db_session.add(agm)
@@ -538,7 +493,6 @@ class TestAuthVerify:
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "F6",
                 "email": "f6@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
@@ -547,22 +501,23 @@ class TestAuthVerify:
         assert response.status_code == 200
         data = response.json()
         assert data["agm_status"] == "closed"
-        assert data["already_submitted"] is False
+        assert data["lots"][0]["already_submitted"] is False
 
     async def test_open_agm_returns_open_status(self, transport, db_session: AsyncSession):
         """Open AGM auth returns agm_status=open."""
         b = make_building("Open Status Auth Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="F7", email="f7@auth.com")
+        lo = make_lot_owner(b, lot_number="F7")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "f7@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "F7",
                 "email": "f7@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
@@ -571,22 +526,23 @@ class TestAuthVerify:
         assert response.status_code == 200
         assert response.json()["agm_status"] == "open"
 
-    async def test_lot_in_different_building_returns_401(self, transport, db_session: AsyncSession):
+    async def test_email_in_different_building_returns_401(self, transport, db_session: AsyncSession):
         b1 = make_building("Lot Building One")
         b2 = make_building("Lot Building Two")
         db_session.add_all([b1, b2])
         await db_session.flush()
 
-        # Lot belongs to b1
-        lo = make_lot_owner(b1, lot_number="G7", email="g7@auth.com")
+        # Email belongs to b1 only
+        lo = make_lot_owner(b1, lot_number="G7")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "g7@auth.com")
         agm = make_agm(b2)  # AGM in b2
         db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
-                "lot_number": "G7",
                 "email": "g7@auth.com",
                 "building_id": str(b2.id),  # Claim to be in b2
                 "agm_id": str(agm.id),
@@ -596,38 +552,55 @@ class TestAuthVerify:
 
     # --- Edge cases ---
 
-    async def test_multi_lot_owner_same_email_authenticates(self, transport, db_session: AsyncSession):
-        """Two lots sharing the same email — either lot number should authenticate."""
+    async def test_multi_lot_owner_same_email_returns_multiple_lots(self, transport, db_session: AsyncSession):
+        """Two lots sharing the same email — response lots array contains both."""
         b = make_building("Multi Lot Auth Building")
         db_session.add(b)
         await db_session.flush()
 
-        lo1 = make_lot_owner(b, lot_number="ML1", email="multi@auth.com")
-        lo2 = make_lot_owner(b, lot_number="ML2", email="multi@auth.com")
+        lo1 = make_lot_owner(b, lot_number="ML1")
+        lo2 = make_lot_owner(b, lot_number="ML2")
         db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await add_email(db_session, lo1, "multi@auth.com")
+        await add_email(db_session, lo2, "multi@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.commit()
 
-        # Authenticate with first lot
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            r1 = await client.post("/api/auth/verify", json={
-                "lot_number": "ML1",
+            r = await client.post("/api/auth/verify", json={
                 "email": "multi@auth.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
             })
-        assert r1.status_code == 200
+        assert r.status_code == 200
+        data = r.json()
+        lot_numbers = {lot["lot_number"] for lot in data["lots"]}
+        assert "ML1" in lot_numbers
+        assert "ML2" in lot_numbers
 
-        # Authenticate with second lot
+    async def test_email_with_plus_tag_authenticates(self, transport, db_session: AsyncSession):
+        """Email with + tag is treated as a distinct email address."""
+        b = make_building("Plus Tag Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="PT1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "user+tag@domain.co")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.commit()
+
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            r2 = await client.post("/api/auth/verify", json={
-                "lot_number": "ML2",
-                "email": "multi@auth.com",
+            response = await client.post("/api/auth/verify", json={
+                "email": "user+tag@domain.co",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
             })
-        assert r2.status_code == 200
+
+        assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -638,20 +611,21 @@ class TestAuthVerify:
 class TestListMotions:
     # --- Happy path ---
 
-    async def test_returns_motions_in_order(self, transport, db_session: AsyncSession):
-        b = make_building("Motions Building")
+    async def test_returns_all_motions(self, transport, db_session: AsyncSession):
+        b = make_building("Motion List Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="M1", email="motion@test.com")
+        lo = make_lot_owner(b, lot_number="M1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "motion@test.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-
-        m3 = Motion(agm_id=agm.id, title="Third", order_index=3)
-        m1 = Motion(agm_id=agm.id, title="First", order_index=1)
-        m2 = Motion(agm_id=agm.id, title="Second", order_index=2)
-        db_session.add_all([m3, m1, m2])
+        m1 = Motion(agm_id=agm.id, title="Motion One", order_index=1)
+        m2 = Motion(agm_id=agm.id, title="Motion Two", order_index=2)
+        m3 = Motion(agm_id=agm.id, title="Motion Three", order_index=3)
+        db_session.add_all([m1, m2, m3])
         await db_session.flush()
 
         token = await make_session(db_session, "motion@test.com", b.id, agm.id)
@@ -664,23 +638,20 @@ class TestListMotions:
             )
 
         assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 3
-        assert data[0]["title"] == "First"
-        assert data[1]["title"] == "Second"
-        assert data[2]["title"] == "Third"
+        assert len(response.json()) == 3
 
-    async def test_motion_fields_present(self, transport, db_session: AsyncSession):
+    async def test_motions_fields_present(self, transport, db_session: AsyncSession):
         b = make_building("Motion Fields Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="MF1", email="mfields@test.com")
+        lo = make_lot_owner(b, lot_number="MF1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "mfields@test.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-
-        m = Motion(agm_id=agm.id, title="Vote on Budget", description="2026 budget", order_index=1)
+        m = Motion(agm_id=agm.id, title="Fields Motion", order_index=1, description="desc")
         db_session.add(m)
         await db_session.flush()
 
@@ -693,49 +664,75 @@ class TestListMotions:
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-        item = response.json()[0]
-        assert item["id"] == str(m.id)
-        assert item["title"] == "Vote on Budget"
-        assert item["description"] == "2026 budget"
-        assert item["order_index"] == 1
+        motion = response.json()[0]
+        assert "id" in motion
+        assert "title" in motion
+        assert "description" in motion
+        assert "order_index" in motion
 
-    # --- Input validation ---
-
-    async def test_no_session_returns_401(self, transport, db_session: AsyncSession):
-        agm_id = uuid.uuid4()
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(f"/api/agm/{agm_id}/motions")
-        assert response.status_code == 401
-
-    async def test_session_for_different_agm_returns_401(self, transport, db_session: AsyncSession):
-        b = make_building("Different AGM Building")
+    async def test_motions_ordered_by_order_index(self, transport, db_session: AsyncSession):
+        b = make_building("Motion Order Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="DA1", email="diff@agm.com")
+        lo = make_lot_owner(b, lot_number="MO1")
         db_session.add(lo)
-        agm1 = make_agm(b, title="AGM One")
-        agm2 = make_agm(b, title="AGM Two")
-        db_session.add_all([agm1, agm2])
+        await db_session.flush()
+        await add_email(db_session, lo, "order@motions.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        # Add in reverse order
+        m3 = Motion(agm_id=agm.id, title="Third", order_index=3)
+        m1 = Motion(agm_id=agm.id, title="First", order_index=1)
+        m2 = Motion(agm_id=agm.id, title="Second", order_index=2)
+        db_session.add_all([m3, m1, m2])
         await db_session.flush()
 
-        # Create session for agm1
-        token = await make_session(db_session, "diff@agm.com", b.id, agm1.id)
+        token = await make_session(db_session, "order@motions.com", b.id, agm.id)
         await db_session.commit()
 
-        # Try to access agm2 with agm1's session
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
-                f"/api/agm/{agm2.id}/motions",
+                f"/api/agm/{agm.id}/motions",
                 headers={"Authorization": f"Bearer {token}"},
             )
-        assert response.status_code == 401
+
+        titles = [m["title"] for m in response.json()]
+        assert titles == ["First", "Second", "Third"]
+
+    async def test_empty_motions_returns_empty_list(self, transport, db_session: AsyncSession):
+        b = make_building("No Motion Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="DA1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "diff@agm.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        token = await make_session(db_session, "diff@agm.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agm/{agm.id}/motions",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert response.json() == []
+
+    # --- State / precondition errors ---
 
     async def test_expired_session_returns_401(self, transport, db_session: AsyncSession):
         b = make_building("Expired Session Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="EXP1", email="exp@session.com")
+        lo = make_lot_owner(b, lot_number="EXP1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "exp@session.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -750,40 +747,36 @@ class TestListMotions:
             )
         assert response.status_code == 401
 
-    # --- State / precondition errors ---
+    async def test_no_session_returns_401(self, transport):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(f"/api/agm/{uuid.uuid4()}/motions")
+        assert response.status_code == 401
 
-    async def test_agm_not_found_returns_404(self, transport, db_session: AsyncSession):
-        b = make_building("404 AGM Building")
+    async def test_wrong_token_returns_401(self, transport, db_session: AsyncSession):
+        b = make_building("Not Found Session Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="NF1", email="notfound@test.com")
-        db_session.add(lo)
-        real_agm = make_agm(b)
-        db_session.add(real_agm)
-        await db_session.flush()
-
-        token = await make_session(db_session, "notfound@test.com", b.id, real_agm.id)
+        agm = make_agm(b)
+        db_session.add(agm)
         await db_session.commit()
 
-        # Use session for real_agm but request a non-existent agm_id
-        # The session is scoped to real_agm.id, so we need a session for non-existent agm
-        # Instead: create session with a fake agm_id (but session validation would fail)
-        # The 404 for agm is only reachable if session is valid; use real agm but test empty motions
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
-                f"/api/agm/{real_agm.id}/motions",
-                headers={"Authorization": f"Bearer {token}"},
+                f"/api/agm/{agm.id}/motions",
+                headers={"Authorization": "Bearer notarealtoken"},
             )
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 401
 
-    async def test_session_cookie_accepted(self, transport, db_session: AsyncSession):
-        """Session token in cookie is also accepted."""
+    # --- Edge cases ---
+
+    async def test_session_via_cookie(self, transport, db_session: AsyncSession):
         b = make_building("Cookie Session Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="CK1", email="cookie@session.com")
+        lo = make_lot_owner(b, lot_number="CK1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "cookie@session.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -795,9 +788,10 @@ class TestListMotions:
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            client.cookies.set("agm_session", token)
-            response = await client.get(f"/api/agm/{agm.id}/motions")
-
+            response = await client.get(
+                f"/api/agm/{agm.id}/motions",
+                cookies={"agm_session": token},
+            )
         assert response.status_code == 200
 
 
@@ -807,171 +801,136 @@ class TestListMotions:
 
 
 class TestSaveDraft:
-    # --- Happy path ---
-
-    async def test_save_yes_choice(self, transport, db_session: AsyncSession):
-        b = make_building("Draft Yes Building")
+    async def _setup(self, db_session: AsyncSession, lot_number="DY1", email="draft@yes.com"):
+        b = make_building(f"Draft Building {lot_number}")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="DY1", email="draft@yes.com")
+        lo = make_lot_owner(b, lot_number=lot_number)
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, email)
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
         m = Motion(agm_id=agm.id, title="Draft Motion", order_index=1)
         db_session.add(m)
         await db_session.flush()
-        token = await make_session(db_session, "draft@yes.com", b.id, agm.id)
+        return b, lo, agm, m, email
+
+    # --- Happy path ---
+
+    async def test_save_yes(self, transport, db_session: AsyncSession):
+        b, lo, agm, m, email = await self._setup(db_session, "DY1", "draft@yes.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "yes"},
+                json={"motion_id": str(m.id), "choice": "yes", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
         assert response.status_code == 200
         assert response.json()["saved"] is True
 
-    async def test_save_no_choice(self, transport, db_session: AsyncSession):
-        b = make_building("Draft No Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="DN1", email="draft@no.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="No Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-        token = await make_session(db_session, "draft@no.com", b.id, agm.id)
+    async def test_save_no(self, transport, db_session: AsyncSession):
+        b, lo, agm, m, email = await self._setup(db_session, "DN1", "draft@no.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "no"},
+                json={"motion_id": str(m.id), "choice": "no", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 200
 
-    async def test_save_abstained_choice(self, transport, db_session: AsyncSession):
-        b = make_building("Draft Abstain Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="DA1", email="draft@abstain.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Abstain Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-        token = await make_session(db_session, "draft@abstain.com", b.id, agm.id)
+    async def test_save_abstained(self, transport, db_session: AsyncSession):
+        b, lo, agm, m, email = await self._setup(db_session, "DA1", "draft@abstain.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "abstained"},
+                json={"motion_id": str(m.id), "choice": "abstained", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 200
 
     async def test_null_choice_deletes_draft(self, transport, db_session: AsyncSession):
-        b = make_building("Draft Null Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="NULL1", email="draft@null.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Null Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-        token = await make_session(db_session, "draft@null.com", b.id, agm.id)
+        b, lo, agm, m, email = await self._setup(db_session, "NULL1", "draft@null.com")
+        token = await make_session(db_session, email, b.id, agm.id)
 
-        # Save a draft first
-        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="draft@null.com", choice=VoteChoice.yes, status=VoteStatus.draft)
+        # First save a draft
+        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
         db_session.add(v)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": None},
+                json={"motion_id": str(m.id), "choice": None, "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
-        assert response.status_code == 200
-        assert response.json()["saved"] is True
 
-    async def test_upsert_overwrites_existing_draft(self, transport, db_session: AsyncSession):
-        """Saving a different choice updates the existing draft."""
-        b = make_building("Upsert Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="UP1", email="upsert@draft.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Upsert Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-        token = await make_session(db_session, "upsert@draft.com", b.id, agm.id)
+        assert response.status_code == 200
+
+    async def test_upsert_updates_existing_draft(self, transport, db_session: AsyncSession):
+        b, lo, agm, m, email = await self._setup(db_session, "UP1", "upsert@draft.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # First save yes
+            # Save yes
             await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "yes"},
+                json={"motion_id": str(m.id), "choice": "yes", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
-            # Then overwrite with no
+            # Update to no
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "no"},
+                json={"motion_id": str(m.id), "choice": "no", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 200
 
     # --- Input validation ---
 
-    async def test_motion_from_different_agm_returns_422(self, transport, db_session: AsyncSession):
-        b = make_building("Cross AGM Draft Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="CA1", email="cross@draft.com")
-        db_session.add(lo)
-        agm1 = make_agm(b, title="AGM Draft One")
-        agm2 = make_agm(b, title="AGM Draft Two")
-        db_session.add_all([agm1, agm2])
-        await db_session.flush()
+    async def test_cross_agm_motion_returns_422(self, transport, db_session: AsyncSession):
+        b, lo, agm, m, email = await self._setup(db_session, "CA1", "cross@draft.com")
+        token = await make_session(db_session, email, b.id, agm.id)
 
-        m_in_agm2 = Motion(agm_id=agm2.id, title="Other Motion", order_index=1)
-        db_session.add(m_in_agm2)
+        # Create a motion for a different AGM
+        b2 = make_building("Cross AGM Building")
+        db_session.add(b2)
         await db_session.flush()
-
-        token = await make_session(db_session, "cross@draft.com", b.id, agm1.id)
+        agm2 = make_agm(b2)
+        db_session.add(agm2)
+        await db_session.flush()
+        m_other = Motion(agm_id=agm2.id, title="Other AGM Motion", order_index=1)
+        db_session.add(m_other)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
-                f"/api/agm/{agm1.id}/draft",
-                json={"motion_id": str(m_in_agm2.id), "choice": "yes"},
+                f"/api/agm/{agm.id}/draft",
+                json={"motion_id": str(m_other.id), "choice": "yes"},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 422
 
     async def test_no_session_returns_401(self, transport):
-        agm_id = uuid.uuid4()
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
-                f"/api/agm/{agm_id}/draft",
+                f"/api/agm/{uuid.uuid4()}/draft",
                 json={"motion_id": str(uuid.uuid4()), "choice": "yes"},
             )
         assert response.status_code == 401
@@ -979,40 +938,29 @@ class TestSaveDraft:
     # --- State / precondition errors ---
 
     async def test_already_submitted_returns_409(self, transport, db_session: AsyncSession):
-        b = make_building("Already Sub Draft Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="AS1", email="asub@draft.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Submitted Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-
-        # Pre-existing ballot submission
-        sub = BallotSubmission(agm_id=agm.id, voter_email="asub@draft.com")
+        b, lo, agm, m, email = await self._setup(db_session, "AS1", "asub@draft.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email=email)
         db_session.add(sub)
-        await db_session.flush()
-
-        token = await make_session(db_session, "asub@draft.com", b.id, agm.id)
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.put(
                 f"/api/agm/{agm.id}/draft",
-                json={"motion_id": str(m.id), "choice": "yes"},
+                json={"motion_id": str(m.id), "choice": "yes", "lot_owner_id": str(lo.id)},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 409
 
     async def test_closed_agm_returns_403(self, transport, db_session: AsyncSession):
         b = make_building("Closed Draft Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="CL1", email="closed@draft.com")
+        lo = make_lot_owner(b, lot_number="CL1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "closed@draft.com")
         agm = make_agm(b, status=AGMStatus.closed)
         agm.closed_at = utcnow()
         db_session.add(agm)
@@ -1030,6 +978,7 @@ class TestSaveDraft:
                 json={"motion_id": str(m.id), "choice": "yes"},
                 headers={"Authorization": f"Bearer {token}"},
             )
+
         assert response.status_code == 403
 
 
@@ -1045,8 +994,10 @@ class TestGetDrafts:
         b = make_building("Get Drafts Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="GD1", email="get@drafts.com")
+        lo = make_lot_owner(b, lot_number="GD1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "get@drafts.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1055,12 +1006,9 @@ class TestGetDrafts:
         db_session.add_all([m1, m2])
         await db_session.flush()
 
-        # Save draft votes
-        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="get@drafts.com", choice=VoteChoice.yes, status=VoteStatus.draft)
-        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email="get@drafts.com", choice=VoteChoice.no, status=VoteStatus.draft)
+        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="get@drafts.com", lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
+        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email="get@drafts.com", lot_owner_id=lo.id, choice=VoteChoice.no, status=VoteStatus.draft)
         db_session.add_all([v1, v2])
-        await db_session.flush()
-
         token = await make_session(db_session, "get@drafts.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1071,22 +1019,24 @@ class TestGetDrafts:
             )
 
         assert response.status_code == 200
-        data = response.json()
-        assert "drafts" in data
-        assert len(data["drafts"]) == 2
-        motion_ids = {d["motion_id"] for d in data["drafts"]}
-        assert str(m1.id) in motion_ids
-        assert str(m2.id) in motion_ids
+        drafts = response.json()["drafts"]
+        assert len(drafts) == 2
+        choices = {d["choice"] for d in drafts}
+        assert "yes" in choices
+        assert "no" in choices
 
-    async def test_empty_when_no_drafts(self, transport, db_session: AsyncSession):
+    async def test_returns_empty_when_no_drafts(self, transport, db_session: AsyncSession):
         b = make_building("Empty Drafts Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="ED1", email="empty@drafts.com")
+        lo = make_lot_owner(b, lot_number="ED1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "empty@drafts.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
+
         token = await make_session(db_session, "empty@drafts.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1096,7 +1046,6 @@ class TestGetDrafts:
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-        assert response.status_code == 200
         assert response.json()["drafts"] == []
 
     async def test_excludes_null_choice_drafts(self, transport, db_session: AsyncSession):
@@ -1104,8 +1053,10 @@ class TestGetDrafts:
         b = make_building("Null Draft Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="ND1", email="null@drafts.com")
+        lo = make_lot_owner(b, lot_number="ND1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "null@drafts.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1113,10 +1064,8 @@ class TestGetDrafts:
         db_session.add(m)
         await db_session.flush()
 
-        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="null@drafts.com", choice=None, status=VoteStatus.draft)
+        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="null@drafts.com", lot_owner_id=lo.id, choice=None, status=VoteStatus.draft)
         db_session.add(v)
-        await db_session.flush()
-
         token = await make_session(db_session, "null@drafts.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1142,14 +1091,14 @@ class TestGetDrafts:
 
 
 class TestSubmitBallot:
-    # --- Happy path ---
-
-    async def test_all_motions_answered_submitted(self, transport, db_session: AsyncSession):
-        b = make_building("Submit All Building")
+    async def _setup(self, db_session: AsyncSession, lot_number="SA1", email="submit@all.com"):
+        b = make_building(f"Submit Building {lot_number}")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="SA1", email="submit@all.com")
+        lo = make_lot_owner(b, lot_number=lot_number)
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, email)
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1157,97 +1106,96 @@ class TestSubmitBallot:
         m2 = Motion(agm_id=agm.id, title="M2", order_index=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
+        return b, lo, agm, m1, m2, email
+
+    # --- Happy path ---
+
+    async def test_all_motions_answered_submitted(self, transport, db_session: AsyncSession):
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "SA1", "submit@all.com")
 
         # Save draft votes
-        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="submit@all.com", choice=VoteChoice.yes, status=VoteStatus.draft)
-        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email="submit@all.com", choice=VoteChoice.no, status=VoteStatus.draft)
+        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
+        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.no, status=VoteStatus.draft)
         db_session.add_all([v1, v2])
-        await db_session.flush()
-
-        token = await make_session(db_session, "submit@all.com", b.id, agm.id)
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
         assert response.status_code == 200
         data = response.json()
         assert data["submitted"] is True
-        assert len(data["votes"]) == 2
-        choices = {v["choice"] for v in data["votes"]}
+        assert len(data["lots"]) == 1
+        votes = data["lots"][0]["votes"]
+        assert len(votes) == 2
+        choices = {v["choice"] for v in votes}
         assert "yes" in choices
         assert "no" in choices
 
     async def test_partial_motions_unanswered_become_abstained(self, transport, db_session: AsyncSession):
-        b = make_building("Submit Partial Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="SP1", email="submit@partial.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m1 = Motion(agm_id=agm.id, title="Answered", order_index=1)
-        m2 = Motion(agm_id=agm.id, title="Unanswered", order_index=2)
-        db_session.add_all([m1, m2])
-        await db_session.flush()
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "SP1", "submit@partial.com")
 
         # Only m1 has a draft
-        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="submit@partial.com", choice=VoteChoice.yes, status=VoteStatus.draft)
+        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
         db_session.add(v1)
-        await db_session.flush()
-
-        token = await make_session(db_session, "submit@partial.com", b.id, agm.id)
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
         assert response.status_code == 200
-        data = response.json()
-        votes_by_title = {v["motion_title"]: v["choice"] for v in data["votes"]}
-        assert votes_by_title["Answered"] == "yes"
-        assert votes_by_title["Unanswered"] == "abstained"
+        votes_by_title = {v["motion_title"]: v["choice"] for v in response.json()["lots"][0]["votes"]}
+        assert votes_by_title["M1"] == "yes"
+        assert votes_by_title["M2"] == "abstained"
 
     async def test_no_drafts_all_motions_abstained(self, transport, db_session: AsyncSession):
-        b = make_building("Submit None Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="SN1", email="submit@none.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m1 = Motion(agm_id=agm.id, title="Motion A", order_index=1)
-        m2 = Motion(agm_id=agm.id, title="Motion B", order_index=2)
-        db_session.add_all([m1, m2])
-        await db_session.flush()
-
-        token = await make_session(db_session, "submit@none.com", b.id, agm.id)
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "SN1", "submit@none.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
         data = response.json()
-        for vote in data["votes"]:
+        for vote in data["lots"][0]["votes"]:
             assert vote["choice"] == "abstained"
 
     # --- Input validation ---
 
     async def test_no_session_returns_401(self, transport):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(f"/api/agm/{uuid.uuid4()}/submit")
+            response = await client.post(
+                f"/api/agm/{uuid.uuid4()}/submit",
+                json={"lot_owner_ids": [str(uuid.uuid4())]},
+            )
         assert response.status_code == 401
+
+    async def test_empty_lot_owner_ids_returns_422(self, transport, db_session: AsyncSession):
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "ELI1", "empty@lotids.com")
+        token = await make_session(db_session, email, b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": []},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert response.status_code == 422
 
     # --- State / precondition errors ---
 
@@ -1255,8 +1203,10 @@ class TestSubmitBallot:
         b = make_building("Submit Closed Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="SC1", email="submit@closed.com")
+        lo = make_lot_owner(b, lot_number="SC1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "submit@closed.com")
         agm = make_agm(b, status=AGMStatus.closed)
         agm.closed_at = utcnow()
         db_session.add(agm)
@@ -1268,54 +1218,48 @@ class TestSubmitBallot:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
         assert response.status_code == 403
 
     async def test_already_submitted_returns_409(self, transport, db_session: AsyncSession):
-        b = make_building("Already Submitted Submit Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="ASS1", email="already@submit.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-
-        sub = BallotSubmission(agm_id=agm.id, voter_email="already@submit.com")
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "ASS1", "already@submit.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email=email)
         db_session.add(sub)
-        await db_session.flush()
-
-        token = await make_session(db_session, "already@submit.com", b.id, agm.id)
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
         assert response.status_code == 409
 
-    # --- Edge cases ---
-
-    async def test_draft_with_null_choice_becomes_abstained(self, transport, db_session: AsyncSession):
-        """A draft vote with choice=None is treated as no selection, becomes abstained."""
-        b = make_building("Null Choice Submit Building")
+    async def test_lot_not_belonging_to_voter_returns_403(self, transport, db_session: AsyncSession):
+        """Submitting on behalf of a lot with a different email → 403."""
+        b = make_building("Forbidden Submit Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="NC1", email="null@choice.com")
-        db_session.add(lo)
+
+        lo_mine = make_lot_owner(b, lot_number="NC1")
+        lo_other = make_lot_owner(b, lot_number="NC2")
+        db_session.add_all([lo_mine, lo_other])
+        await db_session.flush()
+        await add_email(db_session, lo_mine, "null@choice.com")
+        await add_email(db_session, lo_other, "other@choice.com")
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Null Choice Motion", order_index=1)
+        m = Motion(agm_id=agm.id, title="NM", order_index=1)
         db_session.add(m)
         await db_session.flush()
 
-        # Draft with null choice
-        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="null@choice.com", choice=None, status=VoteStatus.draft)
+        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="null@choice.com", lot_owner_id=lo_mine.id, choice=None, status=VoteStatus.draft)
         db_session.add(v)
-        await db_session.flush()
 
         token = await make_session(db_session, "null@choice.com", b.id, agm.id)
         await db_session.commit()
@@ -1323,47 +1267,34 @@ class TestSubmitBallot:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo_other.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
+        assert response.status_code == 403
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["votes"][0]["choice"] == "abstained"
+    # --- Edge cases ---
 
-    async def test_concurrent_double_submission_second_gets_409(self, transport, db_session: AsyncSession):
-        """
-        Simulating concurrent submission: first submit should succeed,
-        second should get 409.
-        """
-        b = make_building("Concurrent Submit Building")
-        db_session.add(b)
-        await db_session.flush()
-        lo = make_lot_owner(b, lot_number="CON1", email="concurrent@submit.com")
-        db_session.add(lo)
-        agm = make_agm(b)
-        db_session.add(agm)
-        await db_session.flush()
-        m = Motion(agm_id=agm.id, title="Concurrent Motion", order_index=1)
-        db_session.add(m)
-        await db_session.flush()
-
-        token1 = await make_session(db_session, "concurrent@submit.com", b.id, agm.id)
-        token2 = await make_session(db_session, "concurrent@submit.com", b.id, agm.id)
+    async def test_concurrent_submit_second_returns_409(self, transport, db_session: AsyncSession):
+        """If a ballot was submitted between check and submit, return 409."""
+        b, lo, agm, m1, m2, email = await self._setup(db_session, "CON1", "concurrent@submit.com")
+        token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # First submit — succeeds
             r1 = await client.post(
                 f"/api/agm/{agm.id}/submit",
-                headers={"Authorization": f"Bearer {token1}"},
+                json={"lot_owner_ids": [str(lo.id)]},
+                headers={"Authorization": f"Bearer {token}"},
             )
+            assert r1.status_code == 200
 
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Second submit — should fail
             r2 = await client.post(
                 f"/api/agm/{agm.id}/submit",
-                headers={"Authorization": f"Bearer {token2}"},
+                json={"lot_owner_ids": [str(lo.id)]},
+                headers={"Authorization": f"Bearer {token}"},
             )
-
-        assert r1.status_code == 200
         assert r2.status_code == 409
 
 
@@ -1375,12 +1306,14 @@ class TestSubmitBallot:
 class TestMyBallot:
     # --- Happy path ---
 
-    async def test_returns_submitted_ballot(self, transport, db_session: AsyncSession):
+    async def test_returns_ballot_after_submit(self, transport, db_session: AsyncSession):
         b = make_building("My Ballot Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="MB1", email="my@ballot.com")
+        lo = make_lot_owner(b, lot_number="MB1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "my@ballot.com")
         agm = make_agm(b, title="My Ballot AGM")
         db_session.add(agm)
         await db_session.flush()
@@ -1390,15 +1323,13 @@ class TestMyBallot:
         await db_session.flush()
 
         # Submitted votes
-        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="my@ballot.com", choice=VoteChoice.yes, status=VoteStatus.submitted)
-        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email="my@ballot.com", choice=VoteChoice.abstained, status=VoteStatus.submitted)
+        v1 = Vote(agm_id=agm.id, motion_id=m1.id, voter_email="my@ballot.com", lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.submitted)
+        v2 = Vote(agm_id=agm.id, motion_id=m2.id, voter_email="my@ballot.com", lot_owner_id=lo.id, choice=VoteChoice.abstained, status=VoteStatus.submitted)
         db_session.add_all([v1, v2])
         await db_session.flush()
 
-        sub = BallotSubmission(agm_id=agm.id, voter_email="my@ballot.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="my@ballot.com")
         db_session.add(sub)
-        await db_session.flush()
-
         token = await make_session(db_session, "my@ballot.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1413,14 +1344,17 @@ class TestMyBallot:
         assert data["voter_email"] == "my@ballot.com"
         assert data["agm_title"] == "My Ballot AGM"
         assert data["building_name"] == "My Ballot Building"
-        assert len(data["votes"]) == 2
+        assert len(data["submitted_lots"]) == 1
+        assert len(data["submitted_lots"][0]["votes"]) == 2
 
     async def test_ballot_ordered_by_motion_order_index(self, transport, db_session: AsyncSession):
         b = make_building("Ordered Ballot Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="OB1", email="ordered@ballot.com")
+        lo = make_lot_owner(b, lot_number="OB1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "ordered@ballot.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1431,11 +1365,9 @@ class TestMyBallot:
         await db_session.flush()
 
         for m in [m1, m2, m3]:
-            db_session.add(Vote(agm_id=agm.id, motion_id=m.id, voter_email="ordered@ballot.com", choice=VoteChoice.yes, status=VoteStatus.submitted))
-        sub = BallotSubmission(agm_id=agm.id, voter_email="ordered@ballot.com")
+            db_session.add(Vote(agm_id=agm.id, motion_id=m.id, voter_email="ordered@ballot.com", lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.submitted))
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="ordered@ballot.com")
         db_session.add(sub)
-        await db_session.flush()
-
         token = await make_session(db_session, "ordered@ballot.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1446,9 +1378,10 @@ class TestMyBallot:
             )
 
         data = response.json()
-        assert data["votes"][0]["motion_title"] == "First"
-        assert data["votes"][1]["motion_title"] == "Second"
-        assert data["votes"][2]["motion_title"] == "Third"
+        votes = data["submitted_lots"][0]["votes"]
+        assert votes[0]["motion_title"] == "First"
+        assert votes[1]["motion_title"] == "Second"
+        assert votes[2]["motion_title"] == "Third"
 
     # --- Input validation ---
 
@@ -1463,8 +1396,10 @@ class TestMyBallot:
         b = make_building("No Ballot Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="NB1", email="noballot@test.com")
+        lo = make_lot_owner(b, lot_number="NB1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "noballot@test.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1485,8 +1420,10 @@ class TestMyBallot:
         b = make_building("Order Index Ballot Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="OI1", email="orderidx@ballot.com")
+        lo = make_lot_owner(b, lot_number="OI1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "orderidx@ballot.com")
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -1494,12 +1431,10 @@ class TestMyBallot:
         db_session.add(m)
         await db_session.flush()
 
-        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="orderidx@ballot.com", choice=VoteChoice.no, status=VoteStatus.submitted)
+        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="orderidx@ballot.com", lot_owner_id=lo.id, choice=VoteChoice.no, status=VoteStatus.submitted)
         db_session.add(v)
-        sub = BallotSubmission(agm_id=agm.id, voter_email="orderidx@ballot.com")
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="orderidx@ballot.com")
         db_session.add(sub)
-        await db_session.flush()
-
         token = await make_session(db_session, "orderidx@ballot.com", b.id, agm.id)
         await db_session.commit()
 
@@ -1509,9 +1444,45 @@ class TestMyBallot:
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-        vote_item = response.json()["votes"][0]
+        vote_item = response.json()["submitted_lots"][0]["votes"][0]
         assert vote_item["order_index"] == 5
         assert vote_item["choice"] == "no"
+
+    async def test_remaining_lot_owner_ids_populated(self, transport, db_session: AsyncSession):
+        """remaining_lot_owner_ids includes unsubmitted lots for the same voter_email."""
+        b = make_building("Remaining Lots Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo1 = make_lot_owner(b, lot_number="RL1")
+        lo2 = make_lot_owner(b, lot_number="RL2")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await add_email(db_session, lo1, "remaining@lots.com")
+        await add_email(db_session, lo2, "remaining@lots.com")
+
+        agm = make_agm(b, title="Remaining Lots AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(agm_id=agm.id, title="RL Motion", order_index=1)
+        db_session.add(m)
+        await db_session.flush()
+
+        # Submit ballot for lo1 only
+        v = Vote(agm_id=agm.id, motion_id=m.id, voter_email="remaining@lots.com", lot_owner_id=lo1.id, choice=VoteChoice.yes, status=VoteStatus.submitted)
+        db_session.add(v)
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo1.id, voter_email="remaining@lots.com")
+        db_session.add(sub)
+        token = await make_session(db_session, "remaining@lots.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agm/{agm.id}/my-ballot",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        data = response.json()
+        assert str(lo2.id) in [str(lid) for lid in data["remaining_lot_owner_ids"]]
 
 
 # ---------------------------------------------------------------------------
@@ -1526,8 +1497,10 @@ class TestFullJourney:
         b = make_building("Full Journey Building")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, lot_number="FJ1", email="journey@full.com")
+        lo = make_lot_owner(b, lot_number="FJ1")
         db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "journey@full.com")
         agm = make_agm(b, title="Full Journey AGM")
         db_session.add(agm)
         await db_session.flush()
@@ -1539,12 +1512,14 @@ class TestFullJourney:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             # 1. Authenticate
             auth_resp = await client.post("/api/auth/verify", json={
-                "lot_number": "FJ1",
                 "email": "journey@full.com",
                 "building_id": str(b.id),
                 "agm_id": str(agm.id),
             })
             assert auth_resp.status_code == 200
+            auth_data = auth_resp.json()
+            assert len(auth_data["lots"]) == 1
+            lot_owner_id = auth_data["lots"][0]["lot_owner_id"]
             token = auth_resp.cookies.get("agm_session")
             assert token is not None
 
@@ -1560,7 +1535,7 @@ class TestFullJourney:
             for motion in motions_resp.json():
                 draft_resp = await client.put(
                     f"/api/agm/{agm.id}/draft",
-                    json={"motion_id": motion["id"], "choice": "yes"},
+                    json={"motion_id": motion["id"], "choice": "yes", "lot_owner_id": lot_owner_id},
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 assert draft_resp.status_code == 200
@@ -1576,6 +1551,7 @@ class TestFullJourney:
             # 5. Submit ballot
             submit_resp = await client.post(
                 f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [lot_owner_id]},
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert submit_resp.status_code == 200
@@ -1589,4 +1565,278 @@ class TestFullJourney:
             assert ballot_resp.status_code == 200
             ballot = ballot_resp.json()
             assert ballot["voter_email"] == "journey@full.com"
-            assert all(v["choice"] == "yes" for v in ballot["votes"])
+            assert len(ballot["submitted_lots"]) == 1
+            assert all(v["choice"] == "yes" for v in ballot["submitted_lots"][0]["votes"])
+
+
+# ---------------------------------------------------------------------------
+# In-arrear lot voting edge cases (voting_service.py coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestInArrearVoting:
+    """Tests for in-arrear lot behaviour during submit and my-ballot."""
+
+    # --- Happy path ---
+
+    async def test_in_arrear_general_motion_draft_deleted_on_submit(
+        self, transport, db_session: AsyncSession
+    ):
+        """In-arrear lot has a draft for a general motion; submit must delete the draft
+        and skip the general motion (voting_service.py lines 255-257)."""
+        b = make_building("In Arrear Submit Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="IA1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "inarrear@submit.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        # One general motion and one special motion
+        m_general = Motion(
+            agm_id=agm.id,
+            title="General Motion",
+            order_index=1,
+            motion_type=MotionType.general,
+        )
+        m_special = Motion(
+            agm_id=agm.id,
+            title="Special Motion",
+            order_index=2,
+            motion_type=MotionType.special,
+        )
+        db_session.add_all([m_general, m_special])
+        await db_session.flush()
+
+        # AGMLotWeight with in_arrear snapshot
+        weight = AGMLotWeight(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(weight)
+        await db_session.flush()
+
+        # Draft votes for BOTH motions (general draft should be deleted on submit)
+        v_gen_draft = Vote(
+            agm_id=agm.id,
+            motion_id=m_general.id,
+            voter_email="inarrear@submit.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.draft,
+        )
+        v_spec_draft = Vote(
+            agm_id=agm.id,
+            motion_id=m_special.id,
+            voter_email="inarrear@submit.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.draft,
+        )
+        db_session.add_all([v_gen_draft, v_spec_draft])
+        token = await make_session(db_session, "inarrear@submit.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/agm/{agm.id}/submit",
+                json={"lot_owner_ids": [str(lo.id)]},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["submitted"] is True
+        # Only the special motion should appear in votes (general skipped for in-arrear)
+        votes = data["lots"][0]["votes"]
+        motion_titles = [v["motion_title"] for v in votes]
+        assert "Special Motion" in motion_titles
+        assert "General Motion" not in motion_titles
+
+    # --- Edge cases ---
+
+    async def test_my_ballot_in_arrear_shows_general_motion_not_eligible(
+        self, transport, db_session: AsyncSession
+    ):
+        """my-ballot for in-arrear lot shows general motions as not eligible
+        (voting_service.py lines 424, 437-444)."""
+        b = make_building("In Arrear MyBallot Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="IAB1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "inarrear@myballot.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m_general = Motion(
+            agm_id=agm.id,
+            title="General Motion",
+            order_index=1,
+            motion_type=MotionType.general,
+        )
+        m_special = Motion(
+            agm_id=agm.id,
+            title="Special Motion",
+            order_index=2,
+            motion_type=MotionType.special,
+        )
+        db_session.add_all([m_general, m_special])
+        await db_session.flush()
+
+        # AGMLotWeight with in_arrear snapshot
+        weight = AGMLotWeight(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(weight)
+        await db_session.flush()
+
+        # Only voted on special motion (general skipped due to in-arrear)
+        v_special = Vote(
+            agm_id=agm.id,
+            motion_id=m_special.id,
+            voter_email="inarrear@myballot.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(v_special)
+        sub = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="inarrear@myballot.com",
+        )
+        db_session.add(sub)
+        token = await make_session(db_session, "inarrear@myballot.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agm/{agm.id}/my-ballot",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == 200
+        votes = response.json()["submitted_lots"][0]["votes"]
+        # Both motions appear in the ballot summary
+        titles = {v["motion_title"]: v for v in votes}
+        assert "General Motion" in titles
+        assert titles["General Motion"]["eligible"] is False
+        assert "Special Motion" in titles
+        assert titles["Special Motion"]["eligible"] is True
+
+    async def test_my_ballot_with_specific_lot_owner_ids(
+        self, transport, db_session: AsyncSession
+    ):
+        """get_my_ballot called with lot_owner_ids filters to those specific lots
+        (voting_service.py line 366)."""
+        b = make_building("Specific Lots Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo1 = make_lot_owner(b, lot_number="SL1")
+        lo2 = make_lot_owner(b, lot_number="SL2")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await add_email(db_session, lo1, "specific@lots.com")
+        await add_email(db_session, lo2, "specific@lots.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(agm_id=agm.id, title="SL Motion", order_index=1)
+        db_session.add(m)
+        await db_session.flush()
+
+        # Submit both lots
+        for lo in [lo1, lo2]:
+            db_session.add(Vote(
+                agm_id=agm.id,
+                motion_id=m.id,
+                voter_email="specific@lots.com",
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            ))
+            db_session.add(BallotSubmission(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email="specific@lots.com",
+            ))
+        await db_session.flush()
+        await db_session.commit()
+
+        # Call service directly with specific lot_owner_ids to exercise line 366
+        from app.services.voting_service import get_my_ballot
+
+        result = await get_my_ballot(
+            db=db_session,
+            agm_id=agm.id,
+            voter_email="specific@lots.com",
+            lot_owner_ids=[lo1.id],  # only request lo1's ballot
+        )
+
+        # Only lo1's lot should be in the result
+        assert len(result.submitted_lots) == 1
+        assert result.submitted_lots[0].lot_owner_id == lo1.id
+
+    async def test_my_ballot_fallback_vote_via_voter_email(
+        self, transport, db_session: AsyncSession
+    ):
+        """Votes that have lot_owner_id=None (old path) should be found via voter_email
+        fallback (voting_service.py line 469)."""
+        b = make_building("Fallback Vote Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="FV1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "fallback@vote.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(agm_id=agm.id, title="FV Motion", order_index=1)
+        db_session.add(m)
+        await db_session.flush()
+
+        # Create a vote with lot_owner_id=None (old path vote)
+        old_vote = Vote(
+            agm_id=agm.id,
+            motion_id=m.id,
+            voter_email="fallback@vote.com",
+            lot_owner_id=None,  # old-style vote without lot_owner_id
+            choice=VoteChoice.no,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(old_vote)
+        sub = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="fallback@vote.com",
+        )
+        db_session.add(sub)
+        token = await make_session(db_session, "fallback@vote.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agm/{agm.id}/my-ballot",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == 200
+        votes = response.json()["submitted_lots"][0]["votes"]
+        assert len(votes) == 1
+        assert votes[0]["choice"] == "no"

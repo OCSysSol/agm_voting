@@ -37,6 +37,7 @@ from app.models import (
     EmailDelivery,
     EmailDeliveryStatus,
     LotOwner,
+    LotOwnerEmail,
     Motion,
     Vote,
     VoteChoice,
@@ -105,10 +106,12 @@ async def _create_lot_owner(db: AsyncSession, building: Building, email: str, un
     lo = LotOwner(
         building_id=building.id,
         lot_number=f"L{uuid.uuid4().hex[:6]}",
-        email=email,
         unit_entitlement=unit_entitlement,
     )
     db.add(lo)
+    await db.flush()
+    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=email)
+    db.add(lo_email)
     await db.flush()
     return lo
 
@@ -117,7 +120,6 @@ async def _create_lot_weight(db: AsyncSession, agm: AGM, lot_owner: LotOwner) ->
     w = AGMLotWeight(
         agm_id=agm.id,
         lot_owner_id=lot_owner.id,
-        voter_email=lot_owner.email,
         unit_entitlement_snapshot=lot_owner.unit_entitlement,
     )
     db.add(w)
@@ -125,8 +127,8 @@ async def _create_lot_weight(db: AsyncSession, agm: AGM, lot_owner: LotOwner) ->
     return w
 
 
-async def _create_ballot(db: AsyncSession, agm: AGM, email: str) -> BallotSubmission:
-    bs = BallotSubmission(agm_id=agm.id, voter_email=email)
+async def _create_ballot(db: AsyncSession, agm: AGM, lot_owner: LotOwner, email: str) -> BallotSubmission:
+    bs = BallotSubmission(agm_id=agm.id, lot_owner_id=lot_owner.id, voter_email=email)
     db.add(bs)
     await db.flush()
     return bs
@@ -456,7 +458,7 @@ class TestSendReport:
         motion = await _create_motion(db_session, agm)
         lo = await _create_lot_owner(db_session, building, "voter@example.com", 100)
         await _create_lot_weight(db_session, agm, lo)
-        await _create_ballot(db_session, agm, "voter@example.com")
+        await _create_ballot(db_session, agm, lo, "voter@example.com")
         await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes)
         await db_session.commit()
 

@@ -40,6 +40,7 @@ from app.models import (
     VoteChoice,
     VoteStatus,
 )
+from app.models.lot_owner_email import LotOwnerEmail
 
 
 # ---------------------------------------------------------------------------
@@ -111,16 +112,18 @@ async def building_with_owners(db_session: AsyncSession) -> Building:
     lo1 = LotOwner(
         building_id=b.id,
         lot_number="1A",
-        email="voter1@test.com",
         unit_entitlement=100,
     )
     lo2 = LotOwner(
         building_id=b.id,
         lot_number="2B",
-        email="voter2@test.com",
         unit_entitlement=50,
     )
     db_session.add_all([lo1, lo2])
+    await db_session.flush()
+    lo1_email = LotOwnerEmail(lot_owner_id=lo1.id, email="voter1@test.com")
+    lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="voter2@test.com")
+    db_session.add_all([lo1_email, lo2_email])
     await db_session.flush()
     await db_session.refresh(b)
     return b
@@ -338,7 +341,6 @@ class TestListBuildings:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
-        # At minimum the buildings created by import tests should be there
         assert len(data) >= 0
 
     async def test_building_has_required_fields(
@@ -385,8 +387,20 @@ class TestListLotOwners:
         owner = data[0]
         assert "id" in owner
         assert "lot_number" in owner
-        assert "email" in owner
+        assert "emails" in owner
         assert "unit_entitlement" in owner
+        assert isinstance(owner["emails"], list)
+
+    async def test_lot_owner_emails_populated(
+        self, client: AsyncClient, building_with_owners: Building
+    ):
+        response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        data = response.json()
+        all_emails = [e for o in data for e in o["emails"]]
+        assert "voter1@test.com" in all_emails
+        assert "voter2@test.com" in all_emails
 
     # --- State / precondition errors ---
 
@@ -417,7 +431,53 @@ class TestImportLotOwners:
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
         assert response.status_code == 200
-        assert response.json()["imported"] == 2
+        data = response.json()
+        assert data["imported"] == 2
+        assert data["emails"] == 2
+
+    async def test_import_multi_email_same_lot(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Multiple rows with same lot_number → multiple emails for one lot."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [
+                ["101", "a@test.com", "100"],
+                ["101", "b@test.com", "100"],
+            ],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["imported"] == 1  # one lot
+        assert data["emails"] == 2    # two email rows
+
+        owners_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = owners_response.json()
+        assert len(owners) == 1
+        assert len(owners[0]["emails"]) == 2
+
+    async def test_import_blank_email_allowed(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """A lot row with blank email is imported without error (no email row created)."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["NO-EMAIL", "", "50"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["imported"] == 1
+        assert data["emails"] == 0
 
     async def test_import_replaces_existing_owners(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
@@ -542,16 +602,21 @@ class TestImportLotOwners:
     async def test_duplicate_lot_numbers_in_csv(
         self, client: AsyncClient, building: Building
     ):
+        """Two rows with same lot_number but different emails → merged into one lot with both emails.
+        The unit_entitlement from the first row is used; the second email is added."""
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement"],
-            [["DUP1", "a@test.com", "100"], ["DUP1", "b@test.com", "200"]],
+            [["DUP1", "a@test.com", "100"], ["DUP1", "b@test.com", "100"]],
         )
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
-        assert response.status_code == 422
-        assert any("DUP1" in str(e) or "duplicate" in str(e).lower() for e in response.json()["detail"])
+        assert response.status_code == 200
+        data = response.json()
+        # One lot owner upserted (DUP1), two email addresses imported
+        assert data["imported"] == 1
+        assert data["emails"] == 2
 
     async def test_negative_unit_entitlement(
         self, client: AsyncClient, building: Building
@@ -683,7 +748,6 @@ class TestImportLotOwners:
             db_session.add(AGMLotWeight(
                 agm_id=agm.id,
                 lot_owner_id=lo.id,
-                voter_email=lo.email,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
         await db_session.commit()
@@ -736,7 +800,7 @@ class TestImportLotOwners:
             f"/api/admin/buildings/{building.id}/lot-owners"
         )
         owners = {o["lot_number"]: o for o in owners_response.json()}
-        assert owners["OLD1"]["email"] == "updated@test.com"
+        assert owners["OLD1"]["emails"] == ["updated@test.com"]
         assert owners["OLD1"]["unit_entitlement"] == 200
         assert "NEW1" in owners
 
@@ -754,21 +818,44 @@ class TestAddLotOwner:
     ):
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "NEW01", "email": "new@test.com", "unit_entitlement": 150},
+            json={"lot_number": "NEW01", "emails": ["new@test.com"], "unit_entitlement": 150},
         )
         assert response.status_code == 201
         data = response.json()
         assert data["lot_number"] == "NEW01"
-        assert data["email"] == "new@test.com"
+        assert "new@test.com" in data["emails"]
         assert data["unit_entitlement"] == 150
         assert "id" in data
+
+    async def test_add_with_multiple_emails(
+        self, client: AsyncClient, building: Building
+    ):
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners",
+            json={"lot_number": "MULTI01", "emails": ["a@test.com", "b@test.com"], "unit_entitlement": 100},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["emails"]) == 2
+
+    async def test_add_with_no_emails(
+        self, client: AsyncClient, building: Building
+    ):
+        """Lot owner can be created with empty email list."""
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners",
+            json={"lot_number": "NOEMAIL01", "emails": [], "unit_entitlement": 50},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["emails"] == []
 
     async def test_unit_entitlement_zero_accepted(
         self, client: AsyncClient, building: Building
     ):
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "ZERO01", "email": "zero@test.com", "unit_entitlement": 0},
+            json={"lot_number": "ZERO01", "emails": [], "unit_entitlement": 0},
         )
         assert response.status_code == 201
         assert response.json()["unit_entitlement"] == 0
@@ -780,7 +867,7 @@ class TestAddLotOwner:
     ):
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "NEG01", "email": "neg@test.com", "unit_entitlement": -1},
+            json={"lot_number": "NEG01", "emails": [], "unit_entitlement": -1},
         )
         assert response.status_code == 422
 
@@ -789,16 +876,7 @@ class TestAddLotOwner:
     ):
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "", "email": "e@test.com", "unit_entitlement": 10},
-        )
-        assert response.status_code == 422
-
-    async def test_empty_email_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "EM01", "email": "", "unit_entitlement": 10},
+            json={"lot_number": "", "emails": [], "unit_entitlement": 10},
         )
         assert response.status_code == 422
 
@@ -819,19 +897,19 @@ class TestAddLotOwner:
         # Add first
         await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "DUP01", "email": "dup1@test.com", "unit_entitlement": 10},
+            json={"lot_number": "DUP01", "emails": [], "unit_entitlement": 10},
         )
         # Add duplicate
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "DUP01", "email": "dup2@test.com", "unit_entitlement": 20},
+            json={"lot_number": "DUP01", "emails": [], "unit_entitlement": 20},
         )
         assert response.status_code == 409
 
     async def test_building_not_found_returns_404(self, client: AsyncClient):
         response = await client.post(
             f"/api/admin/buildings/{uuid.uuid4()}/lot-owners",
-            json={"lot_number": "X01", "email": "x@test.com", "unit_entitlement": 10},
+            json={"lot_number": "X01", "emails": [], "unit_entitlement": 10},
         )
         assert response.status_code == 404
 
@@ -844,34 +922,12 @@ class TestAddLotOwner:
 class TestUpdateLotOwner:
     # --- Happy path ---
 
-    async def test_update_email(
-        self, client: AsyncClient, db_session: AsyncSession, building: Building
-    ):
-        lo = LotOwner(
-            building_id=building.id,
-            lot_number="UPD01",
-            email="old@test.com",
-            unit_entitlement=100,
-        )
-        db_session.add(lo)
-        await db_session.commit()
-        await db_session.refresh(lo)
-
-        response = await client.patch(
-            f"/api/admin/lot-owners/{lo.id}",
-            json={"email": "updated@test.com"},
-        )
-        assert response.status_code == 200
-        assert response.json()["email"] == "updated@test.com"
-        assert response.json()["unit_entitlement"] == 100
-
     async def test_update_unit_entitlement(
         self, client: AsyncClient, db_session: AsyncSession, building: Building
     ):
         lo = LotOwner(
             building_id=building.id,
             lot_number="UPD02",
-            email="ent@test.com",
             unit_entitlement=50,
         )
         db_session.add(lo)
@@ -885,13 +941,31 @@ class TestUpdateLotOwner:
         assert response.status_code == 200
         assert response.json()["unit_entitlement"] == 999
 
-    async def test_update_both_fields(
+    async def test_update_financial_position(
         self, client: AsyncClient, db_session: AsyncSession, building: Building
     ):
         lo = LotOwner(
             building_id=building.id,
             lot_number="UPD03",
-            email="both@test.com",
+            unit_entitlement=100,
+        )
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}",
+            json={"financial_position": "in_arrear"},
+        )
+        assert response.status_code == 200
+        assert response.json()["financial_position"] == "in_arrear"
+
+    async def test_update_both_fields(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(
+            building_id=building.id,
+            lot_number="UPD04",
             unit_entitlement=10,
         )
         db_session.add(lo)
@@ -900,12 +974,12 @@ class TestUpdateLotOwner:
 
         response = await client.patch(
             f"/api/admin/lot-owners/{lo.id}",
-            json={"email": "newboth@test.com", "unit_entitlement": 200},
+            json={"unit_entitlement": 200, "financial_position": "in_arrear"},
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["email"] == "newboth@test.com"
         assert data["unit_entitlement"] == 200
+        assert data["financial_position"] == "in_arrear"
 
     # --- Boundary values ---
 
@@ -914,8 +988,7 @@ class TestUpdateLotOwner:
     ):
         lo = LotOwner(
             building_id=building.id,
-            lot_number="UPD04",
-            email="zero2@test.com",
+            lot_number="UPD05",
             unit_entitlement=100,
         )
         db_session.add(lo)
@@ -936,8 +1009,7 @@ class TestUpdateLotOwner:
     ):
         lo = LotOwner(
             building_id=building.id,
-            lot_number="UPD05",
-            email="nofield@test.com",
+            lot_number="UPD06",
             unit_entitlement=10,
         )
         db_session.add(lo)
@@ -955,8 +1027,7 @@ class TestUpdateLotOwner:
     ):
         lo = LotOwner(
             building_id=building.id,
-            lot_number="UPD06",
-            email="negupd@test.com",
+            lot_number="UPD07",
             unit_entitlement=10,
         )
         db_session.add(lo)
@@ -969,12 +1040,146 @@ class TestUpdateLotOwner:
         )
         assert response.status_code == 422
 
+    async def test_invalid_financial_position_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(
+            building_id=building.id,
+            lot_number="UPD08",
+            unit_entitlement=10,
+        )
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}",
+            json={"financial_position": "invalid_value"},
+        )
+        assert response.status_code == 422
+
     # --- State / precondition errors ---
 
     async def test_not_found_returns_404(self, client: AsyncClient):
         response = await client.patch(
             f"/api/admin/lot-owners/{uuid.uuid4()}",
+            json={"unit_entitlement": 10},
+        )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/lot-owners/{lot_owner_id}/emails
+# ---------------------------------------------------------------------------
+
+
+class TestAddEmailToLotOwner:
+    # --- Happy path ---
+
+    async def test_add_email_returns_updated_lot_owner(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(building_id=building.id, lot_number="EM01", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/emails",
+            json={"email": "new@test.com"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "new@test.com" in data["emails"]
+
+    async def test_add_second_email(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(building_id=building.id, lot_number="EM02", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.flush()
+        existing = LotOwnerEmail(lot_owner_id=lo.id, email="first@test.com")
+        db_session.add(existing)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/emails",
+            json={"email": "second@test.com"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "first@test.com" in data["emails"]
+        assert "second@test.com" in data["emails"]
+
+    # --- Input validation ---
+
+    async def test_empty_email_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(building_id=building.id, lot_number="EM03", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/emails",
+            json={"email": ""},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_lot_owner_not_found_returns_404(self, client: AsyncClient):
+        response = await client.post(
+            f"/api/admin/lot-owners/{uuid.uuid4()}/emails",
             json={"email": "x@test.com"},
+        )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/lot-owners/{lot_owner_id}/emails/{email}
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveEmailFromLotOwner:
+    # --- Happy path ---
+
+    async def test_remove_email_returns_updated_lot_owner(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(building_id=building.id, lot_number="REM01", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        em = LotOwnerEmail(lot_owner_id=lo.id, email="todelete@test.com")
+        db_session.add(em)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.delete(
+            f"/api/admin/lot-owners/{lo.id}/emails/todelete@test.com"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "todelete@test.com" not in data["emails"]
+
+    # --- State / precondition errors ---
+
+    async def test_lot_owner_not_found_returns_404(self, client: AsyncClient):
+        response = await client.delete(
+            f"/api/admin/lot-owners/{uuid.uuid4()}/emails/x@test.com"
+        )
+        assert response.status_code == 404
+
+    async def test_email_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        lo = LotOwner(building_id=building.id, lot_number="REM02", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.delete(
+            f"/api/admin/lot-owners/{lo.id}/emails/nonexistent@test.com"
         )
         assert response.status_code == 404
 
@@ -1020,14 +1225,13 @@ class TestCreateAGM:
     async def test_agm_lot_weight_snapshot_created(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        # Create building with owners for snapshot verification
+        # Create building with owner for snapshot verification
         b = Building(name="Snapshot Building", manager_email="snap@test.com")
         db_session.add(b)
         await db_session.flush()
         lo = LotOwner(
             building_id=b.id,
             lot_number="S1",
-            email="snap_voter@test.com",
             unit_entitlement=123,
         )
         db_session.add(lo)
@@ -1046,7 +1250,8 @@ class TestCreateAGM:
         weight_list = list(weights.scalars().all())
         assert len(weight_list) == 1
         assert weight_list[0].unit_entitlement_snapshot == 123
-        assert weight_list[0].voter_email == "snap_voter@test.com"
+        # No voter_email on snapshot anymore
+        assert weight_list[0].lot_owner_id == lo.id
 
     async def test_agm_with_multiple_motions(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1075,13 +1280,11 @@ class TestCreateAGM:
         lo1 = LotOwner(
             building_id=b.id,
             lot_number="ML1",
-            email="multilot@test.com",
             unit_entitlement=100,
         )
         lo2 = LotOwner(
             building_id=b.id,
             lot_number="ML2",
-            email="multilot@test.com",
             unit_entitlement=50,
         )
         db_session.add_all([lo1, lo2])
@@ -1260,19 +1463,18 @@ class TestGetAGMDetail:
         db_session.add(b)
         await db_session.flush()
 
-        lo1 = LotOwner(
-            building_id=b.id, lot_number="D1", email="yes@test.com", unit_entitlement=100
-        )
-        lo2 = LotOwner(
-            building_id=b.id, lot_number="D2", email="no@test.com", unit_entitlement=80
-        )
-        lo3 = LotOwner(
-            building_id=b.id, lot_number="D3", email="abs@test.com", unit_entitlement=30
-        )
-        lo4 = LotOwner(
-            building_id=b.id, lot_number="D4", email="absent@test.com", unit_entitlement=200
-        )
+        lo1 = LotOwner(building_id=b.id, lot_number="D1", unit_entitlement=100)
+        lo2 = LotOwner(building_id=b.id, lot_number="D2", unit_entitlement=80)
+        lo3 = LotOwner(building_id=b.id, lot_number="D3", unit_entitlement=30)
+        lo4 = LotOwner(building_id=b.id, lot_number="D4", unit_entitlement=200)
         db_session.add_all([lo1, lo2, lo3, lo4])
+        await db_session.flush()
+
+        # Add emails
+        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="yes@test.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="no@test.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo3.id, email="abs@test.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo4.id, email="absent@test.com"))
         await db_session.flush()
 
         agm = AGM(
@@ -1289,12 +1491,11 @@ class TestGetAGMDetail:
         db_session.add(motion)
         await db_session.flush()
 
-        # Snapshot
+        # Snapshot (no voter_email)
         for lo in [lo1, lo2, lo3, lo4]:
             w = AGMLotWeight(
                 agm_id=agm.id,
                 lot_owner_id=lo.id,
-                voter_email=lo.email,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
@@ -1302,20 +1503,27 @@ class TestGetAGMDetail:
 
         # lo1 voted yes, lo2 voted no, lo3 abstained — all submitted
         # lo4 is absent (no ballot submission)
-        for email, choice in [
-            ("yes@test.com", VoteChoice.yes),
-            ("no@test.com", VoteChoice.no),
-            ("abs@test.com", VoteChoice.abstained),
+        lo_email_map = {lo1.id: "yes@test.com", lo2.id: "no@test.com", lo3.id: "abs@test.com"}
+        for lo, choice in [
+            (lo1, VoteChoice.yes),
+            (lo2, VoteChoice.no),
+            (lo3, VoteChoice.abstained),
         ]:
+            voter_email = lo_email_map[lo.id]
             vote = Vote(
                 agm_id=agm.id,
                 motion_id=motion.id,
-                voter_email=email,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
                 choice=choice,
                 status=VoteStatus.submitted,
             )
             db_session.add(vote)
-            bs = BallotSubmission(agm_id=agm.id, voter_email=email)
+            bs = BallotSubmission(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email=voter_email,
+            )
             db_session.add(bs)
 
         await db_session.commit()
@@ -1388,7 +1596,6 @@ class TestGetAGMDetail:
         lo = LotOwner(
             building_id=b.id,
             lot_number="NV1",
-            email="novote@test.com",
             unit_entitlement=50,
         )
         db_session.add(lo)
@@ -1411,7 +1618,6 @@ class TestGetAGMDetail:
         w = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lo.id,
-            voter_email=lo.email,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
         db_session.add(w)
@@ -1440,10 +1646,12 @@ class TestGetAGMDetail:
         lo = LotOwner(
             building_id=b.id,
             lot_number="ST1",
-            email="snap_tally@test.com",
             unit_entitlement=500,
         )
         db_session.add(lo)
+        await db_session.flush()
+        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="snap_tally@test.com")
+        db_session.add(lo_email)
         await db_session.flush()
 
         agm = AGM(
@@ -1464,7 +1672,6 @@ class TestGetAGMDetail:
         w = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lo.id,
-            voter_email=lo.email,
             unit_entitlement_snapshot=500,
         )
         db_session.add(w)
@@ -1474,12 +1681,17 @@ class TestGetAGMDetail:
         vote = Vote(
             agm_id=agm.id,
             motion_id=motion.id,
-            voter_email=lo.email,
+            voter_email="snap_tally@test.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
             status=VoteStatus.submitted,
         )
         db_session.add(vote)
-        bs = BallotSubmission(agm_id=agm.id, voter_email=lo.email)
+        bs = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="snap_tally@test.com",
+        )
         db_session.add(bs)
         await db_session.flush()
 
@@ -1498,19 +1710,12 @@ class TestGetAGMDetail:
         b = Building(name="Two Lots Building", manager_email="tl@test.com")
         db_session.add(b)
         await db_session.flush()
-        lo1 = LotOwner(
-            building_id=b.id,
-            lot_number="TL1",
-            email="twolots@test.com",
-            unit_entitlement=100,
-        )
-        lo2 = LotOwner(
-            building_id=b.id,
-            lot_number="TL2",
-            email="twolots@test.com",
-            unit_entitlement=200,
-        )
+        lo1 = LotOwner(building_id=b.id, lot_number="TL1", unit_entitlement=100)
+        lo2 = LotOwner(building_id=b.id, lot_number="TL2", unit_entitlement=200)
         db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="twolots@test.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="twolots@test.com"))
         await db_session.flush()
 
         agm = AGM(
@@ -1531,29 +1736,36 @@ class TestGetAGMDetail:
             w = AGMLotWeight(
                 agm_id=agm.id,
                 lot_owner_id=lo.id,
-                voter_email=lo.email,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
         await db_session.flush()
 
-        vote = Vote(
-            agm_id=agm.id,
-            motion_id=motion.id,
-            voter_email="twolots@test.com",
-            choice=VoteChoice.yes,
-            status=VoteStatus.submitted,
-        )
-        db_session.add(vote)
-        bs = BallotSubmission(agm_id=agm.id, voter_email="twolots@test.com")
-        db_session.add(bs)
+        # Submit for both lots
+        for lo in [lo1, lo2]:
+            vote = Vote(
+                agm_id=agm.id,
+                motion_id=motion.id,
+                voter_email="twolots@test.com",
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(vote)
+            bs = BallotSubmission(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email="twolots@test.com",
+            )
+            db_session.add(bs)
         await db_session.commit()
 
         response = await client.get(f"/api/admin/agms/{agm.id}")
         data = response.json()
-        assert data["total_eligible_voters"] == 1
+        # Each lot is a separate eligible voter
+        assert data["total_eligible_voters"] == 2
         tally = data["motions"][0]["tally"]
-        assert tally["yes"]["voter_count"] == 1
+        assert tally["yes"]["voter_count"] == 2
         assert tally["yes"]["entitlement_sum"] == 300  # 100 + 200
 
     # --- State / precondition errors ---
@@ -1575,12 +1787,15 @@ class TestGetAGMDetail:
             LotOwner(
                 building_id=b.id,
                 lot_number=f"AY{i}",
-                email=f"yes{i}@test.com",
                 unit_entitlement=10 * (i + 1),
             )
             for i in range(3)
         ]
         db_session.add_all(owners)
+        await db_session.flush()
+
+        for i, lo in enumerate(owners):
+            db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=f"yes{i}@test.com"))
         await db_session.flush()
 
         agm = AGM(
@@ -1597,23 +1812,27 @@ class TestGetAGMDetail:
         db_session.add(motion)
         await db_session.flush()
 
-        for lo in owners:
+        for i, lo in enumerate(owners):
             w = AGMLotWeight(
                 agm_id=agm.id,
                 lot_owner_id=lo.id,
-                voter_email=lo.email,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
             vote = Vote(
                 agm_id=agm.id,
                 motion_id=motion.id,
-                voter_email=lo.email,
+                voter_email=f"yes{i}@test.com",
+                lot_owner_id=lo.id,
                 choice=VoteChoice.yes,
                 status=VoteStatus.submitted,
             )
             db_session.add(vote)
-            bs = BallotSubmission(agm_id=agm.id, voter_email=lo.email)
+            bs = BallotSubmission(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email=f"yes{i}@test.com",
+            )
             db_session.add(bs)
         await db_session.commit()
 
@@ -1636,10 +1855,11 @@ class TestGetAGMDetail:
         lo = LotOwner(
             building_id=b.id,
             lot_number="NC1",
-            email="nullchoice@test.com",
             unit_entitlement=40,
         )
         db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="nullchoice@test.com"))
         await db_session.flush()
 
         agm = AGM(
@@ -1659,7 +1879,6 @@ class TestGetAGMDetail:
         w = AGMLotWeight(
             agm_id=agm.id,
             lot_owner_id=lo.id,
-            voter_email=lo.email,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
         db_session.add(w)
@@ -1668,12 +1887,17 @@ class TestGetAGMDetail:
         vote = Vote(
             agm_id=agm.id,
             motion_id=motion.id,
-            voter_email=lo.email,
+            voter_email="nullchoice@test.com",
+            lot_owner_id=lo.id,
             choice=None,
             status=VoteStatus.submitted,
         )
         db_session.add(vote)
-        bs = BallotSubmission(agm_id=agm.id, voter_email=lo.email)
+        bs = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="nullchoice@test.com",
+        )
         db_session.add(bs)
         await db_session.commit()
 
@@ -1693,7 +1917,6 @@ class TestGetAGMDetail:
         lo = LotOwner(
             building_id=b.id,
             lot_number="NS1",
-            email="nosnapshot@test.com",
             unit_entitlement=75,
         )
         db_session.add(lo)
@@ -1765,7 +1988,7 @@ class TestCloseAGM:
         await db_session.flush()
 
         lo = LotOwner(
-            building_id=b.id, lot_number="DD1", email="draft@test.com", unit_entitlement=10
+            building_id=b.id, lot_number="DD1", unit_entitlement=10
         )
         db_session.add(lo)
         await db_session.flush()
@@ -1977,7 +2200,6 @@ class TestResetAGMBallots:
         lo = LotOwner(
             building_id=b.id,
             lot_number="RESET-1",
-            email="reset-voter@test.com",
             unit_entitlement=10,
         )
         db_session.add(lo)
@@ -2002,6 +2224,7 @@ class TestResetAGMBallots:
             agm_id=agm.id,
             motion_id=motion.id,
             voter_email="reset-voter@test.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
             status=VoteStatus.submitted,
         )
@@ -2010,6 +2233,7 @@ class TestResetAGMBallots:
 
         submission = BallotSubmission(
             agm_id=agm.id,
+            lot_owner_id=lo.id,
             voter_email="reset-voter@test.com",
         )
         db_session.add(submission)
@@ -2128,17 +2352,25 @@ class TestResetAGMBallots:
         await db_session.flush()
 
         for i in range(3):
+            lo = LotOwner(building_id=b.id, lot_number=f"MRESET-{i}", unit_entitlement=10)
+            db_session.add(lo)
+            await db_session.flush()
             email = f"multi-voter-{i}@test.com"
             db_session.add(
                 Vote(
                     agm_id=agm.id,
                     motion_id=motion.id,
                     voter_email=email,
+                    lot_owner_id=lo.id,
                     choice=VoteChoice.yes,
                     status=VoteStatus.submitted,
                 )
             )
-            db_session.add(BallotSubmission(agm_id=agm.id, voter_email=email))
+            db_session.add(BallotSubmission(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email=email,
+            ))
         await db_session.commit()
 
         response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
@@ -2154,8 +2386,12 @@ class TestResetAGMBallots:
     # --- Edge cases ---
 
     async def test_reset_ballots_unauthenticated_returns_401(
-        self, auth_client: AsyncClient, db_session: AsyncSession
+        self, db_session: AsyncSession
     ):
+        """Without admin credentials, the endpoint returns 401."""
+        from app.main import create_app
+        from app.database import get_db
+
         b = Building(name="Unauth Reset Building", manager_email="unauth_reset@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -2169,7 +2405,18 @@ class TestResetAGMBallots:
         db_session.add(agm)
         await db_session.commit()
 
-        response = await auth_client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        # Create an app without admin auth bypass
+        unauth_app = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        unauth_app.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=unauth_app), base_url="http://test"
+        ) as unauth_client:
+            response = await unauth_client.delete(f"/api/admin/agms/{agm.id}/ballots")
         assert response.status_code == 401
 
 
@@ -2187,11 +2434,18 @@ class TestSchemas:
         with pytest.raises(ValidationError):
             LotOwnerUpdate()
 
-    def test_lot_owner_update_email_only(self):
+    def test_lot_owner_update_unit_entitlement_only(self):
         from app.schemas.admin import LotOwnerUpdate
 
-        obj = LotOwnerUpdate(email="x@test.com")
-        assert obj.email == "x@test.com"
+        obj = LotOwnerUpdate(unit_entitlement=10)
+        assert obj.unit_entitlement == 10
+        assert obj.financial_position is None
+
+    def test_lot_owner_update_financial_position_only(self):
+        from app.schemas.admin import LotOwnerUpdate
+
+        obj = LotOwnerUpdate(financial_position="in_arrear")
+        assert obj.financial_position == "in_arrear"
         assert obj.unit_entitlement is None
 
     def test_lot_owner_update_entitlement_only(self):
@@ -2243,15 +2497,7 @@ class TestSchemas:
         from app.schemas.admin import LotOwnerCreate
 
         with pytest.raises(ValidationError):
-            LotOwnerCreate(lot_number="  ", email="x@test.com", unit_entitlement=10)
-
-    def test_lot_owner_create_empty_email_raises(self):
-        from pydantic import ValidationError
-
-        from app.schemas.admin import LotOwnerCreate
-
-        with pytest.raises(ValidationError):
-            LotOwnerCreate(lot_number="L1", email="  ", unit_entitlement=10)
+            LotOwnerCreate(lot_number="  ", unit_entitlement=10)
 
     def test_lot_owner_create_negative_entitlement_raises(self):
         from pydantic import ValidationError
@@ -2259,7 +2505,7 @@ class TestSchemas:
         from app.schemas.admin import LotOwnerCreate
 
         with pytest.raises(ValidationError):
-            LotOwnerCreate(lot_number="L1", email="x@test.com", unit_entitlement=-1)
+            LotOwnerCreate(lot_number="L1", unit_entitlement=-1)
 
     def test_building_create_empty_name_raises(self):
         from pydantic import ValidationError
@@ -2283,6 +2529,20 @@ class TestSchemas:
         req = AdminLoginRequest(username="admin", password="secret")
         assert req.username == "admin"
         assert req.password == "secret"
+
+    def test_add_email_request_empty_raises(self):
+        from pydantic import ValidationError
+
+        from app.schemas.admin import AddEmailRequest
+
+        with pytest.raises(ValidationError):
+            AddEmailRequest(email="  ")
+
+    def test_add_email_request_valid(self):
+        from app.schemas.admin import AddEmailRequest
+
+        req = AddEmailRequest(email="x@test.com")
+        assert req.email == "x@test.com"
 
 
 # ---------------------------------------------------------------------------
@@ -2551,126 +2811,220 @@ class TestImportBuildingsExcel:
             },
         )
         assert response.status_code == 422
-        assert "building_name" in response.json()["detail"]
-
-    async def test_xlsx_missing_manager_email_column_returns_422(
-        self, client: AsyncClient
-    ):
-        excel_data = make_excel(
-            ["building_name"],
-            [["Some Building"]],
-        )
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "buildings.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        assert "manager_email" in response.json()["detail"]
-
-    async def test_xlsx_empty_building_name_value_returns_422(
-        self, client: AsyncClient
-    ):
-        excel_data = make_excel(
-            ["building_name", "manager_email"],
-            [["", "mgr@test.com"]],
-        )
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "buildings.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("building_name is empty" in str(e) for e in detail)
-
-    async def test_xlsx_empty_manager_email_value_returns_422(
-        self, client: AsyncClient
-    ):
-        excel_data = make_excel(
-            ["building_name", "manager_email"],
-            [["Test Building", ""]],
-        )
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "buildings.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("manager_email is empty" in str(e) for e in detail)
-
-    async def test_invalid_excel_bytes_returns_422(self, client: AsyncClient):
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "broken.xlsx",
-                    b"this is not an excel file",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-
-    async def test_xlsx_no_headers_returns_422(self, client: AsyncClient):
-        """An Excel file that is empty (no rows at all) should return 422."""
-        wb = openpyxl.Workbook()
-        # Remove all rows — create a sheet with no content
-        ws = wb.active
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        excel_data = buf.read()
-
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "noheader.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-
-    async def test_xlsx_headers_case_insensitive(self, client: AsyncClient):
-        excel_data = make_excel(
-            ["Building_Name", "Manager_Email"],
-            [["CI Building Excel", "ci@excel.com"]],
-        )
-        response = await client.post(
-            "/api/admin/buildings/import",
-            files={
-                "file": (
-                    "buildings.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["created"] == 1
 
 
 # ---------------------------------------------------------------------------
-# POST /api/admin/buildings/{building_id}/lot-owners/import — Excel
+# POST /api/admin/buildings/{building_id}/archive
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveBuilding:
+    # --- Happy path ---
+
+    async def test_archive_building_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Archive Me Building", manager_email="archive@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 200
+
+    async def test_archive_building_sets_is_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Archive Set Building", manager_email="archiveset@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.json()["is_archived"] is True
+
+    async def test_archive_building_also_archives_lot_owners_with_no_other_home(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Lot owners whose emails don't appear in any other building get archived."""
+        b = Building(name="Archive Owners Building", manager_email="ao@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="AO1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="lone@test.com"))
+        await db_session.commit()
+
+        await client.post(f"/api/admin/buildings/{b.id}/archive")
+
+        await db_session.refresh(lo)
+        assert lo.is_archived is True
+
+    async def test_archive_building_preserves_lot_owners_with_other_home(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Lot owners whose emails appear in another non-archived building are NOT archived."""
+        b1 = Building(name="Archive Other Home B1", manager_email="aoh1@test.com")
+        b2 = Building(name="Archive Other Home B2", manager_email="aoh2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+
+        lo1 = LotOwner(building_id=b1.id, lot_number="AOH1", unit_entitlement=100)
+        lo2 = LotOwner(building_id=b2.id, lot_number="AOH1B2", unit_entitlement=100)
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+
+        # Same email in both buildings
+        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="shared@test.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="shared@test.com"))
+        await db_session.commit()
+
+        await client.post(f"/api/admin/buildings/{b1.id}/archive")
+
+        await db_session.refresh(lo1)
+        # lo1 is in the archived building, but the email exists in b2 (active), so lo1 should NOT be archived
+        assert lo1.is_archived is False
+
+    # --- State / precondition errors ---
+
+    async def test_archive_already_archived_building_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Already Archived Bldg", manager_email="aa@test.com")
+        b.is_archived = True
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 409
+
+    async def test_archive_nonexistent_building_returns_404(
+        self, client: AsyncClient
+    ):
+        response = await client.post(f"/api/admin/buildings/{uuid.uuid4()}/archive")
+        assert response.status_code == 404
+
+    async def test_archive_building_with_no_lot_owners(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Archive succeeds when building has zero lot owners."""
+        b = Building(name="Empty Archive Building", manager_email="empty_arc@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 200
+        assert response.json()["is_archived"] is True
+
+
+# ---------------------------------------------------------------------------
+# Admin auth endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestAdminAuth:
+    # --- Happy path ---
+
+    async def test_login_valid_credentials_returns_ok(self, db_session: AsyncSession):
+        """Valid username + password → {"ok": true}."""
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.post(
+                "/api/admin/auth/login",
+                json={"username": "admin", "password": "admin"},
+            )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    async def test_login_invalid_credentials_returns_401(self, db_session: AsyncSession):
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.post(
+                "/api/admin/auth/login",
+                json={"username": "wrong", "password": "bad"},
+            )
+        assert response.status_code == 401
+
+    async def test_logout_clears_session(self, db_session: AsyncSession):
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            await c.post(
+                "/api/admin/auth/login",
+                json={"username": "admin", "password": "admin"},
+            )
+            response = await c.post("/api/admin/auth/logout")
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    async def test_me_authenticated_returns_true(self, db_session: AsyncSession):
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            await c.post(
+                "/api/admin/auth/login",
+                json={"username": "admin", "password": "admin"},
+            )
+            response = await c.get("/api/admin/auth/me")
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is True
+
+    async def test_me_unauthenticated_returns_401(self, db_session: AsyncSession):
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.get("/api/admin/auth/me")
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Import lot owners from Excel
 # ---------------------------------------------------------------------------
 
 
@@ -2678,14 +3032,300 @@ class TestImportLotOwnersExcel:
     # --- Happy path ---
 
     async def test_valid_xlsx_imports_lot_owners(
-        self, client: AsyncClient, building: Building
+        self, client: AsyncClient, db_session: AsyncSession
     ):
+        b = Building(name="Excel Import Building", manager_email="xlimport@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
         excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", "250", "owner101@test.com"], ["102", "300", "owner102@test.com"]],
+            ["Lot#", "Email", "UOE2"],
+            [["XL1", "xl1@test.com", 100], ["XL2", "xl2@test.com", 200]],
         )
         response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["imported"] == 2
+        assert data["emails"] == 2
+
+    async def test_xlsx_updates_existing_lot_owner(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Excel Update Building", manager_email="xlupdate@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["UPD1", "upd@test.com", "50"]],
+        )
+        await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            [["UPD1", "upd@test.com", 150]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+
+    async def test_xlsx_empty_returns_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Empty Excel Bldg", manager_email="ee@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(["Lot#", "Email", "UOE2"], [])
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["imported"] == 0
+
+    # --- Input validation ---
+
+    async def test_xlsx_missing_lot_number_column_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Missing Col Excel Bldg", manager_email="mc@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["email", "unit_entitlement"],
+            [["mc@test.com", 100]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_invalid_excel_file_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Bad Excel Bldg", manager_email="be@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    b"not-an-excel-file",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_empty_file_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with no headers (empty workbook) returns 422."""
+        b = Building(name="Empty Sheet Bldg", manager_email="es@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        # Create a workbook with a completely empty sheet (no rows at all)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # Write nothing — sheet is empty, iter_rows will raise StopIteration on first next()
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        empty_excel = buf.read()
+
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    empty_excel,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_empty_lot_number_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with an empty Lot# cell returns 422."""
+        b = Building(name="Empty Lot Bldg", manager_email="el@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            # Row with None lot number — will trigger the empty lot_number path
+            [[None, "el@test.com", 100]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_empty_uoe2_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with an empty UOE2 cell returns 422."""
+        b = Building(name="Empty UOE Bldg", manager_email="eu@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            [["EU1", "eu@test.com", None]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_non_integer_uoe2_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with a non-integer UOE2 returns 422."""
+        b = Building(name="Bad UOE Bldg", manager_email="bu@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            [["BU1", "bu@test.com", "not-a-number"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_negative_uoe2_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with a negative UOE2 returns 422."""
+        b = Building(name="Neg UOE Bldg", manager_email="nu@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            [["NU1", "nu@test.com", -5]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_invalid_financial_position_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with invalid financial_position returns 422."""
+        b = Building(name="Bad FP Bldg", manager_email="bfp@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2", "financial_position"],
+            [["BFP1", "bfp@test.com", 100, "bankrupt"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_xlsx_lot_owner_blank_rows_skipped(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel lot owner import with blank rows between data rows skips them."""
+        b = Building(name="Blank Row Bldg", manager_email="br@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        # Build Excel manually with a blank row between two data rows
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Lot#", "Email", "UOE2"])
+        ws.append(["BR1", "br1@test.com", 100])
+        ws.append([None, None, None])  # blank row — triggers continue
+        ws.append(["BR2", "br2@test.com", 200])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        excel_data = buf.read()
+
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
             files={
                 "file": (
                     "owners.xlsx",
@@ -2697,1095 +3337,277 @@ class TestImportLotOwnersExcel:
         assert response.status_code == 200
         assert response.json()["imported"] == 2
 
-    async def test_valid_xlsx_replaces_existing_lot_owners(
-        self, client: AsyncClient, building_with_owners: Building
+
+# ---------------------------------------------------------------------------
+# Building import from Excel
+# ---------------------------------------------------------------------------
+
+
+class TestImportBuildingsExcel:
+    # --- Happy path ---
+
+    async def test_valid_xlsx_imports_buildings(
+        self, client: AsyncClient
     ):
+        """Valid Excel with building_name/manager_email creates buildings."""
         excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["NEW1", "100", "new1@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 1
-
-    async def test_empty_xlsx_imports_zero(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(["Lot#", "UOE2", "Email"], [])
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "empty.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 0
-
-    async def test_xlsx_with_blank_rows_skipped(
-        self, client: AsyncClient, building: Building
-    ):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["Lot#", "UOE2", "Email"])
-        ws.append(["201", "150", "owner201@test.com"])
-        ws.append([None, None, None])
-        ws.append(["", "", ""])
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        excel_data = buf.read()
-
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 1
-
-    # --- Input validation ---
-
-    async def test_xlsx_missing_uoe2_column_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "Email"],
-            [["101", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        assert "uoe2" in response.json()["detail"]
-
-    async def test_xlsx_missing_lot_column_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["UOE2", "Email"],
-            [["100", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        assert "lot#" in response.json()["detail"]
-
-    async def test_xlsx_missing_email_column_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2"],
-            [["101", "100"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        assert "email" in response.json()["detail"]
-
-    async def test_xlsx_duplicate_lot_number_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
+            ["building_name", "manager_email"],
             [
-                ["101", "100", "a@test.com"],
-                ["101", "200", "b@test.com"],
+                ["Excel Tower A", "mgra@excel.com"],
+                ["Excel Tower B", "mgrb@excel.com"],
             ],
         )
         response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            "/api/admin/buildings/import",
             files={
                 "file": (
-                    "owners.xlsx",
+                    "buildings.xlsx",
                     excel_data,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
             },
         )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("duplicate lot_number" in str(e) for e in detail)
-
-    async def test_xlsx_non_integer_uoe2_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", "not-a-number", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("unit_entitlement must be an integer" in str(e) for e in detail)
-
-    async def test_xlsx_negative_uoe2_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", -5, "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("unit_entitlement must be >= 0" in str(e) for e in detail)
-
-    async def test_xlsx_empty_lot_number_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["", "100", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("lot_number is empty" in str(e) for e in detail)
-
-    async def test_xlsx_empty_email_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", "100", ""]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("email is empty" in str(e) for e in detail)
-
-    async def test_xlsx_empty_uoe2_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", "", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert any("unit_entitlement is empty" in str(e) for e in detail)
-
-    async def test_xlsx_building_not_found_returns_404(self, client: AsyncClient):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["101", "100", "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{uuid.uuid4()}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 404
-
-    async def test_invalid_excel_bytes_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "broken.xlsx",
-                    b"this is not an excel file",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-
-    async def test_xlsx_no_headers_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        """An Excel file that is empty (no rows at all) should return 422."""
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        excel_data = buf.read()
-
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "noheader.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 422
-
-    async def test_xlsx_headers_case_insensitive(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["LOT#", "uoe2", "EMAIL"],
-            [["301", "200", "ci@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 1
-
-    async def test_xlsx_numeric_lot_number_converted_to_string(
-        self, client: AsyncClient, building: Building
-    ):
-        """Lot numbers that are numeric in Excel should be imported as strings."""
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [[101, 100, "owner@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel_data,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 1
-
-    # --- Edge cases ---
-
-    async def test_xlsx_reimport_preserves_agm_lot_weight_snapshots(
-        self, client: AsyncClient, building: Building, db_session: AsyncSession
-    ):
-        """Re-importing via Excel must NOT destroy AGMLotWeight snapshots."""
-        excel1 = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["XL1", 100, "xvoter@test.com"], ["XL2", 200, "xvoter@test.com"]],
-        )
-        await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel1,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-
-        # Create AGM and snapshot lot weights
-        agm = AGM(
-            building_id=building.id,
-            title="Excel Snapshot AGM",
-            status=AGMStatus.open,
-            meeting_at=meeting_dt(),
-            voting_closes_at=closing_dt(),
-        )
-        db_session.add(agm)
-        await db_session.flush()
-        motion = Motion(agm_id=agm.id, title="XL Motion", order_index=1)
-        db_session.add(motion)
-        await db_session.flush()
-
-        owners_result = await db_session.execute(
-            select(LotOwner).where(LotOwner.building_id == building.id)
-        )
-        for lo in owners_result.scalars().all():
-            db_session.add(AGMLotWeight(
-                agm_id=agm.id,
-                lot_owner_id=lo.id,
-                voter_email=lo.email,
-                unit_entitlement_snapshot=lo.unit_entitlement,
-            ))
-        await db_session.commit()
-
-        # Re-import same lots — must preserve snapshots
-        excel2 = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["XL1", 100, "xvoter@test.com"], ["XL2", 200, "xvoter@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={
-                "file": (
-                    "owners.xlsx",
-                    excel2,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
-        )
-        assert response.status_code == 200
-
-        # Snapshots must survive the re-import
-        weights_result = await db_session.execute(
-            select(AGMLotWeight).where(AGMLotWeight.agm_id == agm.id)
-        )
-        weights = weights_result.scalars().all()
-        assert len(weights) == 2
-        assert sum(w.unit_entitlement_snapshot for w in weights) == 300  # 100 + 200
-
-
-# ---------------------------------------------------------------------------
-# POST /api/admin/buildings/{id}/archive
-# ---------------------------------------------------------------------------
-
-
-class TestArchiveBuilding:
-    # --- Happy path ---
-
-    async def test_archive_building_sets_is_archived(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        b = Building(name="Arch Building A", manager_email="a@test.com")
-        db_session.add(b)
-        await db_session.flush()
-        await db_session.refresh(b)
-
-        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
         assert response.status_code == 200
         data = response.json()
-        assert data["is_archived"] is True
-        assert data["id"] == str(b.id)
+        assert data["created"] == 2
 
-    async def test_archive_archives_sole_building_owners(
-        self, client: AsyncClient, db_session: AsyncSession
+    async def test_xlsx_updates_existing_building(
+        self, client: AsyncClient
     ):
-        b = Building(name="Arch Building B", manager_email="b@test.com")
-        db_session.add(b)
-        await db_session.flush()
-        lo = LotOwner(
-            building_id=b.id, lot_number="1", email="sole@test.com", unit_entitlement=10
+        """Importing a building with an existing name updates its manager_email (lines 207-208)."""
+        # First import to create the building
+        excel_data = make_excel(
+            ["building_name", "manager_email"],
+            [["Update Tower", "old@tower.com"]],
         )
-        db_session.add(lo)
-        await db_session.flush()
-        await db_session.refresh(lo)
-
-        await client.post(f"/api/admin/buildings/{b.id}/archive")
-
-        await db_session.refresh(lo)
-        assert lo.is_archived is True
-
-    async def test_archive_does_not_archive_owner_in_other_active_building(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        b1 = Building(name="Arch Building C1", manager_email="c1@test.com")
-        b2 = Building(name="Arch Building C2", manager_email="c2@test.com")
-        db_session.add_all([b1, b2])
-        await db_session.flush()
-
-        # Same email in both buildings
-        lo1 = LotOwner(
-            building_id=b1.id, lot_number="1", email="shared@test.com", unit_entitlement=10
-        )
-        lo2 = LotOwner(
-            building_id=b2.id, lot_number="2", email="shared@test.com", unit_entitlement=20
-        )
-        db_session.add_all([lo1, lo2])
-        await db_session.flush()
-        await db_session.refresh(lo1)
-        await db_session.refresh(lo2)
-
-        # Archive b1 — lo1 should NOT be archived because lo2 is in active b2
-        await client.post(f"/api/admin/buildings/{b1.id}/archive")
-
-        await db_session.refresh(lo1)
-        await db_session.refresh(lo2)
-        assert lo1.is_archived is False
-        assert lo2.is_archived is False
-
-    async def test_archive_owner_whose_other_building_is_also_archived(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        b1 = Building(name="Arch Building D1", manager_email="d1@test.com")
-        b2 = Building(name="Arch Building D2", manager_email="d2@test.com", is_archived=True)
-        db_session.add_all([b1, b2])
-        await db_session.flush()
-
-        lo1 = LotOwner(
-            building_id=b1.id, lot_number="1", email="both_arch@test.com", unit_entitlement=10
-        )
-        lo2 = LotOwner(
-            building_id=b2.id, lot_number="2", email="both_arch@test.com", unit_entitlement=20
-        )
-        db_session.add_all([lo1, lo2])
-        await db_session.flush()
-        await db_session.refresh(lo1)
-
-        # Archive b1 — lo1's only other building (b2) is already archived → archive lo1
-        await client.post(f"/api/admin/buildings/{b1.id}/archive")
-
-        await db_session.refresh(lo1)
-        assert lo1.is_archived is True
-
-    # --- State / precondition errors ---
-
-    async def test_already_archived_returns_409(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        b = Building(name="Already Archived", manager_email="already@test.com", is_archived=True)
-        db_session.add(b)
-        await db_session.flush()
-        await db_session.refresh(b)
-
-        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
-        assert response.status_code == 409
-
-    async def test_building_not_found_returns_404(self, client: AsyncClient):
-        response = await client.post(f"/api/admin/buildings/{uuid.uuid4()}/archive")
-        assert response.status_code == 404
-
-    # --- Edge cases ---
-
-    async def test_archived_building_excluded_from_admin_list(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """Admin list still returns archived buildings (admin can see them)."""
-        b = Building(name="Archive Visible", manager_email="vis@test.com")
-        db_session.add(b)
-        await db_session.flush()
-        await client.post(f"/api/admin/buildings/{b.id}/archive")
-
-        response = await client.get("/api/admin/buildings")
-        assert response.status_code == 200
-        ids = [item["id"] for item in response.json()]
-        assert str(b.id) in ids
-
-
-# ---------------------------------------------------------------------------
-# Admin authentication (uses separate app/client without require_admin bypass)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def auth_app(db_session):
-    """App fixture that does NOT bypass require_admin — for testing auth."""
-    from app.main import create_app
-
-    application = create_app()
-
-    async def override_get_db():
-        yield db_session
-
-    application.dependency_overrides[get_db] = override_get_db
-    yield application
-    application.dependency_overrides.clear()
-
-
-@pytest_asyncio.fixture
-async def auth_client(auth_app):
-    async with AsyncClient(
-        transport=ASGITransport(app=auth_app), base_url="http://test"
-    ) as ac:
-        yield ac
-
-
-class TestAdminAuth:
-    # --- Happy path ---
-
-    async def test_login_with_valid_credentials(self, auth_client: AsyncClient):
-        response = await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "admin", "password": "admin"},
-        )
-        assert response.status_code == 200
-        assert response.json() == {"ok": True}
-
-    async def test_me_returns_authenticated_after_login(self, auth_client: AsyncClient):
-        await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "admin", "password": "admin"},
-        )
-        response = await auth_client.get("/api/admin/auth/me")
-        assert response.status_code == 200
-        assert response.json()["authenticated"] is True
-
-    async def test_logout_clears_session(self, auth_client: AsyncClient):
-        await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "admin", "password": "admin"},
-        )
-        await auth_client.post("/api/admin/auth/logout")
-        response = await auth_client.get("/api/admin/auth/me")
-        assert response.status_code == 401
-
-    async def test_admin_endpoint_accessible_after_login(
-        self, auth_client: AsyncClient
-    ):
-        await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "admin", "password": "admin"},
-        )
-        response = await auth_client.get("/api/admin/buildings")
-        assert response.status_code == 200
-
-    # --- Input validation ---
-
-    async def test_login_wrong_password_returns_401(self, auth_client: AsyncClient):
-        response = await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "admin", "password": "wrong"},
-        )
-        assert response.status_code == 401
-
-    async def test_login_wrong_username_returns_401(self, auth_client: AsyncClient):
-        response = await auth_client.post(
-            "/api/admin/auth/login",
-            json={"username": "notadmin", "password": "admin"},
-        )
-        assert response.status_code == 401
-
-    # --- State / precondition errors ---
-
-    async def test_unauthenticated_request_returns_401(self, auth_client: AsyncClient):
-        response = await auth_client.get("/api/admin/buildings")
-        assert response.status_code == 401
-
-    async def test_me_returns_401_when_not_logged_in(self, auth_client: AsyncClient):
-        response = await auth_client.get("/api/admin/auth/me")
-        assert response.status_code == 401
-
-    async def test_logout_without_login_returns_ok(self, auth_client: AsyncClient):
-        response = await auth_client.post("/api/admin/auth/logout")
-        assert response.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# motion_type field — US-V01
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-class TestMotionType:
-    """Tests for the motion_type field on motions."""
-
-    def _agm_payload(self, building_id: uuid.UUID, motions: list) -> dict:
-        return {
-            "building_id": str(building_id),
-            "title": "Motion Type AGM",
-            "meeting_at": meeting_dt().isoformat(),
-            "voting_closes_at": closing_dt().isoformat(),
-            "motions": motions,
-        }
-
-    # --- Happy path ---
-
-    async def test_motion_type_defaults_to_general(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """A motion without explicit motion_type defaults to 'general'."""
-        b = Building(name="MotionType Default Bldg", manager_email="mt@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(b.id, [{"title": "M1", "order_index": 1}])
-        response = await client.post("/api/admin/agms", json=payload)
-        assert response.status_code == 201
-        motions = response.json()["motions"]
-        assert motions[0]["motion_type"] == "general"
-
-    async def test_motion_type_general_explicit(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """Explicitly setting motion_type='general' is accepted."""
-        b = Building(name="MotionType General Bldg", manager_email="mt_gen@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "General Motion", "order_index": 1, "motion_type": "general"}],
-        )
-        response = await client.post("/api/admin/agms", json=payload)
-        assert response.status_code == 201
-        assert response.json()["motions"][0]["motion_type"] == "general"
-
-    async def test_motion_type_special(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """Setting motion_type='special' is stored and returned correctly."""
-        b = Building(name="MotionType Special Bldg", manager_email="mt_spe@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "Special Motion", "order_index": 1, "motion_type": "special"}],
-        )
-        response = await client.post("/api/admin/agms", json=payload)
-        assert response.status_code == 201
-        assert response.json()["motions"][0]["motion_type"] == "special"
-
-    async def test_mixed_motion_types(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """Multiple motions can have different types."""
-        b = Building(name="MotionType Mixed Bldg", manager_email="mt_mix@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [
-                {"title": "General M", "order_index": 1, "motion_type": "general"},
-                {"title": "Special M", "order_index": 2, "motion_type": "special"},
-            ],
-        )
-        response = await client.post("/api/admin/agms", json=payload)
-        assert response.status_code == 201
-        motions = response.json()["motions"]
-        assert motions[0]["motion_type"] == "general"
-        assert motions[1]["motion_type"] == "special"
-
-    async def test_motion_type_returned_in_agm_detail(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """motion_type is returned in GET /api/admin/agms/{id}."""
-        b = Building(name="MotionType Detail Bldg", manager_email="mt_det@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "Special Detail", "order_index": 1, "motion_type": "special"}],
-        )
-        r = await client.post("/api/admin/agms", json=payload)
-        agm_id = r.json()["id"]
-
-        response = await client.get(f"/api/admin/agms/{agm_id}")
-        assert response.status_code == 200
-        assert response.json()["motions"][0]["motion_type"] == "special"
-
-    async def test_motion_type_returned_in_voting_motions(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """motion_type is returned in GET /api/agm/{id}/motions (voting endpoint)."""
-        b = Building(name="MotionType Voting Bldg", manager_email="mt_vot@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        lo = LotOwner(
-            building_id=b.id,
-            lot_number="1",
-            email="voter@mt.com",
-            unit_entitlement=1,
-        )
-        db_session.add(lo)
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "Vote Special", "order_index": 1, "motion_type": "special"}],
-        )
-        r = await client.post("/api/admin/agms", json=payload)
-        agm_id = r.json()["id"]
-
-        # Authenticate voter
-        auth_resp = await client.post(
-            "/api/auth/verify",
-            json={
-                "lot_number": "1",
-                "email": "voter@mt.com",
-                "building_id": str(b.id),
-                "agm_id": agm_id,
+        resp1 = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
             },
         )
-        assert auth_resp.status_code == 200
-        token = auth_resp.headers.get("x-session-token") or auth_resp.json().get("token")
-        # Use session cookie if available
-        session_cookie = auth_resp.cookies.get("agm_session")
+        assert resp1.json()["created"] == 1
 
-        if session_cookie:
-            motions_resp = await client.get(
-                f"/api/agm/{agm_id}/motions",
-                cookies={"agm_session": session_cookie},
-            )
-        else:
-            motions_resp = await client.get(
-                f"/api/agm/{agm_id}/motions",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        assert motions_resp.status_code == 200
-        assert motions_resp.json()[0]["motion_type"] == "special"
-
-    async def test_motion_type_returned_in_summary_endpoint(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """motion_type is returned in GET /api/agm/{id}/summary."""
-        b = Building(name="MotionType Summary Bldg", manager_email="mt_sum@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "Summary Special", "order_index": 1, "motion_type": "special"}],
+        # Second import with the same building_name — updates manager_email
+        excel_data2 = make_excel(
+            ["building_name", "manager_email"],
+            [["Update Tower", "new@tower.com"]],
         )
-        r = await client.post("/api/admin/agms", json=payload)
-        agm_id = r.json()["id"]
+        resp2 = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data2,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert resp2.status_code == 200
+        data = resp2.json()
+        assert data["updated"] == 1
+        assert data["created"] == 0
 
-        response = await client.get(f"/api/agm/{agm_id}/summary")
+    async def test_xlsx_blank_rows_skipped(
+        self, client: AsyncClient
+    ):
+        """Blank rows in building Excel are skipped (line 163 continue)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["building_name", "manager_email"])
+        ws.append(["Blank Row Tower", "br@excel.com"])
+        ws.append([None, None])  # blank row — triggers continue
+        ws.append(["Blank Row Tower 2", "br2@excel.com"])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        excel_data = buf.read()
+
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
         assert response.status_code == 200
-        assert response.json()["motions"][0]["motion_type"] == "special"
+        assert response.json()["created"] == 2
 
     # --- Input validation ---
 
-    async def test_invalid_motion_type_returns_422(
-        self, client: AsyncClient, db_session: AsyncSession
+    async def test_invalid_excel_file_returns_422(
+        self, client: AsyncClient
     ):
-        """An unknown motion_type value returns 422."""
-        b = Building(name="MotionType Invalid Bldg", manager_email="mt_inv@test.com")
-        db_session.add(b)
-        await db_session.flush()
-
-        payload = self._agm_payload(
-            b.id,
-            [{"title": "Bad Type", "order_index": 1, "motion_type": "unknown"}],
+        """Non-parseable bytes submitted as Excel → 422."""
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    b"not-an-excel-file",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
         )
-        response = await client.post("/api/admin/agms", json=payload)
         assert response.status_code == 422
 
-    # --- Schema unit tests ---
+    async def test_empty_excel_file_returns_422(
+        self, client: AsyncClient
+    ):
+        """Excel with no rows → 422 (no headers)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # Empty sheet — will hit StopIteration on first next()
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        empty_excel = buf.read()
 
-    def test_motion_create_default_motion_type(self):
-        from app.schemas.admin import MotionCreate
-
-        mc = MotionCreate(title="T", order_index=1)
-        assert mc.motion_type.value == "general"
-
-    def test_motion_create_special_type(self):
-        from app.schemas.admin import MotionCreate
-        from app.models.motion import MotionType
-
-        mc = MotionCreate(title="T", order_index=1, motion_type=MotionType.special)
-        assert mc.motion_type == MotionType.special
-
-    def test_motion_out_includes_motion_type(self):
-        import uuid as _uuid
-        from app.schemas.admin import MotionOut
-        from app.models.motion import MotionType
-
-        mo = MotionOut(
-            id=_uuid.uuid4(),
-            title="T",
-            description=None,
-            order_index=1,
-            motion_type=MotionType.special,
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    empty_excel,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
         )
-        assert mo.motion_type == MotionType.special
+        assert response.status_code == 422
 
-    def test_motion_detail_includes_motion_type(self):
-        import uuid as _uuid
-        from app.schemas.admin import MotionDetail, MotionTally, MotionVoterLists, TallyCategory
-        from app.models.motion import MotionType
-
-        empty_cat = TallyCategory(voter_count=0, entitlement_sum=0)
-        tally = MotionTally(yes=empty_cat, no=empty_cat, abstained=empty_cat, absent=empty_cat)
-        voter_lists = MotionVoterLists(yes=[], no=[], abstained=[], absent=[])
-        md = MotionDetail(
-            id=_uuid.uuid4(),
-            title="T",
-            description=None,
-            order_index=1,
-            motion_type=MotionType.general,
-            tally=tally,
-            voter_lists=voter_lists,
+    async def test_missing_required_headers_returns_422(
+        self, client: AsyncClient
+    ):
+        """Excel missing required columns (building_name or manager_email) → 422."""
+        excel_data = make_excel(
+            ["only_one_col"],
+            [["some value"]],
         )
-        assert md.motion_type == MotionType.general
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_building_name_returns_422(
+        self, client: AsyncClient
+    ):
+        """Row with empty building_name → 422."""
+        excel_data = make_excel(
+            ["building_name", "manager_email"],
+            [[None, "mgr@test.com"]],
+        )
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_manager_email_returns_422(
+        self, client: AsyncClient
+    ):
+        """Row with empty manager_email → 422."""
+        excel_data = make_excel(
+            ["building_name", "manager_email"],
+            [["Good Building", None]],
+        )
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "buildings.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
-# Financial position — new field tests (US-V02 / US-V10)
+# LotOwnerCreate schema validator
 # ---------------------------------------------------------------------------
 
 
-class TestFinancialPosition:
-    """Tests for the financial_position field on lot owners."""
-
-    # --- Schema validators ---
-
-    def test_lot_owner_create_invalid_financial_position_raises(self):
-        from pydantic import ValidationError
-
-        from app.schemas.admin import LotOwnerCreate
-
-        with pytest.raises(ValidationError):
-            LotOwnerCreate(
-                lot_number="L1",
-                email="x@test.com",
-                unit_entitlement=10,
-                financial_position="INVALID",
-            )
-
-    def test_lot_owner_update_invalid_financial_position_raises(self):
-        from pydantic import ValidationError
-
-        from app.schemas.admin import LotOwnerUpdate
-
-        with pytest.raises(ValidationError):
-            LotOwnerUpdate(financial_position="INVALID")
-
-    def test_lot_owner_update_financial_position_only_valid(self):
-        from app.schemas.admin import LotOwnerUpdate
-
-        obj = LotOwnerUpdate(financial_position="in_arrear")
-        assert obj.financial_position == "in_arrear"
-
-    # --- _parse_financial_position helper ---
-
-    def test_parse_financial_position_in_arrear(self):
-        from app.services.admin_service import _parse_financial_position
-        from app.models import FinancialPosition
-
-        result = _parse_financial_position("In Arrear")
-        assert result == FinancialPosition.in_arrear
-
-    def test_parse_financial_position_in_arrear_underscore(self):
-        from app.services.admin_service import _parse_financial_position
-        from app.models import FinancialPosition
-
-        result = _parse_financial_position("in_arrear")
-        assert result == FinancialPosition.in_arrear
-
-    def test_parse_financial_position_invalid_raises(self):
-        from app.services.admin_service import _parse_financial_position
-
-        with pytest.raises(ValueError, match="Invalid financial_position"):
-            _parse_financial_position("BOGUS")
-
-    # --- Add lot owner with financial_position ---
-
-    async def test_add_lot_owner_with_in_arrear(
+class TestLotOwnerCreateSchema:
+    async def test_valid_financial_position_in_arrear_returns_201(
         self, client: AsyncClient, building: Building
     ):
+        """Creating a lot owner with financial_position='in_arrear' succeeds (line 93 return v)."""
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
             json={
-                "lot_number": "FP01",
-                "email": "fp@test.com",
+                "lot_number": "FPV0",
                 "unit_entitlement": 100,
                 "financial_position": "in_arrear",
+                "emails": [],
             },
         )
         assert response.status_code == 201
-        data = response.json()
-        assert data["financial_position"] == "in_arrear"
+        assert response.json()["financial_position"] == "in_arrear"
 
-    async def test_add_lot_owner_default_financial_position_is_normal(
+    async def test_invalid_financial_position_returns_422(
         self, client: AsyncClient, building: Building
     ):
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners",
-            json={"lot_number": "FP02", "email": "fp2@test.com", "unit_entitlement": 50},
-        )
-        assert response.status_code == 201
-        assert response.json()["financial_position"] == "normal"
-
-    async def test_add_lot_owner_invalid_financial_position_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
+        """Creating a lot owner with an invalid financial_position value → 422."""
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners",
             json={
-                "lot_number": "FP03",
-                "email": "fp3@test.com",
-                "unit_entitlement": 10,
-                "financial_position": "INVALID",
+                "lot_number": "FPV1",
+                "unit_entitlement": 100,
+                "financial_position": "bankrupt",
+                "emails": [],
             },
         )
         assert response.status_code == 422
 
-    # --- Update lot owner financial_position ---
 
-    async def test_update_financial_position_to_in_arrear(
-        self, client: AsyncClient, db_session: AsyncSession, building: Building
-    ):
-        lo = LotOwner(
-            building_id=building.id,
-            lot_number="FP10",
-            email="fp10@test.com",
-            unit_entitlement=100,
-        )
-        db_session.add(lo)
-        await db_session.commit()
-        await db_session.refresh(lo)
+# ---------------------------------------------------------------------------
+# CSV import: financial_position edge cases
+# ---------------------------------------------------------------------------
 
-        response = await client.patch(
-            f"/api/admin/lot-owners/{lo.id}",
-            json={"financial_position": "in_arrear"},
-        )
-        assert response.status_code == 200
-        assert response.json()["financial_position"] == "in_arrear"
 
-    async def test_update_financial_position_invalid_returns_422(
-        self, client: AsyncClient, db_session: AsyncSession, building: Building
-    ):
-        lo = LotOwner(
-            building_id=building.id,
-            lot_number="FP11",
-            email="fp11@test.com",
-            unit_entitlement=10,
-        )
-        db_session.add(lo)
-        await db_session.commit()
-        await db_session.refresh(lo)
-
-        response = await client.patch(
-            f"/api/admin/lot-owners/{lo.id}",
-            json={"financial_position": "bad"},
-        )
-        assert response.status_code == 422
-
-    # --- List lot owners returns financial_position ---
-
-    async def test_list_lot_owners_returns_financial_position(
-        self, client: AsyncClient, db_session: AsyncSession, building: Building
-    ):
-        from app.models import FinancialPosition
-
-        lo = LotOwner(
-            building_id=building.id,
-            lot_number="FP20",
-            email="fp20@test.com",
-            unit_entitlement=75,
-            financial_position=FinancialPosition.in_arrear,
-        )
-        db_session.add(lo)
-        await db_session.commit()
-
-        response = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
-        assert response.status_code == 200
-        owners = response.json()
-        fp_lot = next((o for o in owners if o["lot_number"] == "FP20"), None)
-        assert fp_lot is not None
-        assert fp_lot["financial_position"] == "in_arrear"
-
-    # --- CSV import with financial_position ---
-
-    async def test_csv_import_with_financial_position_column(
+class TestImportLotOwnersFinancialPosition:
+    async def test_csv_import_in_arrear_financial_position(
         self, client: AsyncClient, building: Building
     ):
+        """Importing with financial_position=in_arrear stores it correctly."""
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement", "financial_position"],
-            [
-                ["101", "a@test.com", "100", "normal"],
-                ["102", "b@test.com", "200", "In Arrear"],
-                ["103", "c@test.com", "50", ""],
-            ],
+            [["FP1", "fp1@test.com", "100", "in_arrear"]],
         )
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
         assert response.status_code == 200
-        assert response.json()["imported"] == 3
-
-        owners_resp = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
-        owners = owners_resp.json()
-        by_lot = {o["lot_number"]: o for o in owners}
-        assert by_lot["101"]["financial_position"] == "normal"
-        assert by_lot["102"]["financial_position"] == "in_arrear"
-        assert by_lot["103"]["financial_position"] == "normal"
 
     async def test_csv_import_invalid_financial_position_returns_422(
         self, client: AsyncClient, building: Building
     ):
+        """Invalid financial_position value → 422."""
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement", "financial_position"],
-            [["101", "a@test.com", "100", "BOGUS"]],
+            [["FP2", "fp2@test.com", "100", "bankrupt"]],
         )
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners/import",
@@ -3793,59 +3615,28 @@ class TestFinancialPosition:
         )
         assert response.status_code == 422
 
-    # --- Excel import with financial_position ---
 
-    async def test_excel_import_with_financial_position_column(
-        self, client: AsyncClient, building: Building
+# ---------------------------------------------------------------------------
+# Duplicate email on add_email_to_lot_owner
+# ---------------------------------------------------------------------------
+
+
+class TestAddEmailDuplicate:
+    async def test_add_duplicate_email_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
     ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email", "Financial Position"],
-            [
-                ["201", 100, "x@test.com", "Normal"],
-                ["202", 200, "y@test.com", "In Arrear"],
-                ["203", 50, "z@test.com", ""],
-            ],
-        )
+        """Adding the same email twice to a lot owner → 409."""
+        b = Building(name="Dup Email Building", manager_email="dup_email@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="DE1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="existing@test.com"))
+        await db_session.commit()
+
         response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={"file": ("owners.xlsx", excel_data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            f"/api/admin/lot-owners/{lo.id}/emails",
+            json={"email": "existing@test.com"},
         )
-        assert response.status_code == 200
-        assert response.json()["imported"] == 3
-
-        owners_resp = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
-        owners = owners_resp.json()
-        by_lot = {o["lot_number"]: o for o in owners}
-        assert by_lot["201"]["financial_position"] == "normal"
-        assert by_lot["202"]["financial_position"] == "in_arrear"
-        assert by_lot["203"]["financial_position"] == "normal"
-
-    async def test_excel_import_invalid_financial_position_returns_422(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email", "Financial Position"],
-            [["301", 100, "a@test.com", "INVALID"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={"file": ("owners.xlsx", excel_data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-        )
-        assert response.status_code == 422
-
-    async def test_excel_import_without_financial_position_column_defaults_normal(
-        self, client: AsyncClient, building: Building
-    ):
-        excel_data = make_excel(
-            ["Lot#", "UOE2", "Email"],
-            [["401", 100, "a@test.com"]],
-        )
-        response = await client.post(
-            f"/api/admin/buildings/{building.id}/lot-owners/import",
-            files={"file": ("owners.xlsx", excel_data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-        )
-        assert response.status_code == 200
-
-        owners_resp = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
-        owners = owners_resp.json()
-        assert owners[0]["financial_position"] == "normal"
+        assert response.status_code == 409

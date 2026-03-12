@@ -7,9 +7,10 @@ Voting endpoints (all require valid session):
   GET  /api/agm/{agm_id}/my-ballot
 """
 import uuid
-from typing import Annotated
+from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +35,10 @@ from app.services.voting_service import (
 )
 
 router = APIRouter()
+
+
+class SubmitBallotRequest(BaseModel):
+    lot_owner_ids: list[uuid.UUID]
 
 
 @router.get("/agm/{agm_id}/motions", response_model=list[MotionOut])
@@ -87,6 +92,7 @@ async def save_draft_endpoint(
         motion_id=body.motion_id,
         voter_email=session.voter_email,
         choice=body.choice,
+        lot_owner_id=body.lot_owner_id,
     )
     await db.commit()
     return DraftSaveResponse(saved=True)
@@ -95,6 +101,7 @@ async def save_draft_endpoint(
 @router.get("/agm/{agm_id}/drafts", response_model=DraftsResponse)
 async def get_drafts_endpoint(
     agm_id: uuid.UUID,
+    lot_owner_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
     agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
@@ -102,21 +109,32 @@ async def get_drafts_endpoint(
     """Return all saved draft choices for the voter. Requires valid session."""
     session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
 
-    drafts = await get_drafts(db=db, agm_id=agm_id, voter_email=session.voter_email)
+    drafts = await get_drafts(
+        db=db,
+        agm_id=agm_id,
+        voter_email=session.voter_email,
+        lot_owner_id=lot_owner_id,
+    )
     return DraftsResponse(drafts=drafts)
 
 
 @router.post("/agm/{agm_id}/submit", response_model=SubmitResponse)
 async def submit_ballot_endpoint(
     agm_id: uuid.UUID,
+    body: SubmitBallotRequest,
     db: AsyncSession = Depends(get_db),
     agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> SubmitResponse:
-    """Formally submit the ballot. Requires valid session."""
+    """Formally submit the ballot for the specified lots. Requires valid session."""
     session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
 
-    result = await submit_ballot(db=db, agm_id=agm_id, voter_email=session.voter_email)
+    result = await submit_ballot(
+        db=db,
+        agm_id=agm_id,
+        voter_email=session.voter_email,
+        lot_owner_ids=body.lot_owner_ids,
+    )
     await db.commit()
     return result
 
