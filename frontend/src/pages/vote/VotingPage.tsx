@@ -73,8 +73,7 @@ export function VotingPage() {
     const findBuilding = async () => {
       for (const building of buildings) {
         try {
-          const { fetchGeneralMeetings: fetch } = await import("../../api/voter");
-          const meetings = await fetch(building.id);
+          const meetings = await fetchGeneralMeetings(building.id);
           const found = meetings.find((a) => a.id === meetingId);
           if (found) {
             setCurrentMeeting(found);

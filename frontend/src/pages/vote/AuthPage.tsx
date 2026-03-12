@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchBuildings, verifyAuth } from "../../api/voter";
+import { fetchBuildings, fetchGeneralMeetings, verifyAuth } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
@@ -29,8 +29,7 @@ export function AuthPage() {
     const findBuilding = async () => {
       for (const building of buildings) {
         try {
-          const { fetchGeneralMeetings: fetch } = await import("../../api/voter");
-          const meetings = await fetch(building.id);
+          const meetings = await fetchGeneralMeetings(building.id);
           const found = meetings.find((a) => a.id === meetingId);
           if (found) {
             setFoundBuildingId(building.id);
