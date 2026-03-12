@@ -19,6 +19,12 @@ const existingLotOwner: LotOwner = {
   proxy_email: null,
 };
 
+const multiEmailOwner: LotOwner = {
+  ...existingLotOwner,
+  id: "lo1",
+  emails: ["owner1@example.com", "second@example.com"],
+};
+
 function renderAddForm(onSuccess = vi.fn(), onCancel = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -51,6 +57,9 @@ function renderEditForm(lotOwner: LotOwner, onSuccess = vi.fn(), onCancel = vi.f
   );
 }
 
+// ---------------------------------------------------------------------------
+// Add mode
+// ---------------------------------------------------------------------------
 describe("LotOwnerForm - Add mode", () => {
   it("renders add form fields", () => {
     renderAddForm();
@@ -138,111 +147,9 @@ describe("LotOwnerForm - Add mode", () => {
   });
 });
 
-describe("LotOwnerForm - Edit mode", () => {
-  it("renders edit form with existing values (no email field in edit mode)", () => {
-    renderEditForm(existingLotOwner);
-    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(100);
-    expect(screen.queryByLabelText("Lot Number")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
-  });
-
-  it("submits edit form with changed unit entitlement and calls onSuccess", async () => {
-    const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm(existingLotOwner, onSuccess);
-    const entitlementInput = screen.getByLabelText("Unit Entitlement");
-    await user.clear(entitlementInput);
-    await user.type(entitlementInput, "999");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
-    });
-  });
-
-  it("shows validation error for negative entitlement on edit (client-side)", async () => {
-    const user = userEvent.setup();
-    renderEditForm(existingLotOwner);
-    const entitlementInput = screen.getByLabelText("Unit Entitlement");
-    await user.clear(entitlementInput);
-    await user.type(entitlementInput, "-10");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    expect(screen.getByText("Unit entitlement must be >= 0.")).toBeInTheDocument();
-  });
-
-  it("shows no changes error when values unchanged", async () => {
-    const user = userEvent.setup();
-    renderEditForm(existingLotOwner);
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    expect(screen.getByText("No changes detected.")).toBeInTheDocument();
-  });
-
-  it("shows server error message on edit mutation failure", async () => {
-    server.use(
-      http.patch("http://localhost:8000/api/admin/lot-owners/:lotOwnerId", () => {
-        return HttpResponse.json({ detail: "Server error" }, { status: 500 });
-      })
-    );
-    const user = userEvent.setup();
-    renderEditForm(existingLotOwner);
-    const entitlementInput = screen.getByLabelText("Unit Entitlement");
-    await user.clear(entitlementInput);
-    await user.type(entitlementInput, "999");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(screen.getByText(/500/)).toBeInTheDocument();
-    });
-  });
-
-  it("submits edit with changed unit entitlement only", async () => {
-    const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm(existingLotOwner, onSuccess);
-    const entitlementInput = screen.getByLabelText("Unit Entitlement");
-    await user.clear(entitlementInput);
-    await user.type(entitlementInput, "999");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
-    });
-  });
-
-  it("resets form when editTarget changes", async () => {
-    const { rerender } = renderEditForm(existingLotOwner);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <LotOwnerForm
-          buildingId="b1"
-          editTarget={{ ...existingLotOwner, unit_entitlement: 999, id: "lo2" }}
-          onSuccess={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      </QueryClientProvider>
-    );
-    expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(999);
-  });
-
-  it("renders financial position dropdown in edit mode with current value", () => {
-    renderEditForm({ ...existingLotOwner, financial_position: "in_arrear" });
-    const select = screen.getByLabelText("Financial Position");
-    expect(select).toHaveValue("in_arrear");
-  });
-
-  it("submits with changed financial position", async () => {
-    const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm(existingLotOwner, onSuccess);
-    await user.selectOptions(screen.getByLabelText("Financial Position"), "in_arrear");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
-    });
-  });
-});
-
+// ---------------------------------------------------------------------------
+// Add mode — financial position
+// ---------------------------------------------------------------------------
 describe("LotOwnerForm - Add mode financial position", () => {
   it("renders financial position dropdown in add mode defaulting to normal", () => {
     const queryClient = new QueryClient({
@@ -280,6 +187,310 @@ describe("LotOwnerForm - Add mode financial position", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Edit modal — core behaviour
+// ---------------------------------------------------------------------------
+describe("LotOwnerForm - Edit modal", () => {
+  it("renders modal with existing values", () => {
+    renderEditForm(existingLotOwner);
+    expect(screen.getByRole("heading", { name: "Edit Lot Owner" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(100);
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+  });
+
+  it("does not render lot number or email fields (add-mode only)", () => {
+    renderEditForm(existingLotOwner);
+    expect(screen.queryByLabelText("Lot Number")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+  });
+
+  it("renders the dialog with role=dialog and aria-modal", () => {
+    renderEditForm(existingLotOwner);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("shows existing email addresses in the list", () => {
+    renderEditForm(existingLotOwner);
+    expect(screen.getByText("owner1@example.com")).toBeInTheDocument();
+  });
+
+  it("shows multiple emails when owner has more than one", () => {
+    renderEditForm(multiEmailOwner);
+    expect(screen.getByText("owner1@example.com")).toBeInTheDocument();
+    expect(screen.getByText("second@example.com")).toBeInTheDocument();
+  });
+
+  it("submits edit form with changed unit entitlement and calls onSuccess", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderEditForm(existingLotOwner, onSuccess);
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "999");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+  });
+
+  it("shows validation error for negative entitlement (client-side)", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "-10");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(screen.getByText("Unit entitlement must be >= 0.")).toBeInTheDocument();
+  });
+
+  it("shows validation error when unit entitlement is not a number (edit modal)", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "abc");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(screen.getByText("Unit entitlement must be a valid integer.")).toBeInTheDocument();
+  });
+
+  it("shows no changes error when values unchanged", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(screen.getByText("No changes detected.")).toBeInTheDocument();
+  });
+
+  it("shows server error message on edit mutation failure", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/lot-owners/:lotOwnerId", () => {
+        return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "999");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.getByText(/500/)).toBeInTheDocument();
+    });
+  });
+
+  it("submits with changed unit entitlement only", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderEditForm(existingLotOwner, onSuccess);
+    const entitlementInput = screen.getByLabelText("Unit Entitlement");
+    await user.clear(entitlementInput);
+    await user.type(entitlementInput, "999");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+  });
+
+  it("renders financial position dropdown in edit modal with current value", () => {
+    renderEditForm({ ...existingLotOwner, financial_position: "in_arrear" });
+    const select = screen.getByLabelText("Financial Position");
+    expect(select).toHaveValue("in_arrear");
+  });
+
+  it("submits with changed financial position", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderEditForm(existingLotOwner, onSuccess);
+    await user.selectOptions(screen.getByLabelText("Financial Position"), "in_arrear");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+  });
+
+  it("resets form when editTarget changes via rerender", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <LotOwnerForm
+          buildingId="b1"
+          editTarget={existingLotOwner}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <LotOwnerForm
+          buildingId="b1"
+          editTarget={{ ...existingLotOwner, unit_entitlement: 999, id: "lo2" }}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    expect(screen.getByLabelText("Unit Entitlement")).toHaveValue(999);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edit modal — close behaviours (US-UI02)
+// ---------------------------------------------------------------------------
+describe("LotOwnerForm - Edit modal close behaviours", () => {
+  it("calls onCancel when Cancel button is clicked", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderEditForm(existingLotOwner, vi.fn(), onCancel);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("calls onCancel when Escape key is pressed", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderEditForm(existingLotOwner, vi.fn(), onCancel);
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("calls onCancel when clicking the backdrop (overlay) outside the dialog", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderEditForm(existingLotOwner, vi.fn(), onCancel);
+    const overlay = screen.getByRole("dialog");
+    // Click directly on the overlay element (not a child)
+    await user.click(overlay);
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("does not call onCancel when clicking inside the dialog content", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderEditForm(existingLotOwner, vi.fn(), onCancel);
+    // Clicking on the heading inside the dialog should NOT close it
+    await user.click(screen.getByRole("heading", { name: "Edit Lot Owner" }));
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Email management (US-UI03)
+// ---------------------------------------------------------------------------
+describe("LotOwnerForm - Edit modal email management", () => {
+  it("renders Add email input and button", () => {
+    renderEditForm(existingLotOwner);
+    expect(screen.getByLabelText("Add email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add email" })).toBeInTheDocument();
+  });
+
+  it("shows validation error when adding empty email", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    expect(screen.getByText("Email is required.")).toBeInTheDocument();
+  });
+
+  it("shows validation error for invalid email format", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "not-an-email");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
+  });
+
+  it("adds a new email successfully", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "added@example.com");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      expect(screen.getByText("added@example.com")).toBeInTheDocument();
+    });
+  });
+
+  it("clears the add email input after successful add", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "added@example.com");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Add email")).toHaveValue("");
+    });
+  });
+
+  it("adds email when Enter key is pressed in the add email input", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "entered@example.com");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(screen.getByText("entered@example.com")).toBeInTheDocument();
+    });
+  });
+
+  it("shows server error when add email API fails", async () => {
+    server.use(
+      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails", () => {
+        return HttpResponse.json({ detail: "Conflict" }, { status: 409 });
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "dup@example.com");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      expect(screen.getByText(/409/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders Remove button for each email", () => {
+    renderEditForm(multiEmailOwner);
+    const removeButtons = screen.getAllByRole("button", { name: /^Remove / });
+    expect(removeButtons).toHaveLength(2);
+  });
+
+  it("removes an email successfully when owner has multiple emails", async () => {
+    const user = userEvent.setup();
+    renderEditForm(multiEmailOwner);
+    const removeButton = screen.getByRole("button", { name: "Remove owner1@example.com" });
+    await user.click(removeButton);
+    await waitFor(() => {
+      // The MSW handler returns lo1 emails minus the removed one
+      expect(screen.queryByText("owner1@example.com")).not.toBeInTheDocument();
+    });
+  });
+
+  it("blocks removal of the last email with a validation error", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner); // only one email
+    await user.click(screen.getByRole("button", { name: "Remove owner1@example.com" }));
+    expect(
+      screen.getByText("A lot owner must have at least one email address.")
+    ).toBeInTheDocument();
+  });
+
+  it("shows server error when remove email API fails", async () => {
+    server.use(
+      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails/:email", () => {
+        return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(multiEmailOwner);
+    const removeButton = screen.getByRole("button", { name: "Remove owner1@example.com" });
+    await user.click(removeButton);
+    await waitFor(() => {
+      expect(screen.getByText(/404/)).toBeInTheDocument();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API function coverage
+// ---------------------------------------------------------------------------
 describe("addEmailToLotOwner API function", () => {
   it("adds an email and returns updated lot owner", async () => {
     const result = await addEmailToLotOwner("lo1", "added@example.com");
