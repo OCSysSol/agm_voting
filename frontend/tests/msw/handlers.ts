@@ -353,20 +353,30 @@ export const myBallotFixture = {
   voter_email: "owner@example.com",
   agm_title: "2024 AGM",
   building_name: "Sunset Towers",
-  votes: [
+  submitted_lots: [
     {
-      motion_id: MOTION_ID_1,
-      motion_title: "Motion 1",
-      order_index: 0,
-      choice: "yes" as const,
-    },
-    {
-      motion_id: MOTION_ID_2,
-      motion_title: "Motion 2",
-      order_index: 1,
-      choice: "no" as const,
+      lot_owner_id: "lo-e2e",
+      lot_number: "E2E-1",
+      financial_position: "normal",
+      votes: [
+        {
+          motion_id: MOTION_ID_1,
+          motion_title: "Motion 1",
+          order_index: 0,
+          choice: "yes" as const,
+          eligible: true,
+        },
+        {
+          motion_id: MOTION_ID_2,
+          motion_title: "Motion 2",
+          order_index: 1,
+          choice: "no" as const,
+          eligible: true,
+        },
+      ],
     },
   ],
+  remaining_lot_owner_ids: [],
 };
 
 export const handlers = [
@@ -384,7 +394,11 @@ export const handlers = [
   ),
 
   http.post(`${BASE}/api/auth/verify`, () =>
-    HttpResponse.json({ already_submitted: false, voter_email: "owner@example.com", agm_status: "open" })
+    HttpResponse.json({
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false }],
+      voter_email: "owner@example.com",
+      agm_status: "open",
+    })
   ),
 
   http.get(`${BASE}/api/agm/:agmId/motions`, () =>
@@ -402,9 +416,15 @@ export const handlers = [
   http.post(`${BASE}/api/agm/:agmId/submit`, () =>
     HttpResponse.json({
       submitted: true,
-      votes: [
-        { motion_id: MOTION_ID_1, motion_title: "Motion 1", choice: "yes" },
-        { motion_id: MOTION_ID_2, motion_title: "Motion 2", choice: "abstained" },
+      lots: [
+        {
+          lot_owner_id: "lo-e2e",
+          lot_number: "E2E-1",
+          votes: [
+            { motion_id: MOTION_ID_1, motion_title: "Motion 1", choice: "yes" },
+            { motion_id: MOTION_ID_2, motion_title: "Motion 2", choice: "abstained" },
+          ],
+        },
       ],
     })
   ),

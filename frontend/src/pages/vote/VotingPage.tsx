@@ -116,7 +116,11 @@ export function VotingPage() {
   }, [agmId, buildings]);
 
   const submitMutation = useMutation({
-    mutationFn: () => submitBallot(agmId!),
+    mutationFn: () => {
+      const storedLots = sessionStorage.getItem(`agm_lots_${agmId}`);
+      const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
+      return submitBallot(agmId!, lotOwnerIds);
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["drafts", agmId] });
       navigate(`/vote/${agmId}/confirmation`);
