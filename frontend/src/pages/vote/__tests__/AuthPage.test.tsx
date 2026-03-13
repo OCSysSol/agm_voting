@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { AuthPage } from "../AuthPage";
-import { AGM_ID, BUILDING_ID } from "../../../../tests/msw/handlers";
+import { AGM_ID } from "../../../../tests/msw/handlers";
 
 const BASE = "http://localhost:8000";
 
@@ -38,6 +38,11 @@ async function fillAndSubmit(lotNumber: string, email: string) {
   await waitFor(() => screen.getByLabelText("Lot number"));
   await user.type(screen.getByLabelText("Lot number"), lotNumber);
   await user.type(screen.getByLabelText("Email address"), email);
+  // Wait for Continue to be enabled — it is disabled while the meeting summary is loading
+  await waitFor(() => {
+    const btn = screen.getByRole("button", { name: "Continue" });
+    expect(btn).toBeEnabled();
+  });
   await user.click(screen.getByRole("button", { name: "Continue" }));
 }
 
@@ -132,6 +137,8 @@ describe("AuthPage", () => {
     await waitFor(() => screen.getByLabelText("Lot number"));
     await user.type(screen.getByLabelText("Lot number"), "1");
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Verifying..." })).toBeDisabled();
@@ -144,6 +151,8 @@ describe("AuthPage", () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("Email address"));
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("Lot number is required")).toBeInTheDocument();
   });
@@ -153,6 +162,8 @@ describe("AuthPage", () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("Lot number"));
     await user.type(screen.getByLabelText("Lot number"), "42");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("Email address is required")).toBeInTheDocument();
   });
@@ -188,6 +199,36 @@ describe("AuthPage", () => {
     });
   });
 
+  it("disables Continue button while meeting summary is still loading", async () => {
+    let resolveSummary!: () => void;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () =>
+        new Promise<Response>((res) => {
+          resolveSummary = () =>
+            res(HttpResponse.json({
+              general_meeting_id: AGM_ID,
+              building_id: "b1",
+              title: "Test AGM",
+              status: "open",
+              meeting_at: "2024-01-01T00:00:00Z",
+              voting_closes_at: "2024-01-01T02:00:00Z",
+              building_name: "Test Building",
+              motions: [],
+            }) as Response);
+        })
+      )
+    );
+    renderPage();
+    // Form renders but Continue is disabled while summary is in-flight
+    await waitFor(() => screen.getByLabelText("Lot number"));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    resolveSummary();
+    // After summary resolves, Continue becomes enabled
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    });
+  });
+
   it("renders back button", async () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("Lot number"));
@@ -203,29 +244,31 @@ describe("AuthPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 
-  it("handles AGM fetch error during building lookup gracefully (shows Loading...)", async () => {
-    // All building AGM fetches fail — building not found, form shows "Loading..."
+  it("handles meeting summary fetch error gracefully (shows Loading...)", async () => {
+    // Meeting summary fetch fails — building not found, form shows "Loading..."
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () => HttpResponse.error())
     );
     renderPage();
     await waitFor(() => {
-      // After buildings load but all AGM fetches fail, title stays "Loading..."
+      // After summary fetch fails, title stays "Loading..."
       expect(screen.getByText("Loading...")).toBeInTheDocument();
     });
   });
 
   it("shows error when submitted before building is found (missing context)", async () => {
-    // All building AGM fetches fail so foundBuildingId stays null
+    // Meeting summary fetch fails so foundBuildingId stays null
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () => HttpResponse.error())
     );
     renderPage();
-    // Wait for buildings to load
+    // Wait for form to render
     await waitFor(() => screen.getByLabelText("Lot number"));
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Lot number"), "1");
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled — summary fetch errored so isSummaryLoading is false
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByText("An error occurred. Please try again.")).toBeInTheDocument();
