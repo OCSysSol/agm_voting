@@ -62,6 +62,14 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
      VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
      npx playwright test
    ```
+
+   > **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
+   > - Re-run failing tests to check if they are "flaky"
+   > - Fix code and re-run
+   > - Decide independently that a failure is infrastructure noise
+   >
+   > The orchestrator decides whether to retry or fix based on the full failure report.
+
 7. **Release the push slot** — notify the orchestrator the slot is free (pass or fail)
 8. **Fix all recorded failures** — while the next agent may be using the slot. Do not push during this phase
 9. If fixes were needed: **re-queue** (back to step 4) for another push + test cycle
@@ -204,6 +212,15 @@ A change is only complete when all of the following are true:
 ## Testing Standards
 
 > See user-level `~/.claude/CLAUDE.md` for coverage targets, backend/frontend/Playwright standards. Project-specific requirements are below.
+
+### E2E run discipline
+
+> **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
+> - Re-run failing tests to check if they are "flaky"
+> - Fix code and re-run
+> - Decide independently that a failure is infrastructure noise
+>
+> The orchestrator decides whether to retry or fix based on the full failure report.
 
 ### Scope review before writing tests
 
