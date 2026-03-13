@@ -7,8 +7,13 @@
  *    transitions the meeting to "Open" and hides the button.
  * 3. Open and closed meetings do NOT show the "Start Meeting" button.
  *
- * Self-contained — seeds its own building, lot owner, and AGMs via the admin
+ * Self-contained — seeds its own buildings, lot owners, and AGMs via the admin
  * API so it does not interfere with other E2E tests.
+ *
+ * Each AGM uses a SEPARATE building because the API allows only one
+ * active (open/pending) meeting per building at a time.  Tests 1 and 2
+ * each get their own pending AGM so parallel execution does not cause
+ * test 2's "Start Meeting" click to mutate the meeting that test 1 reads.
  */
 
 import { test, expect } from "../fixtures";
@@ -18,19 +23,25 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E Admin Start Meeting Test Building";
+const BUILDING_NAME_PENDING = "E2E Start Meeting Pending Building";
+const BUILDING_NAME_START = "E2E Start Meeting Start Building";
+const BUILDING_NAME_OPEN = "E2E Start Meeting Open Building";
+const BUILDING_NAME_CLOSED = "E2E Start Meeting Closed Building";
 const AGM_TITLE_PENDING = "E2E Pending Start Test AGM";
+const AGM_TITLE_START = "E2E Start Action Test AGM";
 const AGM_TITLE_OPEN = "E2E Open Start Test AGM";
 const AGM_TITLE_CLOSED = "E2E Closed Start Test AGM";
 
 let pendingAgmId = "";
+let startAgmId = "";   // used exclusively by the "click Start Meeting" test
 let openAgmId = "";
 let closedAgmId = "";
 
 test.describe("Admin Start Meeting button", () => {
-  // Increase hook timeout: seeding requires multiple API calls against the
-  // shared Vercel Lambda which can be slow under concurrent load.
-  test.describe.configure({ timeout: 120000 });
+  // Run tests serially in this describe block to prevent parallel beforeAll
+  // calls from competing workers from closing each other's seeded meetings.
+  // Also sets a generous suite-level timeout for the heavy seeding in beforeAll.
+  test.describe.configure({ mode: "serial", timeout: 120000 });
 
   test.beforeAll(async () => {
     // Set a generous timeout for the seeding logic which makes multiple API
@@ -45,83 +56,80 @@ test.describe("Admin Start Meeting button", () => {
       storageState: path.join(__dirname, "../.auth/admin.json"),
     });
 
-    // Create or find the building — re-fetch after a 409 in case the initial
-    // list call failed (Lambda cold start) and the building already exists.
-    const buildingsRes = await api.get("/api/admin/buildings");
-    const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-    let building = buildings.find((b) => b.name === BUILDING_NAME);
-    if (!building) {
-      const res = await api.post("/api/admin/buildings", {
-        data: { name: BUILDING_NAME, manager_email: "start-meeting-mgr@test.com" },
-      });
-      if (res.status() === 409) {
-        // Building already exists — re-fetch the list to get its ID
-        const refetchRes = await api.get("/api/admin/buildings");
-        const refetchBuildings = (await refetchRes.json()) as { id: string; name: string }[];
-        building = refetchBuildings.find((b) => b.name === BUILDING_NAME);
-        if (!building) {
-          throw new Error("Building already exists (409) but could not be found in re-fetched list");
+    // Helper: create or find a building by name, with retry for transient 500s.
+    // On 409 (already exists), re-fetch the list to get the existing ID.
+    async function getOrCreateBuilding(name: string, managerEmail: string): Promise<string> {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, 2000));
         }
-      } else if (!res.ok()) {
-        const body = await res.text();
-        throw new Error(`Failed to create building (${res.status()}): ${body}`);
-      } else {
-        building = (await res.json()) as { id: string; name: string };
+
+        // Try to find an existing building first
+        const listRes = await api.get("/api/admin/buildings");
+        if (listRes.ok()) {
+          const buildings = (await listRes.json()) as { id: string; name: string }[];
+          const existing = buildings.find((b) => b.name === name);
+          if (existing) return existing.id;
+
+          // Not found in list — create it
+          const createRes = await api.post("/api/admin/buildings", {
+            data: { name, manager_email: managerEmail },
+          });
+          if (createRes.ok()) {
+            const b = (await createRes.json()) as { id: string };
+            return b.id;
+          }
+          if (createRes.status() === 409) {
+            // Race: building exists — retry the list to get its ID
+            continue;
+          }
+          if (attempt === 2) {
+            const body = await createRes.text();
+            throw new Error(`Failed to create building "${name}" (${createRes.status()}): ${body}`);
+          }
+        }
+        // List returned 500 — retry
+      }
+      throw new Error(`Could not create or find building "${name}" after 3 attempts`);
+    }
+
+    // Helper: ensure at least one lot owner for a building.
+    async function ensureLotOwner(buildingId: string, lotNumber: string, email: string): Promise<void> {
+      const listRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
+      if (listRes.ok()) {
+        const owners = (await listRes.json()) as { lot_number: string }[];
+        if (owners.find((o) => o.lot_number === lotNumber)) return;
+      }
+      await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
+        data: { lot_number: lotNumber, emails: [email], unit_entitlement: 10 },
+      });
+    }
+
+    // Helper: close all active (open/pending) AGMs for a building.
+    // Silently ignores Lambda errors — create will 409 if anything is still active.
+    async function closeActiveAgms(buildingId: string): Promise<void> {
+      const listRes = await api.get("/api/admin/general-meetings");
+      if (!listRes.ok()) return;
+      const agms = (await listRes.json()) as { id: string; status: string; building_id: string }[];
+      const active = agms.filter(
+        (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+      );
+      for (const agm of active) {
+        await api.post(`/api/admin/general-meetings/${agm.id}/close`);
       }
     }
-    const buildingId = building.id;
 
-    // Ensure at least one lot owner so the building is not empty
-    const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
-    const lotOwners = (await lotOwnersRes.json()) as { lot_number: string }[];
-    if (!lotOwners.find((l) => l.lot_number === "START-1")) {
-      await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
-        data: {
-          lot_number: "START-1",
-          emails: ["start-voter@test.com"],
-          unit_entitlement: 10,
-        },
-      });
-    }
-
-    // Close any active AGMs for this building before creating fresh ones
-    const agmsRes = await api.get("/api/admin/general-meetings");
-    const agms = (await agmsRes.json()) as {
-      id: string;
-      status: string;
-      building_id: string;
-      title: string;
-    }[];
-    const activeAgms = agms.filter(
-      (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
-    );
-    for (const agm of activeAgms) {
-      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
-    }
-
-    // Helper to create an AGM with retry logic for transient 500/409 errors
-    // (the shared Vercel Lambda can 500 under concurrent load, or a concurrent
-    // beforeAll may have created an active meeting before our close step ran)
-    async function createAgm(title: string, meetingAt: Date): Promise<string> {
+    // Helper: create an AGM with retry for transient 500s or 409s.
+    // Each AGM is on its own building so 409 only occurs if a previous test
+    // run left a stale active meeting; closeActiveAgms() handles that.
+    async function createAgm(buildingId: string, title: string, meetingAt: Date): Promise<string> {
       const closesAt = new Date();
       closesAt.setFullYear(closesAt.getFullYear() + 1);
 
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) {
-          // Wait before retry, and re-close any active meetings that may have appeared
-          await new Promise((r) => setTimeout(r, 2000 * attempt));
-          const retryAgmsRes = await api.get("/api/admin/general-meetings");
-          const retryAgms = (await retryAgmsRes.json()) as {
-            id: string;
-            status: string;
-            building_id: string;
-          }[];
-          const staleActives = retryAgms.filter(
-            (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
-          );
-          for (const stale of staleActives) {
-            await api.post(`/api/admin/general-meetings/${stale.id}/close`);
-          }
+          await new Promise((r) => setTimeout(r, 2000));
+          await closeActiveAgms(buildingId);
         }
 
         const res = await api.post("/api/admin/general-meetings", {
@@ -146,30 +154,62 @@ test.describe("Admin Start Meeting button", () => {
           return agm.id;
         }
 
-        const body = await res.text();
         if (attempt === 2) {
-          throw new Error(`Failed to create AGM "${title}" after 3 attempts (${res.status()}): ${body}`);
+          const body = await res.text();
+          throw new Error(
+            `Failed to create AGM "${title}" after 3 attempts (${res.status()}): ${body}`
+          );
         }
-        // 500 or 409 — retry after clearing active meetings
       }
 
-      throw new Error(`Unreachable`);
+      throw new Error("Unreachable");
     }
 
-    // Pending AGM: meeting_at 2 hours in the future
+    // --- Pending AGM (building A — read-only by test 1) ---
+    const pendingBuildingId = await getOrCreateBuilding(
+      BUILDING_NAME_PENDING,
+      "start-pending-mgr@test.com"
+    );
+    await ensureLotOwner(pendingBuildingId, "SP-1", "start-pending-voter@test.com");
+    await closeActiveAgms(pendingBuildingId);
     const pendingMeetingAt = new Date();
     pendingMeetingAt.setHours(pendingMeetingAt.getHours() + 2);
-    pendingAgmId = await createAgm(AGM_TITLE_PENDING, pendingMeetingAt);
+    pendingAgmId = await createAgm(pendingBuildingId, AGM_TITLE_PENDING, pendingMeetingAt);
 
-    // Open AGM: meeting_at 1 hour ago
+    // --- Start-action AGM (building B — mutated by test 2's "click Start Meeting") ---
+    // Uses a separate building so test 1 and test 2 do not share state when
+    // running in parallel with fullyParallel: true.
+    const startBuildingId = await getOrCreateBuilding(
+      BUILDING_NAME_START,
+      "start-action-mgr@test.com"
+    );
+    await ensureLotOwner(startBuildingId, "SA-1", "start-action-voter@test.com");
+    await closeActiveAgms(startBuildingId);
+    const startMeetingAt = new Date();
+    startMeetingAt.setHours(startMeetingAt.getHours() + 2);
+    startAgmId = await createAgm(startBuildingId, AGM_TITLE_START, startMeetingAt);
+
+    // --- Open AGM (building C) ---
+    const openBuildingId = await getOrCreateBuilding(
+      BUILDING_NAME_OPEN,
+      "start-open-mgr@test.com"
+    );
+    await ensureLotOwner(openBuildingId, "SO-1", "start-open-voter@test.com");
+    await closeActiveAgms(openBuildingId);
     const openMeetingAt = new Date();
     openMeetingAt.setHours(openMeetingAt.getHours() - 1);
-    openAgmId = await createAgm(AGM_TITLE_OPEN, openMeetingAt);
+    openAgmId = await createAgm(openBuildingId, AGM_TITLE_OPEN, openMeetingAt);
 
-    // Closed AGM: create open, then immediately close it
+    // --- Closed AGM (building D) ---
+    const closedBuildingId = await getOrCreateBuilding(
+      BUILDING_NAME_CLOSED,
+      "start-closed-mgr@test.com"
+    );
+    await ensureLotOwner(closedBuildingId, "SC-1", "start-closed-voter@test.com");
+    await closeActiveAgms(closedBuildingId);
     const closedMeetingAt = new Date();
     closedMeetingAt.setHours(closedMeetingAt.getHours() - 2);
-    closedAgmId = await createAgm(AGM_TITLE_CLOSED, closedMeetingAt);
+    closedAgmId = await createAgm(closedBuildingId, AGM_TITLE_CLOSED, closedMeetingAt);
     await api.post(`/api/admin/general-meetings/${closedAgmId}/close`);
 
     await api.dispose();
@@ -195,7 +235,9 @@ test.describe("Admin Start Meeting button", () => {
   }) => {
     test.setTimeout(120000);
 
-    await page.goto(`/admin/general-meetings/${pendingAgmId}`);
+    // Uses startAgmId (not pendingAgmId) so this test's mutation does not
+    // interfere with the read-only "pending meeting shows Start Meeting button" test.
+    await page.goto(`/admin/general-meetings/${startAgmId}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("button", { name: "Start Meeting" })).toBeVisible({ timeout: 10000 });
 
