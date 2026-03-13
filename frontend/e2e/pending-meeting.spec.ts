@@ -96,28 +96,54 @@ test.describe("Pending AGM voter-facing behaviour", () => {
     const closesAt = new Date();
     closesAt.setFullYear(closesAt.getFullYear() + 1);
 
-    const createRes = await api.post("/api/admin/general-meetings", {
-      data: {
-        building_id: buildingId,
-        title: AGM_TITLE,
-        meeting_at: meetingAt.toISOString(),
-        voting_closes_at: closesAt.toISOString(),
-        motions: [
-          {
-            title: "Pending Test Motion",
-            description: "A motion for the pending meeting test.",
-            order_index: 1,
-            motion_type: "general",
-          },
-        ],
-      },
-    });
-    if (!createRes.ok()) {
-      const body = await createRes.text();
-      throw new Error(`Failed to create pending AGM (${createRes.status()}): ${body}`);
+    // Create with retry logic in case of transient 500 or a concurrent beforeAll
+    // creating an active meeting for the same building before our close step ran
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+        // Re-close any newly-active AGMs before retrying
+        const retryAgmsRes = await api.get("/api/admin/general-meetings");
+        const retryAgms = (await retryAgmsRes.json()) as {
+          id: string;
+          status: string;
+          building_id: string;
+        }[];
+        const staleActives = retryAgms.filter(
+          (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+        );
+        for (const stale of staleActives) {
+          await api.post(`/api/admin/general-meetings/${stale.id}/close`);
+        }
+      }
+
+      const createRes = await api.post("/api/admin/general-meetings", {
+        data: {
+          building_id: buildingId,
+          title: AGM_TITLE,
+          meeting_at: meetingAt.toISOString(),
+          voting_closes_at: closesAt.toISOString(),
+          motions: [
+            {
+              title: "Pending Test Motion",
+              description: "A motion for the pending meeting test.",
+              order_index: 1,
+              motion_type: "general",
+            },
+          ],
+        },
+      });
+
+      if (createRes.ok()) {
+        const newAgm = (await createRes.json()) as { id: string };
+        seededAgmId = newAgm.id;
+        break;
+      }
+
+      if (attempt === 2) {
+        const body = await createRes.text();
+        throw new Error(`Failed to create pending AGM after 3 attempts (${createRes.status()}): ${body}`);
+      }
     }
-    const newAgm = (await createRes.json()) as { id: string };
-    seededAgmId = newAgm.id;
 
     await api.dispose();
   }, 60000);
@@ -157,8 +183,13 @@ test.describe("Pending AGM voter-facing behaviour", () => {
     // Navigate directly to the auth page for the pending AGM
     await page.goto(`/vote/${seededAgmId}/auth`);
 
-    // Wait for the form to load
+    // Wait for the form to load AND for the building context to be resolved.
+    // AuthPage fetches all buildings and their meetings asynchronously to
+    // identify which building owns this meeting — we must wait until the
+    // building name is shown before submitting, otherwise foundBuildingId is
+    // still null and the mutation rejects with "Missing building or meeting context".
     await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(BUILDING_NAME)).toBeVisible({ timeout: 15000 });
 
     // Submit valid credentials
     await page.getByLabel("Lot number").fill(LOT_NUMBER);

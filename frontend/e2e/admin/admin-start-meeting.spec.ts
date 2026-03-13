@@ -81,32 +81,61 @@ test.describe("Admin Start Meeting button", () => {
       await api.post(`/api/admin/general-meetings/${agm.id}/close`);
     }
 
-    // Helper to create an AGM
+    // Helper to create an AGM with retry logic for transient 500/409 errors
+    // (the shared Vercel Lambda can 500 under concurrent load, or a concurrent
+    // beforeAll may have created an active meeting before our close step ran)
     async function createAgm(title: string, meetingAt: Date): Promise<string> {
       const closesAt = new Date();
       closesAt.setFullYear(closesAt.getFullYear() + 1);
-      const res = await api.post("/api/admin/general-meetings", {
-        data: {
-          building_id: buildingId,
-          title,
-          meeting_at: meetingAt.toISOString(),
-          voting_closes_at: closesAt.toISOString(),
-          motions: [
-            {
-              title: "Start Test Motion",
-              description: "A motion for the start-meeting test.",
-              order_index: 1,
-              motion_type: "general",
-            },
-          ],
-        },
-      });
-      if (!res.ok()) {
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          // Wait before retry, and re-close any active meetings that may have appeared
+          await new Promise((r) => setTimeout(r, 2000 * attempt));
+          const retryAgmsRes = await api.get("/api/admin/general-meetings");
+          const retryAgms = (await retryAgmsRes.json()) as {
+            id: string;
+            status: string;
+            building_id: string;
+          }[];
+          const staleActives = retryAgms.filter(
+            (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+          );
+          for (const stale of staleActives) {
+            await api.post(`/api/admin/general-meetings/${stale.id}/close`);
+          }
+        }
+
+        const res = await api.post("/api/admin/general-meetings", {
+          data: {
+            building_id: buildingId,
+            title,
+            meeting_at: meetingAt.toISOString(),
+            voting_closes_at: closesAt.toISOString(),
+            motions: [
+              {
+                title: "Start Test Motion",
+                description: "A motion for the start-meeting test.",
+                order_index: 1,
+                motion_type: "general",
+              },
+            ],
+          },
+        });
+
+        if (res.ok()) {
+          const agm = (await res.json()) as { id: string };
+          return agm.id;
+        }
+
         const body = await res.text();
-        throw new Error(`Failed to create AGM "${title}" (${res.status()}): ${body}`);
+        if (attempt === 2) {
+          throw new Error(`Failed to create AGM "${title}" after 3 attempts (${res.status()}): ${body}`);
+        }
+        // 500 or 409 — retry after clearing active meetings
       }
-      const agm = (await res.json()) as { id: string };
-      return agm.id;
+
+      throw new Error(`Unreachable`);
     }
 
     // Pending AGM: meeting_at 2 hours in the future
