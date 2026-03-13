@@ -51,7 +51,7 @@ This keeps agents decoupled and event-driven rather than tightly coupled through
 
 Every feature or bugfix must follow this process, executed by a sub-agent:
 
-1. **Pull the latest** from the base branch before branching: `git checkout preview && git pull origin preview`, then **create a new branch** (e.g. `git checkout -b feat/my-feature`)
+1. **Pull the latest** from the base branch before branching: `git checkout preview && git pull origin preview`, then **create a new branch and worktree** (e.g. `git checkout -b feat/my-feature && git worktree add /Users/stevensun/personal/agm_survey-feat-my-feature feat/my-feature`). All subsequent work must be done inside the worktree directory — never in the main working directory.
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
 4. **Signal the orchestrator** — report local test results and send one message: "Ready for push slot — awaiting orchestrator grant." Do not push yourself.
@@ -62,6 +62,14 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
      VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
      npx playwright test
    ```
+
+   > **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
+   > - Re-run failing tests to check if they are "flaky"
+   > - Fix code and re-run
+   > - Decide independently that a failure is infrastructure noise
+   >
+   > The orchestrator decides whether to retry or fix based on the full failure report.
+
 7. **Release the push slot** — notify the orchestrator the slot is free (pass or fail)
 8. **Fix all recorded failures** — while the next agent may be using the slot. Do not push during this phase
 9. If fixes were needed: **re-queue** (back to step 4) for another push + test cycle
@@ -83,12 +91,24 @@ The shared preview environment supports only one deployment at a time to avoid t
 
 **Full E2E after all slices merged:** When all PRs for a PRD implementation are merged into `preview`, run the full Playwright E2E suite once against the `preview` deployment URL to confirm end-to-end correctness.
 
+### Agent isolation (worktrees) — MANDATORY FOR ALL AGENTS
+
+**Every agent working on a specific branch MUST create a git worktree.** Never check out a branch in the main working directory (`/Users/stevensun/personal/agm_survey`) — it will corrupt the state for other concurrent agents. This applies to all agents regardless of task length: feature work, bug fixes, documentation edits, and one-line commits all require a worktree.
+
+```bash
+git worktree add /Users/stevensun/personal/agm_survey-<branch-slug> <branch-name>
+cd /Users/stevensun/personal/agm_survey-<branch-slug>
+# do all work here
+```
+
+The main working directory is reserved for orchestrator-level operations only (e.g. `git worktree list`, `git remote prune origin`).
+
 ### Parallel agents (multiple features at once)
 
 Use **git worktrees** so each agent has its own isolated working directory:
 ```bash
-git worktree add ../agm_survey-feat-foo feat/foo
-git worktree add ../agm_survey-feat-bar feat/bar
+git worktree add /Users/stevensun/personal/agm_survey-feat-foo feat/foo
+git worktree add /Users/stevensun/personal/agm_survey-feat-bar feat/bar
 ```
 
 **Clean up immediately after each PR is merged** (delegate to a sub-agent):
@@ -192,6 +212,15 @@ A change is only complete when all of the following are true:
 ## Testing Standards
 
 > See user-level `~/.claude/CLAUDE.md` for coverage targets, backend/frontend/Playwright standards. Project-specific requirements are below.
+
+### E2E run discipline
+
+> **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
+> - Re-run failing tests to check if they are "flaky"
+> - Fix code and re-run
+> - Decide independently that a failure is infrastructure noise
+>
+> The orchestrator decides whether to retry or fix based on the full failure report.
 
 ### Scope review before writing tests
 
