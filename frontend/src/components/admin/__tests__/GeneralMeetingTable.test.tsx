@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import GeneralMeetingTable from "../GeneralMeetingTable";
@@ -36,6 +36,19 @@ const meetings: GeneralMeetingListItem[] = [
     created_at: "2023-01-01T00:00:00Z",
   },
 ];
+
+function makeMeetings(count: number): GeneralMeetingListItem[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `agm${i + 1}`,
+    building_id: "b1",
+    building_name: "Alpha Tower",
+    title: `Meeting ${i + 1}`,
+    status: "open" as const,
+    meeting_at: "2024-06-01T10:00:00Z",
+    voting_closes_at: "2024-06-01T12:00:00Z",
+    created_at: "2024-01-01T00:00:00Z",
+  }));
+}
 
 function renderTable(props: { meetings: GeneralMeetingListItem[] }) {
   return render(
@@ -83,5 +96,53 @@ describe("GeneralMeetingTable", () => {
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Meeting At")).toBeInTheDocument();
     expect(screen.getByText("Voting Closes At")).toBeInTheDocument();
+  });
+
+  // --- Pagination ---
+
+  it("does not show pagination controls when there are 20 or fewer meetings", () => {
+    renderTable({ meetings: makeMeetings(20) });
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+  });
+
+  it("shows pagination controls when there are more than 20 meetings", () => {
+    renderTable({ meetings: makeMeetings(21) });
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeInTheDocument();
+  });
+
+  it("renders only the first 20 rows on page 1 of a 21-item list", () => {
+    renderTable({ meetings: makeMeetings(21) });
+    const tbody = screen.getByRole("table").querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows).toHaveLength(20);
+    expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    expect(screen.getByText("Meeting 20")).toBeInTheDocument();
+    expect(screen.queryByText("Meeting 21")).not.toBeInTheDocument();
+  });
+
+  it("navigating to page 2 shows row 21", async () => {
+    const user = userEvent.setup();
+    renderTable({ meetings: makeMeetings(21) });
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Meeting 21")).toBeInTheDocument();
+    expect(screen.queryByText("Meeting 1")).not.toBeInTheDocument();
+  });
+
+  it("resets to page 1 when meetings prop length changes to fewer items", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderTable({ meetings: makeMeetings(21) });
+    // Navigate to page 2
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Meeting 21")).toBeInTheDocument();
+    // Shrink the list below page threshold — page should reset to 1
+    rerender(
+      <MemoryRouter>
+        <GeneralMeetingTable meetings={makeMeetings(5)} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
   });
 });
