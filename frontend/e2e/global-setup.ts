@@ -106,26 +106,29 @@ export default async function globalSetup(_config: FullConfig) {
     timeout: 90000,
   });
 
-  // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200.
-  // Vercel Serverless functions can crash immediately after a cold start and
-  // return 5xx for the first few requests; retrying here prevents global-setup
-  // from failing before any test runs.
-  {
-    let warmedUp = false;
-    for (let attempt = 0; attempt < 12; attempt++) {
+  // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200
+  // and returns valid JSON. Vercel Serverless functions can spin up multiple
+  // Lambda instances concurrently — a warmup against one endpoint does not
+  // guarantee other endpoints on other instances are ready. We therefore retry
+  // each seeding step individually using a shared helper.
+  const retryGet = async (url: string, maxAttempts = 12): Promise<Awaited<ReturnType<typeof api.get>>> => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const r = await api.get("/api/admin/buildings", { timeout: 15000 });
-        if (r.ok()) { warmedUp = true; break; }
-      } catch {
-        // timeout or network error — retry
+        const r = await api.get(url, { timeout: 15000 });
+        if (r.ok()) return r;
+        // Non-2xx — wait and retry (handles cold-start 500s)
+        lastErr = new Error(`HTTP ${r.status()} from ${url}: ${await r.text()}`);
+      } catch (err) {
+        lastErr = err;
       }
       await new Promise((r) => setTimeout(r, 5000));
     }
-    if (!warmedUp) throw new Error("Lambda warmup failed — /api/admin/buildings did not return 200 after 12 attempts");
-  }
+    throw new Error(`${url} did not return 200 after ${maxAttempts} attempts. Last error: ${lastErr}`);
+  };
 
   // Ensure E2E building exists
-  const buildingsRes = await api.get("/api/admin/buildings");
+  const buildingsRes = await retryGet("/api/admin/buildings");
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
   let building = buildings.find((b) => b.name === E2E_BUILDING_NAME);
 
@@ -142,7 +145,7 @@ export default async function globalSetup(_config: FullConfig) {
   // against this building.  Always re-create if absent, and verify afterwards
   // so any silent API failure surfaces here rather than as a mysterious 401 in
   // the voting-flow tests.
-  const lotOwnersRes = await api.get(`/api/admin/buildings/${building.id}/lot-owners`);
+  const lotOwnersRes = await retryGet(`/api/admin/buildings/${building.id}/lot-owners`);
   const lotOwners = (await lotOwnersRes.json()) as { id: string; lot_number: string; emails: string[] }[];
   const existingLotOwner = lotOwners.find((l) => l.lot_number === E2E_LOT_NUMBER);
   if (!existingLotOwner) {
@@ -171,7 +174,7 @@ export default async function globalSetup(_config: FullConfig) {
   }
 
   // Final assertion: lot owner must exist with the correct email before tests run.
-  const verifyRes = await api.get(`/api/admin/buildings/${building.id}/lot-owners`);
+  const verifyRes = await retryGet(`/api/admin/buildings/${building.id}/lot-owners`);
   const verifiedOwners = (await verifyRes.json()) as { id: string; lot_number: string; emails: string[] }[];
   const verified = verifiedOwners.find(
     (l) => l.lot_number === E2E_LOT_NUMBER && l.emails?.includes(E2E_LOT_EMAIL)
@@ -188,7 +191,7 @@ export default async function globalSetup(_config: FullConfig) {
   // close any existing open E2E AGMs first (so the lot owner has no submitted
   // ballot on the new AGM), then create a new one. The just-closed AGM
   // satisfies the "AGM closed state" test which looks for any closed AGM.
-  const agmsRes = await api.get("/api/admin/general-meetings");
+  const agmsRes = await retryGet("/api/admin/general-meetings");
   const agms = (await agmsRes.json()) as {
     id: string;
     title: string;
@@ -251,7 +254,7 @@ export default async function globalSetup(_config: FullConfig) {
   }
 
   // Add a placeholder lot owner so the building has at least one voter
-  const adminLotOwnersRes = await api.get(`/api/admin/buildings/${adminBuilding.id}/lot-owners`);
+  const adminLotOwnersRes = await retryGet(`/api/admin/buildings/${adminBuilding.id}/lot-owners`);
   const adminLotOwners = (await adminLotOwnersRes.json()) as { lot_number: string }[];
   if (!adminLotOwners.find((l) => l.lot_number === "ADMIN-1")) {
     await api.post(`/api/admin/buildings/${adminBuilding.id}/lot-owners`, {
@@ -260,7 +263,7 @@ export default async function globalSetup(_config: FullConfig) {
   }
 
   // Close any existing open AGMs for the admin-test building, then create a fresh one
-  const allAgmsRes = await api.get("/api/admin/general-meetings");
+  const allAgmsRes = await retryGet("/api/admin/general-meetings");
   const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
   // Include "pending" in the filter — same reason as the voter-test AGM above.
   const openAdminAgms = allAgms.filter(
