@@ -47,13 +47,49 @@ export default async function globalSetup(_config: FullConfig) {
   const authDir = path.join(__dirname, ".auth");
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
+  // ── Pre-warm the Lambda before any browser navigation ─────────────────────
+  // All routes are rewritten to the Lambda (vercel.json), so every page load
+  // goes through it. A fresh deployment cold start runs alembic migrations and
+  // can take 60-120s — too long for Playwright's default navigation timeout.
+  // Use a direct HTTP fetch loop to warm up the Lambda before opening a browser
+  // page; this avoids browser navigation timeouts on the first page load.
+  if (BYPASS_TOKEN) {
+    // Pre-warm the Lambda using native fetch (Node 18+). All routes pass
+    // through the Lambda so we must wait for it to finish its cold-start
+    // alembic migration before opening a browser page.
+    const warmupEndpoint = `${baseURL}/api/admin/buildings`;
+    let warmedUp = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(warmupEndpoint, {
+          headers: { "x-vercel-protection-bypass": BYPASS_TOKEN },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        // Any non-5xx response means the Lambda is alive.
+        // 401 = unauthenticated (expected) — Lambda is warm.
+        if (res.status > 0 && res.status < 500) {
+          warmedUp = true;
+          break;
+        }
+      } catch {
+        // network error or abort — retry
+      }
+      await new Promise((r) => setTimeout(r, 6000));
+    }
+    if (!warmedUp) console.warn("Lambda warmup did not confirm ready after 20 attempts — proceeding anyway");
+  }
+
   const browser = await chromium.launch();
   const context = await browser.newContext({
     baseURL,
     ignoreHTTPSErrors: true,
-    // 90s navigation timeout to survive Lambda cold starts (default is 30s)
   });
-  context.setDefaultNavigationTimeout(90000);
+  // 180s navigation timeout: Lambda cold starts (migration on first request)
+  // can take up to 120s for fresh Vercel deployments.
+  context.setDefaultNavigationTimeout(180000);
   const page = await context.newPage();
 
   // Bypass Vercel Deployment Protection when running against a deployed URL.
@@ -81,28 +117,17 @@ export default async function globalSetup(_config: FullConfig) {
   // still need to bypass Vercel Deployment Protection on preview URLs.
   await context.storageState({ path: path.join(authDir, "public.json") });
 
-  // Retry the admin login: the first page load after Lambda cold start can
-  // take >30s and the login API response may timeout if the function is still
-  // initialising. Retry up to 3 times with a 10s pause between attempts.
-  let loginOk = false;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
-    await page.getByLabel("Username").fill(ADMIN_USERNAME);
-    await page.getByLabel("Password").fill(ADMIN_PASSWORD);
-    await page.getByRole("button", { name: "Sign in" }).click();
-    try {
-      await page.waitForURL(/\/admin\/buildings/, { timeout: 60000 });
-      loginOk = true;
-      break;
-    } catch {
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 10000));
-    }
-  }
-  if (!loginOk) {
+  await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Username").fill(ADMIN_USERNAME);
+  await page.getByLabel("Password").fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  try {
+    await page.waitForURL(/\/admin\/buildings/, { timeout: 60000 });
+  } catch {
     const url = page.url();
     const content = await page.content();
     throw new Error(
-      `Admin login failed after 3 attempts — stuck at ${url}\nPage content (first 500 chars):\n${content.slice(0, 500)}`
+      `Admin login failed — stuck at ${url}\nPage content (first 500 chars):\n${content.slice(0, 500)}`
     );
   }
   await context.storageState({ path: path.join(authDir, "admin.json") });
