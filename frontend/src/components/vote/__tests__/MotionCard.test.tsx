@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
-import { server } from "../../../../tests/msw/server";
 import { MotionCard } from "../MotionCard";
 
 const motion = {
@@ -29,14 +27,11 @@ const motionSpecial = {
   motion_type: "special" as const,
 };
 
-const BASE = "http://localhost:8000";
-
 describe("MotionCard", () => {
   it("renders motion title and description", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -51,7 +46,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motionNoDesc}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -65,7 +59,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -81,7 +74,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice="yes"
         onChoiceChange={() => {}}
         disabled={false}
@@ -97,7 +89,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={onChoiceChange}
         disabled={false}
@@ -114,7 +105,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice="yes"
         onChoiceChange={onChoiceChange}
         disabled={false}
@@ -131,7 +121,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={onChoiceChange}
         disabled={true}
@@ -142,46 +131,25 @@ describe("MotionCard", () => {
     expect(onChoiceChange).not.toHaveBeenCalled();
   });
 
-  it("shows Saved indicator after auto-save", async () => {
+  it("does not show a save indicator (no auto-save)", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice="yes"
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
       />
     );
-    await waitFor(() => {
-      expect(screen.getByText(/Saved/)).toBeInTheDocument();
-    }, { timeout: 1000 });
-  });
-
-  it("shows error indicator when save fails", async () => {
-    server.use(
-      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
-    );
-    render(
-      <MotionCard
-        motion={motion}
-        meetingId="agm-1"
-        choice="no"
-        onChoiceChange={() => {}}
-        disabled={false}
-        highlight={false}
-      />
-    );
-    await waitFor(() => {
-      expect(screen.getByText(/Could not save\./)).toBeInTheDocument();
-    }, { timeout: 1000 });
+    // SaveIndicator is removed — no "Saved" or "Saving" text should appear
+    expect(screen.queryByText(/Saved/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Saving/)).not.toBeInTheDocument();
   });
 
   it("highlights card when highlight is true", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -192,34 +160,18 @@ describe("MotionCard", () => {
     expect(card).toHaveClass("motion-card--highlight");
   });
 
-  it("manual save button triggers immediate save", async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
-    );
+  it("does not highlight card when highlight is false", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
-        choice="no"
+        choice={null}
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
       />
     );
-    // Wait for error state
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    }, { timeout: 1000 });
-
-    // Fix the handler and click Retry
-    server.use(
-      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.json({ saved: true }))
-    );
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => {
-      expect(screen.getByText(/Saved/)).toBeInTheDocument();
-    }, { timeout: 1000 });
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).not.toHaveClass("motion-card--highlight");
   });
 
   // --- motion_type badge tests ---
@@ -228,7 +180,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -245,7 +196,6 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motionSpecial}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -258,92 +208,21 @@ describe("MotionCard", () => {
     expect(badge).toHaveClass("motion-type-badge--special");
   });
 
-  // --- in-arrear locked tests ---
+  // --- no in-arrear locking on the card ---
 
-  it("shows in-arrear label when inArrearLocked is true", () => {
+  it("vote buttons are never aria-disabled — in-arrear restriction is backend-only", () => {
     render(
       <MotionCard
         motion={motion}
-        meetingId="agm-1"
-        choice={null}
-        onChoiceChange={() => {}}
-        disabled={false}
-        highlight={false}
-        inArrearLocked={true}
-      />
-    );
-    expect(screen.getByTestId("in-arrear-label")).toBeInTheDocument();
-    expect(screen.getByText("Not eligible (in arrear)")).toBeInTheDocument();
-  });
-
-  it("does not show in-arrear label when inArrearLocked is false (default)", () => {
-    render(
-      <MotionCard
-        motion={motion}
-        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
       />
     );
-    expect(screen.queryByTestId("in-arrear-label")).not.toBeInTheDocument();
-  });
-
-  it("calls onInArrearClick when a vote button is clicked and inArrearLocked is true", async () => {
-    const user = userEvent.setup();
-    const onInArrearClick = vi.fn();
-    render(
-      <MotionCard
-        motion={motion}
-        meetingId="agm-1"
-        choice={null}
-        onChoiceChange={() => {}}
-        disabled={false}
-        highlight={false}
-        inArrearLocked={true}
-        onInArrearClick={onInArrearClick}
-      />
-    );
-    await user.click(screen.getByRole("button", { name: "For" }));
-    expect(onInArrearClick).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not call onChoiceChange when inArrearLocked is true", async () => {
-    const user = userEvent.setup();
-    const onChoiceChange = vi.fn();
-    render(
-      <MotionCard
-        motion={motion}
-        meetingId="agm-1"
-        choice={null}
-        onChoiceChange={onChoiceChange}
-        disabled={false}
-        highlight={false}
-        inArrearLocked={true}
-        onInArrearClick={() => {}}
-      />
-    );
-    await user.click(screen.getByRole("button", { name: "For" }));
-    expect(onChoiceChange).not.toHaveBeenCalled();
-  });
-
-  it("sets aria-disabled on buttons when inArrearLocked is true", () => {
-    render(
-      <MotionCard
-        motion={motion}
-        meetingId="agm-1"
-        choice={null}
-        onChoiceChange={() => {}}
-        disabled={false}
-        highlight={false}
-        inArrearLocked={true}
-      />
-    );
-    // Buttons should have aria-disabled (not the disabled attribute) when inArrearLocked
     const buttons = screen.getAllByRole("button", { name: /For|Against|Abstain/ });
     buttons.forEach((btn) => {
-      expect(btn).toHaveAttribute("aria-disabled", "true");
+      expect(btn).not.toHaveAttribute("aria-disabled", "true");
     });
   });
 });

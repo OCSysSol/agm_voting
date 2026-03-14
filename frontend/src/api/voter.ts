@@ -43,15 +43,6 @@ export interface MotionOut {
   motion_type: MotionType;
 }
 
-export interface DraftItem {
-  motion_id: string;
-  choice: VoteChoice;
-}
-
-export interface DraftsResponse {
-  drafts: DraftItem[];
-}
-
 export interface DraftSaveRequest {
   motion_id: string;
   choice: VoteChoice | null;
@@ -130,10 +121,6 @@ export function verifyAuth(req: AuthVerifyRequest): Promise<AuthVerifyResponse> 
 
 export function fetchMotions(meetingId: string): Promise<MotionOut[]> {
   return apiFetch<MotionOut[]>(`/api/general-meeting/${meetingId}/motions`);
-}
-
-export function fetchDrafts(meetingId: string): Promise<DraftsResponse> {
-  return apiFetch<DraftsResponse>(`/api/general-meeting/${meetingId}/drafts`);
 }
 
 export function saveDraft(meetingId: string, req: DraftSaveRequest): Promise<DraftSaveResponse> {

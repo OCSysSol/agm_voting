@@ -1745,6 +1745,17 @@ button, input, select, textarea {
   color: var(--text-muted);
 }
 
+/* === IN-ARREAR WARNING BANNER (VotingPage) === */
+.arrear-notice {
+  background: var(--amber-bg, #FFF8E6);
+  border: 1.5px solid var(--amber, #F59E0B);
+  border-radius: var(--r-lg, 8px);
+  padding: 12px 16px;
+  font-size: 0.875rem;
+  color: var(--text-primary, #111827);
+  margin-bottom: 16px;
+}
+
 /* === VOTING LAYOUT === */
 .voting-layout {
   display: flex;

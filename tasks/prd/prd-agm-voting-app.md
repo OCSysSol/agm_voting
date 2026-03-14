@@ -2,13 +2,13 @@
 
 ## Introduction
 
-A web application for body corporates to run voting during Annual General Meetings (AGMs). The host creates an AGM with a list of motions and a scheduled voting close time. At AGM creation, unit entitlement weights are snapshotted for every lot in the building; any subsequent changes to lot owner data do not affect that AGM's tallies. Lot owners authenticate with their lot number and email, cast yes/no/abstain votes on each motion, and submit their ballot (votes are final once submitted). Individual motion selections are auto-saved to the backend as drafts; drafts that are never formally submitted before the AGM closes are discarded and the voter is recorded as absent. Motions left unanswered on a submitted ballot are recorded as abstained. When the manager closes voting, the system emails a summary report to the manager's email address stored against the building.
+A web application for body corporates to run voting during Annual General Meetings (AGMs). The host creates an AGM with a list of motions and a scheduled voting close time. At AGM creation, unit entitlement weights are snapshotted for every lot in the building; any subsequent changes to lot owner data do not affect that AGM's tallies. Lot owners authenticate with their lot number and email, cast yes/no/abstain votes on each motion, and submit their ballot (votes are final once submitted). Individual motion selections are held in client-side state until the lot owner submits their ballot; unsubmitted voters are recorded as absent when the AGM closes. Motions left unanswered on a submitted ballot are recorded as abstained. When the manager closes voting, the system emails a summary report to the manager's email address stored against the building.
 
 ## Goals
 
 - Allow a meeting host to create an AGM with motions, a meeting date/time, and a scheduled voting close time via a dedicated host admin portal; snapshot lot entitlement weights at creation
 - Allow lot owners to self-authenticate using lot number + email (no account creation required); one ballot per unique email per building per AGM
-- Allow lot owners to vote yes/no/abstain on each motion, with auto-save of selections and session resumption; votes are final once submitted
+- Allow lot owners to vote yes/no/abstain on each motion; votes are held in client-side state and are final once submitted
 - Show lot owners a countdown timer (anchored to server time) to scheduled close with a 5-minute warning; allow lot owners to review past AGM submissions
 - Allow the manager to close voting and trigger an automated result report sent to the building's manager email, with up to 30 retries and OTEL-compliant logging
 - Support lot owner data ingestion via CSV upload, manual UI entry, and sync from PropertyIQ
@@ -132,7 +132,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] System checks that the lot number + email combination exists in the database for the selected building
 - [ ] On match: system identifies all lots in that building registered to the same email; a session is created scoped to that email + building + AGM
 - [ ] If the lot owner has already submitted a ballot for this AGM, they are taken directly to the confirmation screen (US-009)
-- [ ] If the lot owner has previously saved draft votes (but not submitted), they are taken to the voting page with their saved selections restored
+- [ ] If the lot owner has not yet submitted, they are taken to the voting page with a fresh ballot (no server-side draft restoration)
 - [ ] On no match: a clear error message is shown ("Lot number and email address do not match our records")
 - [ ] No account creation or password required
 - [ ] Typecheck/lint passes
@@ -150,12 +150,15 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] All motions for the AGM are listed in order with title and description
 - [ ] Each motion has three clearly labelled options: **Yes**, **No**, **Abstain**; any option can be deselected back to unanswered at any time before submission
 - [ ] A progress bar shows how many motions have been answered out of the total (e.g. "4 / 7 motions answered")
-- [ ] Every time a lot owner selects or changes an option on a motion, that selection is immediately auto-saved to the backend as a draft (see FR-13)
-  - [ ] On successful save: a subtle "Saved" indicator is shown
-  - [ ] On save failure: a visible error message is shown ("Could not save your selection") and a manual "Save" button is displayed so the lot owner can retry explicitly
+- [ ] Every time a lot owner selects or changes an option on a motion, that selection is held in client-side React state; no auto-save to the backend occurs
 - [ ] A countdown timer to the scheduled voting close time is shown persistently on the page; the timer is calculated from server time fetched on page load to avoid client clock skew (see FR-15)
 - [ ] At 5 minutes before the scheduled close time, a prominent warning banner is shown: "Voting closes in 5 minutes — please submit your ballot"
-- [ ] The page polls the AGM status every 10 s; if the AGM is found to be closed before the lot owner submits, inputs are immediately disabled and a "Voting has closed" message is shown; any unsaved draft is discarded (see FR-13)
+- [ ] If any of the voter's selected lots are in arrear, an informational amber banner is shown above the motions list:
+  - [ ] If all selected lots are in arrear: "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
+  - [ ] If some (but not all) selected lots are in arrear: "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."
+  - [ ] The banner is purely informational — vote buttons remain interactive for all motion types; per-lot eligibility is enforced by the backend at submission time
+  - [ ] The banner updates immediately when the voter toggles which lots are selected (multi-lot voters)
+- [ ] The page polls the AGM status every 10 s; if the AGM is found to be closed before the lot owner submits, inputs are immediately disabled and a "Voting has closed" message is shown
 - [ ] A "Submit Votes" button is shown at the bottom; drafts are NOT counted in tallies until Submit is clicked
 - [ ] On clicking Submit:
   - [ ] Any motions with no selection are visually highlighted (e.g. outlined in amber) and a count is shown: "X motion(s) have no answer selected"
@@ -278,7 +281,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-10: Only one active (open) AGM can exist per building at a time. Creating a second is rejected with a 409 error.
 - FR-11: AGM records and their motions are immutable after creation. No edits or deletions are permitted regardless of AGM status (`open` or `closed`). This rule is enforced at the API level.
 - FR-12: A building import (US-012) accepts CSV or Excel (.xlsx / .xls), both using headers `building_name` and `manager_email`. It creates a building if one with that name does not exist, or updates `manager_email` if it does. Building names must be globally unique.
-- FR-13: Motion selections are auto-saved to the backend as **draft votes** whenever a lot owner selects or changes an option. Draft votes are stored per voter email per AGM in the database and restored when the voter re-authenticates. Draft votes have a `status` column (`draft` | `submitted`). Draft votes are not included in any vote tallies or the results report until the ballot is formally submitted. When an AGM is closed, all remaining draft votes (status = `draft`) are discarded (deleted or marked discarded) and those voters are recorded as absent.
+- FR-13: Motion selections are held entirely in client-side React state — no draft auto-save to the backend occurs. Selections are transmitted to the backend only when the lot owner clicks Submit and confirms the submission dialog. Voters who never submit are recorded as absent when the AGM is closed. (The backend `PUT /api/general-meeting/{id}/draft` endpoint is retained for backward compatibility but the frontend no longer calls it.)
 - FR-14: At AGM creation, the system records an immutable weight snapshot (`agm_lot_weights`) containing the `unit_entitlement` of every lot owner in the building at that moment. All tally calculations and the results report use this snapshot exclusively. Subsequent changes to lot owner data (CSV/Excel import, manual edit, PropertyIQ sync) do not alter existing snapshots. The lot owner import uses upsert semantics (matched by `lot_number`) rather than delete-all-then-insert, ensuring that database IDs — and therefore the foreign-key references from `agm_lot_weights` — are preserved for unchanged lots.
 - FR-15: The server exposes the current server UTC time via an API endpoint. The voting page fetches this on load, computes the offset from client time, and uses the corrected time for the countdown timer and 5-minute warning to eliminate client clock skew.
 

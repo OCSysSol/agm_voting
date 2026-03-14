@@ -3,8 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchMotions,
-  fetchDrafts,
-  saveDraft,
   submitBallot,
   fetchGeneralMeetings,
   fetchBuildings,
@@ -93,24 +91,6 @@ export function VotingPage() {
     enabled: !!meetingId,
   });
 
-  // Load drafts on mount
-  const { data: drafts } = useQuery({
-    queryKey: ["drafts", meetingId],
-    queryFn: () => fetchDrafts(meetingId!),
-    enabled: !!meetingId,
-  });
-
-  // Restore draft choices once loaded
-  useEffect(() => {
-    if (drafts && drafts.drafts.length > 0) {
-      const restored: Record<string, VoteChoice | null> = {};
-      for (const d of drafts.drafts) {
-        restored[d.motion_id] = d.choice;
-      }
-      setChoices((prev) => ({ ...prev, ...restored }));
-    }
-  }, [drafts]);
-
   // Poll meeting status every 10s
   useEffect(() => {
     if (!meetingId || !buildings) return;
@@ -144,7 +124,7 @@ export function VotingPage() {
       return submitBallot(meetingId!, lotOwnerIds);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["drafts", meetingId] });
+      void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
       navigate(`/vote/${meetingId}/confirmation`);
     },
     onError: (error: Error) => {
@@ -162,6 +142,17 @@ export function VotingPage() {
   const allSubmitted = allLots.length > 0 && allLots.every((l) => l.already_submitted);
   const pendingLots = allLots.filter((l) => !l.already_submitted);
   const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
+
+  // In-arrear warning banner: computed from the currently selected lots
+  const selectedLots = allLots.filter((l) => selectedIds.has(l.lot_owner_id));
+  const selectedInArrearCount = selectedLots.filter((l) => l.financial_position === "in_arrear").length;
+  const selectedNormalCount = selectedLots.filter((l) => l.financial_position !== "in_arrear").length;
+  const arrearBannerMode: "none" | "mixed" | "all" =
+    selectedInArrearCount === 0
+      ? "none"
+      : selectedNormalCount === 0
+      ? "all"
+      : "mixed";
 
   const handleToggle = (id: string) => {
     setSelectedIds((prev) => {
@@ -206,19 +197,8 @@ export function VotingPage() {
 
   const handleConfirm = () => {
     setShowDialog(false);
-    // Flush all pending draft saves before submitting so the debounce in
-    // useAutoSave cannot leave choices unpersisted when the backend processes
-    // the submission. Errors are swallowed — if a draft save fails we still
-    // submit (backend treats missing drafts as abstained, matching existing
-    // behaviour for unvoted motions).
-    const flushPromises = Object.entries(choices)
-      .filter(([, choice]) => choice !== null && choice !== undefined)
-      .map(([motionId, choice]) =>
-        saveDraft(meetingId!, { motion_id: motionId, choice }).catch(() => undefined)
-      );
-    void Promise.all(flushPromises).then(() => {
-      submitMutation.mutate();
-    });
+    // Vote choices live in React state only — submit directly, no draft flush needed.
+    submitMutation.mutate();
   };
 
   const handleCancel = () => {
@@ -375,17 +355,21 @@ export function VotingPage() {
           {motions && (
             <>
               <ProgressBar answered={answeredCount} total={motions.length} />
+              {arrearBannerMode !== "none" && (
+                <div className="arrear-notice" data-testid="arrear-banner" role="note">
+                  {arrearBannerMode === "all"
+                    ? "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
+                    : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
+                </div>
+              )}
               {motions.map((motion) => (
                 <MotionCard
                   key={motion.id}
                   motion={motion}
-                  meetingId={meetingId!}
                   choice={choices[motion.id] ?? null}
                   onChoiceChange={handleChoiceChange}
                   disabled={isClosed}
                   highlight={highlightUnanswered && !choices[motion.id]}
-                  inArrearLocked={false}
-                  onInArrearClick={undefined}
                 />
               ))}
               {!isClosed && !allSubmitted && (

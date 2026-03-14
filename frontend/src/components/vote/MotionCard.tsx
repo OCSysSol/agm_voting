@@ -1,41 +1,27 @@
 import type { VoteChoice } from "../../types";
 import type { MotionOut } from "../../api/voter";
 import { VoteButton } from "./VoteButton";
-import { SaveIndicator } from "./SaveIndicator";
-import { useAutoSave } from "../../hooks/useAutoSave";
 
 const CHOICES: VoteChoice[] = ["yes", "no", "abstained"];
 
 interface MotionCardProps {
   motion: MotionOut;
-  meetingId: string;
   choice: VoteChoice | null;
   onChoiceChange: (motionId: string, choice: VoteChoice | null) => void;
   disabled: boolean;
   highlight: boolean;
-  inArrearLocked?: boolean;
-  onInArrearClick?: () => void;
 }
 
 export function MotionCard({
   motion,
-  meetingId,
   choice,
   onChoiceChange,
   disabled,
   highlight,
-  inArrearLocked = false,
-  onInArrearClick,
 }: MotionCardProps) {
-  const { status, saveNow } = useAutoSave(meetingId, motion.id, choice);
-
   const handleClick = (c: VoteChoice) => {
     /* c8 ignore next */
     if (disabled) return;
-    if (inArrearLocked) {
-      onInArrearClick?.();
-      return;
-    }
     // Clicking the currently selected choice deselects it
     const next = choice === c ? null : c;
     onChoiceChange(motion.id, next);
@@ -61,25 +47,17 @@ export function MotionCard({
       {motion.description && (
         <p className="motion-card__description">{motion.description}</p>
       )}
-      {inArrearLocked && (
-        <p className="motion-card__in-arrear-label" data-testid="in-arrear-label">
-          Not eligible (in arrear)
-        </p>
-      )}
-      <div className={`vote-buttons${inArrearLocked ? " vote-buttons--locked" : ""}`}>
+      <div className="vote-buttons">
         {CHOICES.map((c) => (
           <VoteButton
             key={c}
             choice={c}
             selected={choice === c}
             disabled={disabled}
-            ariaDisabled={inArrearLocked}
+            ariaDisabled={false}
             onClick={() => handleClick(c)}
           />
         ))}
-      </div>
-      <div className="motion-card__footer">
-        <SaveIndicator status={status} onSave={saveNow} />
       </div>
     </div>
   );

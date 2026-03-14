@@ -149,7 +149,12 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 
 **Acceptance Criteria:**
 - [ ] General Motion vote buttons are **fully interactive** for all voters — the frontend does NOT disable or grey out buttons based on financial position
-- [ ] No "in arrear" notice banner or blocking modal is shown on the voting page
+- [ ] No blocking modal is shown; the frontend does not prevent vote submission for in-arrear lots on General Motions
+- [ ] An informational amber banner (`role="note"`, `data-testid="arrear-banner"`) is shown above the motions list whenever any selected lot is in arrear:
+  - [ ] If all selected lots are in arrear: "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
+  - [ ] If some (but not all) selected lots are in arrear: "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."
+  - [ ] Banner updates immediately when the voter toggles lot checkboxes (multi-lot voters)
+  - [ ] Banner is not shown when no selected lots are in arrear
 - [ ] The "In Arrear" badge is still shown on the lot in the sidebar (informational only)
 - [ ] Special Motion rows are fully interactive for all lots (normal and in-arrear)
 - [ ] `VoteChoice` enum gains a new value: `not_eligible` — this is the value recorded for in-arrear lots on General Motions
@@ -240,7 +245,7 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 
 - The lot selection screen should be lightweight and fast to complete — lot owners at an AGM may be on mobile. Use a simple checklist with clear lot numbers and status badges.
 - Financial position badges: "In Arrear" should use a distinct colour (e.g., amber or red) to stand out from "Normal" (grey/green).
-- When the user is voting for a mix of normal and in-arrear lots, the voting page shows the "In Arrear" badge on affected lots in the sidebar (informational). General Motions are NOT locked or disabled — all motion buttons remain interactive. The backend enforces per-lot eligibility at submission time.
+- When the user is voting for a mix of normal and in-arrear lots, the voting page shows: (a) the "In Arrear" badge on affected lots in the sidebar, and (b) an amber informational banner above the motions list explaining the eligibility impact. General Motions are NOT locked or disabled — all motion buttons remain interactive. The backend enforces per-lot eligibility at submission time.
 - Confirmation screen: if the submission covered multiple lots, show the lot number alongside each motion row, or group by lot.
 
 ---

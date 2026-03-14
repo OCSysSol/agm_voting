@@ -59,7 +59,9 @@ describe("VotingPage", () => {
     });
   });
 
-  it("restores draft selections on load", async () => {
+  it("does not restore draft choices from server on load (no mid-session persistence)", async () => {
+    // Drafts endpoint is called but choices are NOT pre-populated — choices live in React state only.
+    // Even if the server returns a saved draft, the page starts with no choices selected.
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/drafts`, () =>
         HttpResponse.json({
@@ -68,10 +70,11 @@ describe("VotingPage", () => {
       )
     );
     renderPage();
-    await waitFor(() => {
-      const yesButtons = screen.getAllByRole("button", { name: "For" });
-      expect(yesButtons[0]).toHaveAttribute("aria-pressed", "true");
-    });
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    // Despite the server returning a draft, no button is pre-selected
+    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    expect(yesButtons[0]).toHaveAttribute("aria-pressed", "false");
+    expect(yesButtons[1]).toHaveAttribute("aria-pressed", "false");
   });
 
   it("progress bar updates on selection", async () => {
@@ -261,15 +264,19 @@ describe("VotingPage", () => {
     });
   });
 
-  it("auto-saves after selecting a choice", async () => {
+  it("does not auto-save to server when a choice is selected", async () => {
+    // Draft auto-save is removed — choosing a vote should not trigger any PUT /draft call.
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft");
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
     const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
     await user.click(yesButtons[0]);
-    act(() => { vi.advanceTimersByTime(400); });
-    await waitFor(() => {
-      expect(screen.getAllByText(/Saved/).length).toBeGreaterThan(0);
-    });
+    act(() => { vi.advanceTimersByTime(1000); });
+    // No draft save should have been called
+    expect(saveDraftSpy).not.toHaveBeenCalled();
+    // No "Saved" indicator anywhere on the page
+    expect(screen.queryByText(/Saved/)).not.toBeInTheDocument();
+    saveDraftSpy.mockRestore();
   });
 
   it("poll finds open AGM (no status change - stays open)", async () => {
@@ -609,9 +616,9 @@ describe("VotingPage", () => {
 
   // --- in-arrear lot tests ---
 
-  it("in-arrear lots: no blocking notice — general motions are fully interactive", async () => {
-    // Fix 3: in-arrear restriction is per-lot at the backend; the frontend no longer
-    // blocks or disables General Motions for in-arrear voters.
+  it("in-arrear single lot: shows all-in-arrear banner but general motions remain fully interactive", async () => {
+    // In-arrear restriction is per-lot at the backend; the frontend does not disable
+    // General Motion buttons. The arrear banner is informational only.
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
@@ -621,22 +628,24 @@ describe("VotingPage", () => {
       )
     );
     sessionStorage.setItem(
-      `meeting_lot_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false, is_proxy: false }])
     );
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
-    // No in-arrear notice or blocking banner
-    expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
-    // Vote buttons on the general motion are not aria-disabled
+    // Banner shown (all selected lots are in arrear)
+    await waitFor(() => {
+      expect(screen.getByTestId("arrear-banner")).toBeInTheDocument();
+    });
+    // Vote buttons on the general motion are NOT disabled — in-arrear restriction is backend-only
     const forButtons = screen.getAllByRole("button", { name: "For" });
     expect(forButtons[0]).not.toHaveAttribute("aria-disabled");
-    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("in-arrear lots: general motions voteable, progress bar counts actual choices only", async () => {
+  it("in-arrear single lot: general motions voteable, progress bar counts actual choices only", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
@@ -647,8 +656,8 @@ describe("VotingPage", () => {
       )
     );
     sessionStorage.setItem(
-      `meeting_lot_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false, is_proxy: false }])
     );
     renderPage();
     // Neither motion is auto-answered — progress starts at 0/2
@@ -661,24 +670,13 @@ describe("VotingPage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
     });
-    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("handles invalid sessionStorage lot info gracefully", async () => {
-    sessionStorage.setItem(`meeting_lot_info_${AGM_ID}`, "not valid json");
-    renderPage();
-    // Should not crash, and no in-arrear notice should appear
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
-    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
-  });
+  // --- Submit directly from state (no draft flush) ---
 
-  // --- Draft flush before submit ---
-
-  it("calls saveDraft for each pending choice before submitBallot on confirm", async () => {
-    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockResolvedValue({ saved: true });
+  it("confirm calls submitBallot directly without calling saveDraft", async () => {
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft");
     const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
       submitted: true,
       lots: [],
@@ -690,115 +688,121 @@ describe("VotingPage", () => {
 
     const yesButtons = screen.getAllByRole("button", { name: "For" });
     await user.click(yesButtons[0]);
-    await user.click(yesButtons[1]);
-
-    // Clear spy call history accumulated from the debounced auto-saves
-    saveDraftSpy.mockClear();
 
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
 
     await waitFor(() => {
-      // saveDraft called once per answered motion before submitBallot
-      expect(saveDraftSpy).toHaveBeenCalledTimes(2);
-      expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_1, choice: "yes" });
-      expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_2, choice: "yes" });
       expect(submitSpy).toHaveBeenCalled();
     });
+    // saveDraft must never be called — no flush step
+    expect(saveDraftSpy).not.toHaveBeenCalled();
 
     saveDraftSpy.mockRestore();
     submitSpy.mockRestore();
   });
 
-  it("waits for draft flush to complete before calling submitBallot", async () => {
-    let resolveFlush!: () => void;
-    const flushPromise = new Promise<{ saved: boolean }>((resolve) => {
-      resolveFlush = () => resolve({ saved: true });
-    });
-    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockReturnValue(flushPromise);
-    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
-      submitted: true,
-      lots: [],
-    });
+  // --- In-arrear warning banner ---
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+  it("arrear banner not shown when no lots are in arrear", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    expect(screen.queryByTestId("arrear-banner")).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
 
-    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
+  it("arrear banner not shown for single-lot non-arrear voter", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    expect(screen.queryByTestId("arrear-banner")).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
 
-    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
-    await waitFor(() => screen.getByRole("dialog"));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+  it("arrear banner shown with mixed message when some selected lots are in arrear", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByTestId("arrear-banner"));
+    const banner = screen.getByTestId("arrear-banner");
+    expect(banner).toHaveTextContent("Some of your selected lots are in arrear");
+    expect(banner).toHaveTextContent("recorded as not eligible");
+    expect(banner).toHaveTextContent("Votes for all other lots will be recorded normally");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
 
-    // submitBallot must NOT have been called yet — flush is still pending
-    await waitFor(() => expect(saveDraftSpy).toHaveBeenCalled());
-    expect(submitSpy).not.toHaveBeenCalled();
+  it("arrear banner shown with all-in-arrear message when all selected lots are in arrear", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByTestId("arrear-banner"));
+    const banner = screen.getByTestId("arrear-banner");
+    expect(banner).toHaveTextContent("All your selected lots are in arrear");
+    expect(banner).toHaveTextContent("You may only vote on Special Motions");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
 
-    // Resolve the flush — now submitBallot should fire
-    resolveFlush();
+  it("arrear banner updates when a lot is unchecked to remove all in-arrear from selection", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByTestId("arrear-banner"));
+    // Uncheck the in-arrear lot — banner should disappear
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[0]); // uncheck lo1 (in_arrear)
     await waitFor(() => {
-      expect(submitSpy).toHaveBeenCalled();
+      expect(screen.queryByTestId("arrear-banner")).not.toBeInTheDocument();
     });
-
-    saveDraftSpy.mockRestore();
-    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("proceeds with submitBallot even if draft flush fails", async () => {
-    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockRejectedValue(new Error("network error"));
-    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
-      submitted: true,
-      lots: [],
-    });
-
+  it("arrear banner changes from mixed to all-in-arrear when normal lot unchecked", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
-
-    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
-
-    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
-    await waitFor(() => screen.getByRole("dialog"));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
-
-    // Even though saveDraft rejected, submitBallot must still be called
+    await waitFor(() => screen.getByTestId("arrear-banner"));
+    expect(screen.getByTestId("arrear-banner")).toHaveTextContent("Some of your selected lots are in arrear");
+    // Uncheck the normal lot — now all remaining selected lots are in arrear
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[1]); // uncheck lo2 (normal)
     await waitFor(() => {
-      expect(submitSpy).toHaveBeenCalled();
+      expect(screen.getByTestId("arrear-banner")).toHaveTextContent("All your selected lots are in arrear");
     });
-
-    saveDraftSpy.mockRestore();
-    submitSpy.mockRestore();
-  });
-
-  it("skips saveDraft for motions with no choice (null/undefined)", async () => {
-    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockResolvedValue({ saved: true });
-    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
-      submitted: true,
-      lots: [],
-    });
-
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
-    renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
-
-    // Only answer one of two motions
-    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
-
-    saveDraftSpy.mockClear();
-
-    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
-    await waitFor(() => screen.getByRole("dialog"));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
-
-    await waitFor(() => expect(submitSpy).toHaveBeenCalled());
-
-    // Only one saveDraft call — only the answered motion
-    expect(saveDraftSpy).toHaveBeenCalledTimes(1);
-    expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_1, choice: "yes" });
-
-    saveDraftSpy.mockRestore();
-    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 });
