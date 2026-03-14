@@ -347,4 +347,111 @@ describe("BuildingDetailPage", () => {
     await user.click(screen.getByRole("button", { name: "← Back" }));
     expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
   });
+
+  // --- Edit Building modal ---
+
+  it("shows Edit Building button when building is found", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+  });
+
+  it("does not show Edit Building button when building is not found", async () => {
+    renderPage("b-unknown");
+    await waitFor(() => {
+      expect(screen.getByText("Building")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Edit Building" })).not.toBeInTheDocument();
+  });
+
+  it("opens edit modal when Edit Building clicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    expect(screen.getByRole("heading", { name: "Edit Building" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Alpha Tower");
+    expect(screen.getByLabelText("Manager Email")).toHaveValue("alpha@example.com");
+  });
+
+  it("closes modal on Cancel without saving", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    expect(screen.getByRole("heading", { name: "Edit Building" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("heading", { name: "Edit Building" })).not.toBeInTheDocument();
+  });
+
+  it("shows 'No changes detected' when neither field changed", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.getByText("No changes detected")).toBeInTheDocument();
+    });
+  });
+
+  it("submits with updated name only and closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Updated Tower");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Edit Building" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("submits with updated manager email only and closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    const emailInput = screen.getByLabelText("Manager Email");
+    await user.clear(emailInput);
+    await user.type(emailInput, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Edit Building" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows server error when PATCH fails", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({ detail: "Name already taken" }, { status: 409 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Duplicate Tower");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.getByText(/409/)).toBeInTheDocument();
+    });
+  });
 });

@@ -208,6 +208,11 @@ export interface BuildingCreateRequest {
   manager_email: string;
 }
 
+export interface BuildingUpdateRequest {
+  name?: string;
+  manager_email?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Buildings
 // ---------------------------------------------------------------------------
@@ -241,6 +246,13 @@ export async function createBuilding(data: BuildingCreateRequest): Promise<Build
 export async function archiveBuilding(buildingId: string): Promise<BuildingArchiveOut> {
   return apiFetch<BuildingArchiveOut>(`/api/admin/buildings/${buildingId}/archive`, {
     method: "POST",
+  });
+}
+
+export async function updateBuilding(buildingId: string, data: BuildingUpdateRequest): Promise<Building> {
+  return apiFetch<Building>(`/api/admin/buildings/${buildingId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
   });
 }
 

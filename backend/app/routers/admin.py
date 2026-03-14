@@ -28,6 +28,7 @@ from app.schemas.admin import (
     BuildingCreate,
     BuildingImportResult,
     BuildingOut,
+    BuildingUpdate,
     FinancialPositionImportResult,
     LotOwnerCreate,
     LotOwnerImportResult,
@@ -136,6 +137,16 @@ async def archive_building(
 ) -> BuildingArchiveOut:
     building = await admin_service.archive_building(building_id, db)
     return BuildingArchiveOut.model_validate(building)
+
+
+@router.patch("/buildings/{building_id}", response_model=BuildingOut)
+async def update_building(
+    building_id: uuid.UUID,
+    data: BuildingUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> BuildingOut:
+    building = await admin_service.update_building(building_id, data, db)
+    return BuildingOut.model_validate(building)
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ from app.models import (
     get_effective_status,
 )
 from app.schemas.admin import (
+    BuildingUpdate,
     GeneralMeetingCreate,
     LotOwnerCreate,
     LotOwnerUpdate,
@@ -283,6 +284,22 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
         if not found_in_other:
             owner.is_archived = True
 
+    await db.commit()
+    await db.refresh(building)
+    return building
+
+
+async def update_building(
+    building_id: uuid.UUID,
+    data: BuildingUpdate,
+    db: AsyncSession,
+) -> Building:
+    """Update name and/or manager_email on an existing building."""
+    building = await get_building_or_404(building_id, db)
+    if data.name is not None:
+        building.name = data.name
+    if data.manager_email is not None:
+        building.manager_email = data.manager_email
     await db.commit()
     await db.refresh(building)
     return building

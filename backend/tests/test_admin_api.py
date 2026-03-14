@@ -3296,6 +3296,184 @@ class TestArchiveBuilding:
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/admin/buildings/{id}
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateBuilding:
+    # --- Happy path ---
+
+    async def test_update_name_only_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Patch Name Building", manager_email="patch.name@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": "Renamed Building"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Renamed Building"
+        assert data["manager_email"] == "patch.name@test.com"
+
+    async def test_update_manager_email_only_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Patch Email Building", manager_email="old@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"manager_email": "new@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["manager_email"] == "new@test.com"
+        assert data["name"] == "Patch Email Building"
+
+    async def test_update_both_fields_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Patch Both Building", manager_email="both.old@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": "Both Updated", "manager_email": "both.new@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Both Updated"
+        assert data["manager_email"] == "both.new@test.com"
+
+    async def test_update_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Persist Test Building", manager_email="persist@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": "Persisted Name"},
+        )
+
+        await db_session.refresh(b)
+        assert b.name == "Persisted Name"
+
+    async def test_update_returns_building_out_shape(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Shape Test Building", manager_email="shape@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": "Shape Updated"},
+        )
+        data = response.json()
+        assert "id" in data
+        assert "name" in data
+        assert "manager_email" in data
+        assert "is_archived" in data
+        assert "created_at" in data
+
+    # --- Input validation ---
+
+    async def test_empty_body_both_null_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Null Patch Building", manager_email="null@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(f"/api/admin/buildings/{b.id}", json={})
+        assert response.status_code == 422
+
+    async def test_empty_name_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Empty Name Patch", manager_email="emptyname@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": ""},
+        )
+        assert response.status_code == 422
+
+    async def test_whitespace_only_name_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Whitespace Name Patch", manager_email="wsname@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": "   "},
+        )
+        assert response.status_code == 422
+
+    async def test_empty_manager_email_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Empty Email Patch", manager_email="emptyemail@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"manager_email": ""},
+        )
+        assert response.status_code == 422
+
+    async def test_whitespace_only_manager_email_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Whitespace Email Patch", manager_email="wsemail@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"manager_email": "   "},
+        )
+        assert response.status_code == 422
+
+    async def test_null_name_and_null_manager_email_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Null Fields Patch", manager_email="nullfields@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/admin/buildings/{b.id}",
+            json={"name": None, "manager_email": None},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_update_nonexistent_building_returns_404(
+        self, client: AsyncClient
+    ):
+        response = await client.patch(
+            f"/api/admin/buildings/{uuid.uuid4()}",
+            json={"name": "Ghost Building"},
+        )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Admin auth endpoints
 # ---------------------------------------------------------------------------
 
