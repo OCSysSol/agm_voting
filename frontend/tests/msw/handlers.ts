@@ -208,6 +208,20 @@ export const adminHandlers = [
     return HttpResponse.json({ id: building.id, name: building.name, is_archived: true });
   }),
 
+  http.patch(`${BASE}/api/admin/buildings/:buildingId`, async ({ request, params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    const body = await request.json() as { name?: string; manager_email?: string };
+    const updated: Building = {
+      ...building,
+      name: body?.name ?? building.name,
+      manager_email: body?.manager_email ?? building.manager_email,
+    };
+    return HttpResponse.json(updated);
+  }),
+
   http.post(`${BASE}/api/admin/buildings/import`, () => {
     return HttpResponse.json<BuildingImportResult>({ created: 2, updated: 1 });
   }),

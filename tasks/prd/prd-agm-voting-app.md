@@ -87,6 +87,26 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-BLD-01: Edit building name and manager email
+
+**Description:** As a meeting host, I want to edit a building's name and manager email from the Building Detail page so I can keep building information up to date.
+
+**Acceptance Criteria:**
+
+- [ ] Admin can edit `name` and/or `manager_email` for an existing building from the BuildingDetailPage via an "Edit Building" button in the page header
+- [ ] Clicking "Edit Building" opens a modal pre-filled with the current name and manager email
+- [ ] "Save Changes" submits a `PATCH /api/admin/buildings/{id}` request; on success the modal closes and the page header updates with the new values
+- [ ] At least one field must differ from the current value to enable submission; if neither field changed, an error is shown inline: "No changes detected"
+- [ ] `PATCH /api/admin/buildings/{id}` accepts body `{ "name"?: string, "manager_email"?: string }` — at least one field must be provided (422 if both are absent/null)
+- [ ] Empty string for `name` or `manager_email` returns 422
+- [ ] `PATCH` returns the updated `BuildingOut` on success
+- [ ] If the building does not exist, 404 is returned
+- [ ] Server-side errors are shown inline in the modal
+- [ ] "Cancel" closes the modal without saving
+- [ ] Typecheck/lint passes
+
+---
+
 ### US-001: Create a new AGM
 
 **Description:** As a meeting host, I want to create a new AGM so that lot owners can vote on motions for an upcoming meeting.

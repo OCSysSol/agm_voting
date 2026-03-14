@@ -45,6 +45,31 @@ class BuildingCreate(BaseModel):
         return v
 
 
+class BuildingUpdate(BaseModel):
+    name: str | None = None
+    manager_email: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+    @field_validator("manager_email")
+    @classmethod
+    def email_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("manager_email must not be empty")
+        return v
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "BuildingUpdate":
+        if self.name is None and self.manager_email is None:
+            raise ValueError("At least one of name or manager_email must be provided")
+        return self
+
+
 class BuildingImportResult(BaseModel):
     created: int
     updated: int
