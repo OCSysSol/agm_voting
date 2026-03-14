@@ -280,6 +280,28 @@ export const adminHandlers = [
     return HttpResponse.json(updated);
   }),
 
+  http.put(`${BASE}/api/admin/lot-owners/:lotOwnerId/proxy`, async ({ request, params }) => {
+    const body = await request.json() as { proxy_email?: string };
+    const updated: LotOwner = {
+      ...ADMIN_LOT_OWNERS[0],
+      id: params.lotOwnerId as string,
+      proxy_email: body?.proxy_email ?? null,
+    };
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete(`${BASE}/api/admin/lot-owners/:lotOwnerId/proxy`, ({ params }) => {
+    const owner = ADMIN_LOT_OWNERS.find((lo) => lo.id === params.lotOwnerId);
+    if (!owner?.proxy_email) {
+      return HttpResponse.json({ detail: "No proxy nomination found for this lot owner" }, { status: 404 });
+    }
+    const updated: LotOwner = {
+      ...owner,
+      proxy_email: null,
+    };
+    return HttpResponse.json(updated);
+  }),
+
   http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import`, () => {
     return HttpResponse.json<LotOwnerImportResult>({ imported: 5, emails: 5 });
   }),

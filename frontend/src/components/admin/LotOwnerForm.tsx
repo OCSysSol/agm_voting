@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { addLotOwner, updateLotOwner, addEmailToLotOwner, removeEmailFromLotOwner } from "../../api/admin";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { addLotOwner, updateLotOwner, addEmailToLotOwner, removeEmailFromLotOwner, setLotOwnerProxy, removeLotOwnerProxy } from "../../api/admin";
 import type { LotOwner } from "../../types";
 import type { LotOwnerCreateRequest, LotOwnerUpdateRequest } from "../../api/admin";
 
@@ -42,7 +42,14 @@ function EditModal({
   const [emails, setEmails] = useState<string[]>(lotOwner.emails);
   const [newEmail, setNewEmail] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailsModified, setEmailsModified] = useState(false);
 
+  // Proxy management
+  const [proxyEmail, setProxyEmail] = useState<string | null>(lotOwner.proxy_email ?? null);
+  const [newProxyEmail, setNewProxyEmail] = useState("");
+  const [proxyError, setProxyError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Reset state when lotOwner changes (e.g. if parent rerenders with new target)
@@ -53,6 +60,10 @@ function EditModal({
     setEmails(lotOwner.emails);
     setNewEmail("");
     setEmailError(null);
+    setEmailsModified(false);
+    setProxyEmail(lotOwner.proxy_email ?? null);
+    setNewProxyEmail("");
+    setProxyError(null);
   }, [lotOwner]);
 
   // Close on Escape
@@ -83,6 +94,8 @@ function EditModal({
       setEmails(updated.emails);
       setNewEmail("");
       setEmailError(null);
+      setEmailsModified(true);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
     },
     onError: (err) => {
       setEmailError(err.message);
@@ -94,9 +107,36 @@ function EditModal({
     onSuccess: (updated) => {
       setEmails(updated.emails);
       setEmailError(null);
+      setEmailsModified(true);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
     },
     onError: (err) => {
       setEmailError(err.message);
+    },
+  });
+
+  const setProxyMutation = useMutation<LotOwner, Error, string>({
+    mutationFn: (email) => setLotOwnerProxy(lotOwner.id, email),
+    onSuccess: (updated) => {
+      setProxyEmail(updated.proxy_email ?? null);
+      setNewProxyEmail("");
+      setProxyError(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
+    },
+    onError: (err) => {
+      setProxyError(err.message);
+    },
+  });
+
+  const removeProxyMutation = useMutation<LotOwner, Error, void>({
+    mutationFn: () => removeLotOwnerProxy(lotOwner.id),
+    onSuccess: () => {
+      setProxyEmail(null);
+      setProxyError(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
+    },
+    onError: (err) => {
+      setProxyError(err.message);
     },
   });
 
@@ -120,6 +160,10 @@ function EditModal({
       updateData.financial_position = financialPosition;
 
     if (Object.keys(updateData).length === 0) {
+      if (emailsModified) {
+        onSuccess();
+        return;
+      }
       setFormError("No changes detected.");
       return;
     }
@@ -149,6 +193,14 @@ function EditModal({
     removeEmailMutation.mutate(email);
   }
 
+  function handleSetProxy() {
+    setProxyError(null);
+    const trimmed = newProxyEmail.trim();
+    if (!trimmed) { setProxyError("Proxy email is required."); return; }
+    if (!isValidEmail(trimmed)) { setProxyError("Please enter a valid email address."); return; }
+    setProxyMutation.mutate(trimmed);
+  }
+
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === overlayRef.current) {
       onCancel();
@@ -158,7 +210,9 @@ function EditModal({
   const isPending =
     editMutation.isPending ||
     addEmailMutation.isPending ||
-    removeEmailMutation.isPending;
+    removeEmailMutation.isPending ||
+    setProxyMutation.isPending ||
+    removeProxyMutation.isPending;
 
   return (
     <div
@@ -246,6 +300,50 @@ function EditModal({
             <p className="field__error" style={{ marginTop: 6 }}>
               {emailError}
             </p>
+          )}
+        </div>
+
+        {/* Proxy nomination */}
+        <div className="field" style={{ marginBottom: 20 }}>
+          <label className="field__label">Proxy</label>
+          {proxyEmail ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", fontSize: "0.875rem" }}>
+              <span>{proxyEmail}</span>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                style={{ padding: "3px 10px", fontSize: "0.75rem" }}
+                onClick={() => { setProxyError(null); removeProxyMutation.mutate(); }}
+                disabled={isPending}
+              >
+                Remove proxy
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                id="set-proxy-input"
+                className="field__input"
+                type="text"
+                placeholder="proxy@example.com"
+                value={newProxyEmail}
+                onChange={(e) => setNewProxyEmail(e.target.value)}
+                aria-label="Set proxy email"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSetProxy(); } }}
+              />
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={handleSetProxy}
+                disabled={isPending}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                Set proxy
+              </button>
+            </div>
+          )}
+          {proxyError && (
+            <p className="field__error" style={{ marginTop: 6 }}>{proxyError}</p>
           )}
         </div>
 

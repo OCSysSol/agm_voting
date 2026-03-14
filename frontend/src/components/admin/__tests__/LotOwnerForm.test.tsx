@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import LotOwnerForm from "../LotOwnerForm";
-import { addEmailToLotOwner, getLotOwner, removeEmailFromLotOwner } from "../../../api/admin";
+import { addEmailToLotOwner, getLotOwner, removeEmailFromLotOwner, setLotOwnerProxy, removeLotOwnerProxy } from "../../../api/admin";
 import type { LotOwner } from "../../../types";
 
 const existingLotOwner: LotOwner = {
@@ -537,5 +537,172 @@ describe("getLotOwner API function", () => {
 
   it("handles 404 error when lot owner not found", async () => {
     await expect(getLotOwner("lo-nonexistent")).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LotOwnerForm - Edit modal proxy management (US-PX08)
+// ---------------------------------------------------------------------------
+
+const lotOwnerWithoutProxy: LotOwner = {
+  id: "lo1",
+  building_id: "b1",
+  lot_number: "1A",
+  emails: ["owner1@example.com"],
+  unit_entitlement: 100,
+  financial_position: "normal",
+  proxy_email: null,
+};
+
+const lotOwnerWithProxy: LotOwner = {
+  id: "lo2",
+  building_id: "b1",
+  lot_number: "2B",
+  emails: ["owner2@example.com"],
+  unit_entitlement: 200,
+  financial_position: "normal",
+  proxy_email: "proxy@example.com",
+};
+
+describe("LotOwnerForm - Edit modal proxy management", () => {
+  // --- Happy path ---
+
+  it("shows Set proxy input and button when proxy_email is null", () => {
+    renderEditForm(lotOwnerWithoutProxy);
+    expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set proxy" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove proxy" })).not.toBeInTheDocument();
+  });
+
+  it("shows proxy email and Remove proxy button when proxy_email is set", () => {
+    renderEditForm(lotOwnerWithProxy);
+    expect(screen.getByText("proxy@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Set proxy email")).not.toBeInTheDocument();
+  });
+
+  it("sets proxy successfully and shows new proxy email with Remove proxy button", async () => {
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    await user.type(screen.getByLabelText("Set proxy email"), "newproxy@example.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("newproxy@example.com")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
+    });
+  });
+
+  it("removes proxy successfully and shows input and Set proxy button", async () => {
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithProxy);
+    await user.click(screen.getByRole("button", { name: "Remove proxy" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Set proxy" })).toBeInTheDocument();
+    });
+  });
+
+  // --- Input validation ---
+
+  it("shows 'Proxy email is required.' when Set proxy clicked with empty input", async () => {
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    expect(screen.getByText("Proxy email is required.")).toBeInTheDocument();
+  });
+
+  it("shows 'Please enter a valid email address.' for invalid proxy email", async () => {
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    await user.type(screen.getByLabelText("Set proxy email"), "not-an-email");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
+  });
+
+  // --- Error handling ---
+
+  it("shows error message when set proxy API fails", async () => {
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+        return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    await user.type(screen.getByLabelText("Set proxy email"), "proxy@example.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText(/500/)).toBeInTheDocument();
+    });
+  });
+
+  it("shows error message when remove proxy API fails", async () => {
+    server.use(
+      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+        return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithProxy);
+    await user.click(screen.getByRole("button", { name: "Remove proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText(/404/)).toBeInTheDocument();
+    });
+  });
+
+  // --- UX fix: No changes detected suppressed when emails modified (Issue A) ---
+
+  it("calls onSuccess instead of showing 'No changes detected' after adding an email", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderEditForm(lotOwnerWithoutProxy, onSuccess);
+    // Add an email
+    await user.type(screen.getByLabelText("Add email"), "added@example.com");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      expect(screen.getByText("added@example.com")).toBeInTheDocument();
+    });
+    // Click Save Changes without changing entitlement/financial position
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("No changes detected.")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API function coverage — setLotOwnerProxy / removeLotOwnerProxy
+// ---------------------------------------------------------------------------
+
+describe("setLotOwnerProxy API function", () => {
+  it("sets proxy and returns updated lot owner with proxy_email", async () => {
+    const result = await setLotOwnerProxy("lo1", "proxy@example.com");
+    expect(result.proxy_email).toBe("proxy@example.com");
+  });
+
+  it("handles server error when setting proxy", async () => {
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+        return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+      })
+    );
+    await expect(setLotOwnerProxy("lo-nonexistent", "proxy@example.com")).rejects.toThrow();
+  });
+});
+
+describe("removeLotOwnerProxy API function", () => {
+  it("removes proxy and returns updated lot owner with null proxy_email", async () => {
+    const result = await removeLotOwnerProxy("lo2");
+    expect(result.proxy_email).toBeNull();
+  });
+
+  it("handles 404 when no proxy to remove", async () => {
+    server.use(
+      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+        return HttpResponse.json({ detail: "No proxy nomination found for this lot owner" }, { status: 404 });
+      })
+    );
+    await expect(removeLotOwnerProxy("lo1")).rejects.toThrow();
   });
 });

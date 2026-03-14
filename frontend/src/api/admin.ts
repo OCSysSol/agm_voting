@@ -166,6 +166,24 @@ export async function removeEmailFromLotOwner(
   });
 }
 
+export async function setLotOwnerProxy(
+  lotOwnerId: string,
+  proxyEmail: string
+): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/proxy`, {
+    method: "PUT",
+    body: JSON.stringify({ proxy_email: proxyEmail }),
+  });
+}
+
+export async function removeLotOwnerProxy(
+  lotOwnerId: string
+): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/proxy`, {
+    method: "DELETE",
+  });
+}
+
 export interface MotionCreateRequest {
   title: string;
   description: string | null;

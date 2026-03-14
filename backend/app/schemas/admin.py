@@ -130,6 +130,17 @@ class AddEmailRequest(BaseModel):
         return v
 
 
+class SetProxyRequest(BaseModel):
+    proxy_email: str
+
+    @field_validator("proxy_email")
+    @classmethod
+    def proxy_email_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("proxy_email must not be empty")
+        return v
+
+
 class LotOwnerImportResult(BaseModel):
     imported: int
     emails: int
