@@ -13,7 +13,7 @@
  * AGM via the admin API so it does not interfere with other E2E tests.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,21 +21,21 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Scenario 1: proxy-only voter ─────────────────────────────────────────────
-const PROXY_BUILDING_NAME = "E2E Proxy Test Building";
+const PROXY_BUILDING_NAME = `E2E Proxy Test Building-${RUN_SUFFIX}`;
 const LOT_A_NUMBER = "PX-A";
 const LOT_A_OWNER_EMAIL = "lotA-owner@test.com";
 const LOT_B_NUMBER = "PX-B";
 const LOT_B_OWNER_EMAIL = "lotB-owner@test.com";
 const PROXY_VOTER_EMAIL = "proxy-voter@test.com";
-const PROXY_AGM_TITLE = "E2E Proxy Test AGM";
+const PROXY_AGM_TITLE = `E2E Proxy Test AGM-${RUN_SUFFIX}`;
 
 // ── Scenario 2: mixed voter (own lot + proxy lot) ─────────────────────────────
-const MIXED_BUILDING_NAME = "E2E Mixed Proxy Test Building";
+const MIXED_BUILDING_NAME = `E2E Mixed Proxy Test Building-${RUN_SUFFIX}`;
 const MIXED_LOT_A_NUMBER = "MX-A";
 const MIXED_LOT_A_OWNER_EMAIL = "mixed-voter@test.com"; // owns MX-A directly
 const MIXED_LOT_C_NUMBER = "MX-C";
 const MIXED_LOT_C_OWNER_EMAIL = "lotC-owner@test.com"; // MX-C proxied to mixed-voter
-const MIXED_AGM_TITLE = "E2E Mixed Proxy Test AGM";
+const MIXED_AGM_TITLE = `E2E Mixed Proxy Test AGM-${RUN_SUFFIX}`;
 
 /** Upload a CSV as multipart/form-data to the import-proxies endpoint. */
 async function uploadProxyCsv(

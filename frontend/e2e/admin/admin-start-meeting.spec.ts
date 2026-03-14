@@ -16,21 +16,21 @@
  * test 2's "Start Meeting" click to mutate the meeting that test 1 reads.
  */
 
-import { test, expect } from "../fixtures";
+import { test, expect, RUN_SUFFIX } from "../fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME_PENDING = "E2E Start Meeting Pending Building";
-const BUILDING_NAME_START = "E2E Start Meeting Start Building";
-const BUILDING_NAME_OPEN = "E2E Start Meeting Open Building";
-const BUILDING_NAME_CLOSED = "E2E Start Meeting Closed Building";
-const AGM_TITLE_PENDING = "E2E Pending Start Test AGM";
-const AGM_TITLE_START = "E2E Start Action Test AGM";
-const AGM_TITLE_OPEN = "E2E Open Start Test AGM";
-const AGM_TITLE_CLOSED = "E2E Closed Start Test AGM";
+const BUILDING_NAME_PENDING = `E2E Start Meeting Pending Building-${RUN_SUFFIX}`;
+const BUILDING_NAME_START = `E2E Start Meeting Start Building-${RUN_SUFFIX}`;
+const BUILDING_NAME_OPEN = `E2E Start Meeting Open Building-${RUN_SUFFIX}`;
+const BUILDING_NAME_CLOSED = `E2E Start Meeting Closed Building-${RUN_SUFFIX}`;
+const AGM_TITLE_PENDING = `E2E Pending Start Test AGM-${RUN_SUFFIX}`;
+const AGM_TITLE_START = `E2E Start Action Test AGM-${RUN_SUFFIX}`;
+const AGM_TITLE_OPEN = `E2E Open Start Test AGM-${RUN_SUFFIX}`;
+const AGM_TITLE_CLOSED = `E2E Closed Start Test AGM-${RUN_SUFFIX}`;
 
 let pendingAgmId = "";
 let startAgmId = "";   // used exclusively by the "click Start Meeting" test

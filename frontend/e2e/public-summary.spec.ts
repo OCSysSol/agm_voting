@@ -10,18 +10,18 @@
  * API so it does not interfere with other E2E tests.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E Summary Test Building";
+const BUILDING_NAME = `E2E Summary Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER = "SUM-1";
 const LOT_EMAIL = "summary-e2e@test.com";
 const LOT_ENTITLEMENT = 15;
-const AGM_TITLE = "E2E Summary Test AGM";
+const AGM_TITLE = `E2E Summary Test AGM-${RUN_SUFFIX}`;
 const GENERAL_MOTION_TITLE = "General Motion — Budget Approval";
 const SPECIAL_MOTION_TITLE = "Special Motion — Bylaw Amendment";
 

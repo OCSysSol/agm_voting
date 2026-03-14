@@ -31,14 +31,14 @@
  * we arrive via /confirmation directly (not /voting).
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E Closed Meeting Test Building";
+const BUILDING_NAME = `E2E Closed Meeting Test Building-${RUN_SUFFIX}`;
 // Voter who will submit a ballot before the AGM is closed
 const VOTED_LOT_NUMBER = "CLO-1";
 const VOTED_LOT_EMAIL = "closed-voter@test.com";
@@ -47,7 +47,7 @@ const VOTED_LOT_ENTITLEMENT = 10;
 const UNVOTED_LOT_NUMBER = "CLO-2";
 const UNVOTED_LOT_EMAIL = "closed-novote@test.com";
 const UNVOTED_LOT_ENTITLEMENT = 10;
-const AGM_TITLE = "E2E Closed Meeting Test AGM";
+const AGM_TITLE = `E2E Closed Meeting Test AGM-${RUN_SUFFIX}`;
 const MOTION_TITLE = "E2E Closed Motion — Budget Approval";
 
 let seededAgmId = "";

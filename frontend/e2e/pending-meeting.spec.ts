@@ -12,18 +12,18 @@
  * the admin API so it does not interfere with other E2E tests.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E Pending Meeting Test Building";
+const BUILDING_NAME = `E2E Pending Meeting Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER = "PEND-1";
 const LOT_EMAIL = "pending-e2e@test.com";
 const LOT_ENTITLEMENT = 10;
-const AGM_TITLE = "E2E Pending Test AGM";
+const AGM_TITLE = `E2E Pending Test AGM-${RUN_SUFFIX}`;
 
 let seededAgmId = "";
 

@@ -11,18 +11,18 @@
  * API so it does not interfere with other E2E tests.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E In-Arrear Test Building";
+const BUILDING_NAME = `E2E In-Arrear Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER = "ARR-1";
 const LOT_EMAIL = "inarrear-e2e@test.com";
 const LOT_ENTITLEMENT = 20;
-const AGM_TITLE = "E2E In-Arrear Test AGM";
+const AGM_TITLE = `E2E In-Arrear Test AGM-${RUN_SUFFIX}`;
 
 test.describe("In-arrear lot owner voting", () => {
   // Serial mode prevents parallel workers from each running their own beforeAll,

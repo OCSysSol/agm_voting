@@ -1,6 +1,18 @@
 import { test as base, expect } from "@playwright/test";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 export { expect };
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Read the branch-name suffix written by global-setup so every spec can
+// namespace its seeded entity names without re-computing the branch name.
+const suffixFile = path.join(__dirname, ".run-suffix");
+export const RUN_SUFFIX = fs.existsSync(suffixFile)
+  ? fs.readFileSync(suffixFile, "utf-8").trim()
+  : "local";
 
 // Console/network error patterns that are safe to ignore
 const IGNORED_PATTERNS = [

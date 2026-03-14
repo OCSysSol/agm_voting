@@ -5,16 +5,22 @@
  *    e2e/.auth/admin.json so admin-scoped tests can reuse it.
  *
  * 2. Seeds the minimum data required by the voting-flow tests:
- *    - A building called "E2E Test Building"
+ *    - A building called "E2E Test Building-<suffix>"
  *    - A lot owner  lot=E2E-1  email=e2e-voter@test.com  entitlement=10
  *    - An open AGM with one motion attached to that building
  *
  *    All of this is idempotent — the setup checks what already exists
  *    before creating anything, so it is safe to run against a long-lived
  *    shared deployment.
+ *
+ * 3. Derives a branch-name suffix and writes it to e2e/.run-suffix so
+ *    per-spec beforeAll blocks can read it and namespace their seeded
+ *    entity names, preventing cross-branch DB contamination on the shared
+ *    preview deployment.
  */
 
 import { chromium, request as playwrightRequest, type FullConfig } from "@playwright/test";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -24,18 +30,49 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
-export const E2E_BUILDING_NAME = "E2E Test Building";
+// ── Branch-name suffix ─────────────────────────────────────────────────────
+// Derive a short suffix from the current branch name so every branch run
+// seeds its own isolated namespace in the shared Neon DB.  We take the last
+// 20 characters of the normalised branch slug — the most specific part.
+function getBranchSuffix(): string {
+  const branch =
+    process.env.GITHUB_HEAD_REF ||
+    process.env.GITHUB_REF_NAME ||
+    (() => {
+      try {
+        return execSync("git branch --show-current", { encoding: "utf-8" }).trim();
+      } catch {
+        return "";
+      }
+    })() ||
+    "local";
+
+  return branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(-20);
+}
+
+export const RUN_SUFFIX = getBranchSuffix();
+
+// Write suffix to a file so worker processes (which don't run globalSetup)
+// can read it without re-computing the branch name.
+fs.writeFileSync(path.join(__dirname, ".run-suffix"), RUN_SUFFIX);
+
+export const E2E_BUILDING_NAME = `E2E Test Building-${RUN_SUFFIX}`;
 export const E2E_LOT_NUMBER = "E2E-1";
 export const E2E_LOT_EMAIL = "e2e-voter@test.com";
 export const E2E_LOT_ENTITLEMENT = 10;
-export const E2E_AGM_TITLE = "E2E Test AGM";
+export const E2E_AGM_TITLE = `E2E Test AGM-${RUN_SUFFIX}`;
 
 // A second building with its own open AGM, used exclusively by the
 // admin-agms tests that interact with open AGMs (e.g. Close Voting dialog).
 // Created AFTER the voting-test AGM so it appears first in the admin AGM
 // list (sorted by created_at DESC) — ensuring admin tests target this AGM
 // rather than the voting-test AGM.
-export const E2E_ADMIN_BUILDING_NAME = "E2E Admin Test Building";
+export const E2E_ADMIN_BUILDING_NAME = `E2E Admin Test Building-${RUN_SUFFIX}`;
 
 const BYPASS_TOKEN = process.env.VERCEL_BYPASS_TOKEN;
 
@@ -320,7 +357,7 @@ export default async function globalSetup(_config: FullConfig) {
     await api.post("/api/admin/general-meetings", {
       data: {
         building_id: adminBuilding.id,
-        title: "E2E Admin Test AGM",
+        title: `E2E Admin Test AGM-${RUN_SUFFIX}`,
         meeting_at: adminMeetingStarted.toISOString(),
         voting_closes_at: adminClosesAt.toISOString(),
         motions: [

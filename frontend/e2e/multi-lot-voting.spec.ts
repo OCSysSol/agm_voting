@@ -27,20 +27,20 @@
  *   navigating back to the auth page and re-authenticating.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const BUILDING_NAME = "E2E Multi-Lot Test Building";
+const BUILDING_NAME = `E2E Multi-Lot Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER_1 = "ML-1";
 const LOT_NUMBER_2 = "ML-2";
 const LOT_EMAIL = "multi-voter@test.com";
 const LOT_ENTITLEMENT_1 = 15;
 const LOT_ENTITLEMENT_2 = 25;
-const AGM_TITLE = "E2E Multi-Lot Test AGM";
+const AGM_TITLE = `E2E Multi-Lot Test AGM-${RUN_SUFFIX}`;
 
 // Seeded data shared across scenarios — populated in beforeAll
 let meetingId = "";
