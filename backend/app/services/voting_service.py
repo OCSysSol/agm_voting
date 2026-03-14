@@ -97,11 +97,12 @@ async def save_draft(
         # Delete the draft if it exists
         await db.execute(delete(Vote).where(*vote_filter))
     else:
-        # Upsert: look for existing draft
+        # Upsert: look for existing draft only — never match submitted votes
         existing_filter = [
             Vote.general_meeting_id == general_meeting_id,
             Vote.motion_id == motion_id,
             Vote.voter_email == voter_email,
+            Vote.status == VoteStatus.draft,
         ]
         if lot_owner_id is not None:
             existing_filter.append(Vote.lot_owner_id == lot_owner_id)

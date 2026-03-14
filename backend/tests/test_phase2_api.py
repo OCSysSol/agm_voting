@@ -811,6 +811,98 @@ class TestSaveDraft:
         )
         assert response.status_code == 422
 
+    async def test_save_draft_does_not_overwrite_submitted_vote(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """
+        Bug fix: save_draft must not find and corrupt an already-submitted vote.
+
+        Scenario (multi-lot voter):
+        1. Voter has two lots (lo = lot_owner from fixture, lo2 = a second lot).
+        2. Voter submits lot_owner (lo) ballot — submitted Vote row exists with lot_owner_id=lo.id.
+        3. Voter now saves a draft for lot2, WITHOUT a lot_owner_id (NULL/shared-draft path).
+        4. The OLD (unfixed) filter: (agm, motion, voter_email) — no status check — would find
+           the submitted Vote for lo and set its status back to draft, corrupting it.
+        5. The FIXED filter adds Vote.status == VoteStatus.draft, so no submitted vote is found
+           and a new draft row (NULL lot_owner_id) is created instead.
+        """
+        from sqlalchemy import select as sa_select
+        from app.services.voting_service import save_draft as _save_draft
+
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        # Pre-create a submitted Vote for lot_owner lo (lot_owner_id is set)
+        submitted_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email=voter_email,
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(submitted_vote)
+        await db_session.flush()
+
+        # Sanity check: submitted vote is in place
+        result = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == motions[0].id,
+                Vote.voter_email == voter_email,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        votes = list(result.scalars().all())
+        assert len(votes) == 1
+        assert votes[0].status == VoteStatus.submitted
+        assert votes[0].choice == VoteChoice.yes
+
+        # Now call save_draft WITHOUT lot_owner_id (the shared/NULL-lot draft path).
+        # The old filter (agm, motion, voter_email) with no status check would find the
+        # submitted vote for `lo` and overwrite its choice + downgrade to draft.
+        # The fixed filter adds status==draft, so it finds nothing and creates a new row.
+        await _save_draft(
+            db=db_session,
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email=voter_email,
+            choice=VoteChoice.no,
+            lot_owner_id=None,  # shared-draft (no specific lot)
+        )
+        await db_session.flush()
+
+        # The submitted vote for `lo` must be untouched
+        result_submitted = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == motions[0].id,
+                Vote.voter_email == voter_email,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        submitted_votes = list(result_submitted.scalars().all())
+        assert len(submitted_votes) == 1, "Submitted vote for lo must still exist"
+        assert submitted_votes[0].status == VoteStatus.submitted, "Submitted vote must not be downgraded to draft"
+        assert submitted_votes[0].choice == VoteChoice.yes, "Submitted vote choice must not be overwritten"
+
+        # A new draft row with lot_owner_id=NULL must exist
+        result_draft = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == motions[0].id,
+                Vote.voter_email == voter_email,
+                Vote.lot_owner_id.is_(None),
+                Vote.status == VoteStatus.draft,
+            )
+        )
+        draft_votes = list(result_draft.scalars().all())
+        assert len(draft_votes) == 1, "A new NULL-lot draft must have been created"
+        assert draft_votes[0].choice == VoteChoice.no
+
     async def test_no_session_returns_401(
         self, client: AsyncClient, building_with_agm: dict
     ):
