@@ -48,6 +48,7 @@ function EditModal({
   const [proxyEmail, setProxyEmail] = useState<string | null>(lotOwner.proxy_email ?? null);
   const [newProxyEmail, setNewProxyEmail] = useState("");
   const [proxyError, setProxyError] = useState<string | null>(null);
+  const [proxyModified, setProxyModified] = useState(false);
 
   const queryClient = useQueryClient();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -64,6 +65,7 @@ function EditModal({
     setProxyEmail(lotOwner.proxy_email ?? null);
     setNewProxyEmail("");
     setProxyError(null);
+    setProxyModified(false);
   }, [lotOwner]);
 
   // Close on Escape
@@ -121,6 +123,7 @@ function EditModal({
       setProxyEmail(updated.proxy_email ?? null);
       setNewProxyEmail("");
       setProxyError(null);
+      setProxyModified(true);
       void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
     },
     onError: (err) => {
@@ -133,6 +136,7 @@ function EditModal({
     onSuccess: () => {
       setProxyEmail(null);
       setProxyError(null);
+      setProxyModified(true);
       void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
     },
     onError: (err) => {
@@ -160,7 +164,7 @@ function EditModal({
       updateData.financial_position = financialPosition;
 
     if (Object.keys(updateData).length === 0) {
-      if (emailsModified) {
+      if (emailsModified || proxyModified) {
         onSuccess();
         return;
       }

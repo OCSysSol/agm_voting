@@ -669,6 +669,39 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     });
     expect(screen.queryByText("No changes detected.")).not.toBeInTheDocument();
   });
+
+  it("after setting a proxy, Save Changes calls onSuccess instead of showing no-changes error", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderEditForm({ ...existingLotOwner, proxy_email: null }, onSuccess);
+    await user.type(screen.getByLabelText("Set proxy email"), "proxy@example.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("proxy@example.com")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("No changes detected.")).not.toBeInTheDocument();
+  });
+
+  it("after removing a proxy, Save Changes calls onSuccess instead of showing no-changes error", async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    // lo2 has proxy_email: "proxy@example.com" in the MSW fixture — use lotOwnerWithProxy so the
+    // DELETE handler finds the proxy and returns 200 instead of 404
+    renderEditForm(lotOwnerWithProxy, onSuccess);
+    await user.click(screen.getByRole("button", { name: "Remove proxy" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("No changes detected.")).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
