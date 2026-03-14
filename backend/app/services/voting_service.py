@@ -571,12 +571,16 @@ async def get_my_ballot(
                         ))
                         break
             else:
-                # Motion voted on via old path (no lot_owner_id on vote) — try to find it
+                # Motion voted on via old path (no lot_owner_id on vote) — try to find it.
+                # Filter lot_owner_id IS NULL so we only match legacy votes; this also prevents
+                # MultipleResultsFound for multi-lot voters who have per-lot votes with distinct
+                # lot_owner_ids (those are already handled by the main query above).
                 fallback_result = await db.execute(
                     select(Vote).where(
                         Vote.general_meeting_id == general_meeting_id,
                         Vote.motion_id == motion.id,
                         Vote.voter_email == voter_email,
+                        Vote.lot_owner_id.is_(None),
                         Vote.status == VoteStatus.submitted,
                     )
                 )

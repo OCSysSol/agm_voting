@@ -1841,6 +1841,92 @@ class TestInArrearVoting:
         assert len(votes) == 1
         assert votes[0]["choice"] == "no"
 
+    async def test_my_ballot_fallback_not_contaminated_for_multi_lot_voter(
+        self, transport, db_session: AsyncSession
+    ):
+        """Multi-lot voter: fallback query must not raise MultipleResultsFound.
+
+        When a multi-lot voter has old-path votes (lot_owner_id=None) for a
+        motion, the fallback must add IS NULL so it matches exactly one row
+        rather than scanning all submitted votes for that (meeting, motion,
+        email) tuple across every lot.
+
+        Also verifies that each lot's ballot is independent — no cross-lot
+        vote contamination.
+        """
+        b = make_building("Multi Lot Fallback Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo1 = make_lot_owner(b, lot_number="MLF1")
+        lo2 = make_lot_owner(b, lot_number="MLF2")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await add_email(db_session, lo1, "multifall@voter.com")
+        await add_email(db_session, lo2, "multifall@voter.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="MF Motion 1", order_index=1)
+        m2 = Motion(general_meeting_id=agm.id, title="MF Motion 2", order_index=2)
+        db_session.add_all([m1, m2])
+        await db_session.flush()
+
+        # lo1: new-path votes (with lot_owner_id) for both motions
+        for motion, choice in [(m1, VoteChoice.yes), (m2, VoteChoice.no)]:
+            db_session.add(Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email="multifall@voter.com",
+                lot_owner_id=lo1.id,
+                choice=choice,
+                status=VoteStatus.submitted,
+            ))
+
+        # lo2: old-path votes (lot_owner_id=None) for both motions
+        for motion, choice in [(m1, VoteChoice.abstained), (m2, VoteChoice.yes)]:
+            db_session.add(Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email="multifall@voter.com",
+                lot_owner_id=None,  # old-style, no lot_owner_id
+                choice=choice,
+                status=VoteStatus.submitted,
+            ))
+
+        # BallotSubmissions for both lots
+        for lo in [lo1, lo2]:
+            db_session.add(BallotSubmission(
+                general_meeting_id=agm.id,
+                lot_owner_id=lo.id,
+                voter_email="multifall@voter.com",
+            ))
+
+        token = await make_session(db_session, "multifall@voter.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/general-meeting/{agm.id}/my-ballot",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        # Must not 500 (MultipleResultsFound)
+        assert response.status_code == 200
+        data = response.json()
+        lots_by_id = {s["lot_owner_id"]: s for s in data["submitted_lots"]}
+
+        # lo1 should have its own new-path votes (not lo2's old-path votes)
+        lo1_votes = {v["motion_title"]: v["choice"] for v in lots_by_id[str(lo1.id)]["votes"]}
+        assert lo1_votes["MF Motion 1"] == "yes"
+        assert lo1_votes["MF Motion 2"] == "no"
+
+        # lo2's ballot uses the old-path fallback — must find the NULL-lot_owner_id votes
+        lo2_votes = {v["motion_title"]: v["choice"] for v in lots_by_id[str(lo2.id)]["votes"]}
+        assert lo2_votes["MF Motion 1"] == "abstained"
+        assert lo2_votes["MF Motion 2"] == "yes"
+
     async def test_my_ballot_in_arrear_with_not_eligible_vote_in_db(
         self, transport, db_session: AsyncSession
     ):
