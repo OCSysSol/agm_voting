@@ -170,7 +170,7 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("navigates to /admin/agms/new when Create AGM clicked", async () => {
+  it("navigates to /admin/general-meetings/new when Create AGM clicked", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
@@ -178,7 +178,7 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
-    expect(mockNavigate).toHaveBeenCalledWith("/admin/agms/new");
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings/new");
   });
 
   it("shows Archive Building button for active buildings", async () => {
