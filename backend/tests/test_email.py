@@ -452,7 +452,7 @@ class TestSendReport:
     # --- Happy path ---
 
     async def test_send_report_success(self, db_session: AsyncSession, mocker):
-        """Successful send → Resend SDK called, no exception raised."""
+        """Successful send → aiosmtplib.send called, no exception raised."""
         building = await _create_building(db_session, manager_email="mgr@example.com")
         agm = await _create_agm(db_session, building)
         motion = await _create_motion(db_session, agm)
@@ -462,52 +462,60 @@ class TestSendReport:
         await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes)
         await db_session.commit()
 
-        mock_send = mocker.patch("resend.Emails.send", return_value={"id": "fake-id"})
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         service = EmailService()
         # Should not raise
         await service.send_report(agm.id, db_session)
 
         mock_send.assert_called_once()
-        call_args = mock_send.call_args[0][0]
-        assert call_args["to"] == ["mgr@example.com"]
-        assert "General Meeting Results Report" in call_args["subject"]
-        assert "<html" in call_args["html"].lower()
+        # First positional arg is the MIMEMultipart message object
+        msg = mock_send.call_args[0][0]
+        assert msg["To"] == "mgr@example.com"
+        assert "General Meeting Results Report" in msg["Subject"]
+        # The HTML part content
+        html_part = msg.get_payload()[0].get_payload()
+        assert "<html" in html_part.lower()
 
-    async def test_send_report_sets_api_key(self, db_session: AsyncSession, mocker):
-        """send_report sets resend.api_key from settings."""
+    async def test_send_report_uses_smtp_settings(self, db_session: AsyncSession, mocker):
+        """send_report passes SMTP settings from config to aiosmtplib.send."""
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         await _create_motion(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send", return_value={"id": "x"})
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
-        import resend as resend_module
         service = EmailService()
         await service.send_report(agm.id, db_session)
+
         from app.config import settings
-        assert resend_module.api_key == settings.resend_api_key
+        call_kwargs = mock_send.call_args[1]
+        assert call_kwargs["hostname"] == settings.smtp_host
+        assert call_kwargs["port"] == settings.smtp_port
+        assert call_kwargs["username"] == settings.smtp_username
+        assert call_kwargs["password"] == settings.smtp_password
+        assert call_kwargs["start_tls"] is True
 
     # --- Error cases ---
 
-    async def test_send_report_resend_exception_propagates(self, db_session: AsyncSession, mocker):
-        """Resend SDK raising exception → exception propagates out of send_report."""
+    async def test_send_report_smtp_exception_propagates(self, db_session: AsyncSession, mocker):
+        """aiosmtplib raising exception → exception propagates out of send_report."""
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         await _create_motion(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send", side_effect=Exception("resend API error"))
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error"))
 
         service = EmailService()
-        with pytest.raises(Exception, match="resend API error"):
+        with pytest.raises(Exception, match="SMTP error"):
             await service.send_report(agm.id, db_session)
 
     async def test_send_report_agm_not_found_raises(self, db_session: AsyncSession, mocker):
         """GeneralMeeting not found → get_agm_detail raises HTTPException(404)."""
         from fastapi import HTTPException
-        mocker.patch("resend.Emails.send")
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         service = EmailService()
         with pytest.raises(HTTPException) as exc_info:
@@ -524,7 +532,7 @@ class TestSendReport:
         await _create_motion(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send")
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         service = EmailService()
         with pytest.raises(ValueError, match="no manager_email"):
@@ -537,7 +545,7 @@ class TestSendReport:
         await _create_motion(db_session, agm, description=None)
         await db_session.commit()
 
-        mock_send = mocker.patch("resend.Emails.send", return_value={"id": "x"})
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
         service = EmailService()
         await service.send_report(agm.id, db_session)
         mock_send.assert_called_once()
@@ -559,7 +567,7 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send", return_value={"id": "ok"})
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         # Patch session factory to use our test session
         mock_factory = _make_mock_factory(db_session)
@@ -588,13 +596,12 @@ class TestTriggerWithRetry:
 
         call_count = {"n": 0}
 
-        def send_side_effect(params):
+        async def send_side_effect(*args, **kwargs):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise Exception("temporary error")
-            return {"id": "ok"}
 
-        mocker.patch("resend.Emails.send", side_effect=send_side_effect)
+        mocker.patch("aiosmtplib.send", side_effect=send_side_effect)
 
         # Patch sleep to be instant
         mocker.patch("asyncio.sleep", new=AsyncMock())
@@ -622,7 +629,7 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send", side_effect=Exception("always fails"))
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("always fails"))
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
@@ -651,7 +658,7 @@ class TestTriggerWithRetry:
         delivery.total_attempts = 1
         await db_session.commit()
 
-        mock_send = mocker.patch("resend.Emails.send")
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
         mocker.patch(
@@ -676,7 +683,7 @@ class TestTriggerWithRetry:
         delivery.total_attempts = 30
         await db_session.commit()
 
-        mock_send = mocker.patch("resend.Emails.send")
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
         mocker.patch(
@@ -693,7 +700,7 @@ class TestTriggerWithRetry:
 
     async def test_delivery_record_not_found(self, db_session: AsyncSession, mocker):
         """If no EmailDelivery record exists for the agm_id, trigger_with_retry returns cleanly."""
-        mock_send = mocker.patch("resend.Emails.send")
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
         mocker.patch(
@@ -719,13 +726,12 @@ class TestTriggerWithRetry:
         # Fail 3 times, succeed on 4th
         call_count = {"n": 0}
 
-        def send_side_effect(params):
+        async def send_side_effect(*args, **kwargs):
             call_count["n"] += 1
             if call_count["n"] < 4:
                 raise Exception("fail")
-            return {"id": "ok"}
 
-        mocker.patch("resend.Emails.send", side_effect=send_side_effect)
+        mocker.patch("aiosmtplib.send", side_effect=send_side_effect)
         sleep_mock = mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
@@ -751,7 +757,7 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
-        mocker.patch("resend.Emails.send", return_value={"id": "ok"})
+        mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
         mocker.patch(
@@ -795,13 +801,12 @@ class TestTriggerWithRetry:
 
         call_count = {"n": 0}
 
-        def send_side_effect(params):
+        async def send_side_effect(*args, **kwargs):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise Exception("temporary")
-            return {"id": "ok"}
 
-        mocker.patch("resend.Emails.send", side_effect=send_side_effect)
+        mocker.patch("aiosmtplib.send", side_effect=send_side_effect)
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)

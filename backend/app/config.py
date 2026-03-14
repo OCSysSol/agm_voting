@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     test_database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test"
     )
-    resend_api_key: str = "re_placeholder"
-    resend_from_email: str = "noreply@example.com"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
     allowed_origin: str = "http://localhost:5173"
     session_secret: str = "change_me_to_a_random_secret"
     admin_username: str = "admin"

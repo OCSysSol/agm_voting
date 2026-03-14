@@ -20,7 +20,11 @@ class TestConfig:
         from app.config import settings
 
         # Default values are set when no .env file overrides them
-        assert settings.resend_from_email == "noreply@example.com"
+        assert settings.smtp_host == ""
+        assert settings.smtp_port == 587
+        assert settings.smtp_username == ""
+        assert settings.smtp_password == ""
+        assert settings.smtp_from_email == ""
         assert settings.allowed_origin == "http://localhost:5173"
         assert settings.session_secret == "change_me_to_a_random_secret"
         assert settings.admin_username == "admin"
