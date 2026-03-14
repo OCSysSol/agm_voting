@@ -44,22 +44,23 @@ export default function GeneralMeetingListPage() {
         </button>
       </div>
       <div className="admin-card">
-        <div style={{ marginBottom: "1rem" }}>
-          <label htmlFor="building-filter" style={{ marginRight: "0.5rem", fontWeight: 500 }}>
-            Building:
-          </label>
-          <select
-            id="building-filter"
-            value={selectedBuildingId}
-            onChange={handleBuildingChange}
-          >
-            <option value="">All buildings</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+        <div className="admin-card__header">
+          <div style={{ maxWidth: 280 }}>
+            <label className="field__label" htmlFor="building-filter">Building</label>
+            <select
+              id="building-filter"
+              className="field__select"
+              value={selectedBuildingId}
+              onChange={handleBuildingChange}
+            >
+              <option value="">All buildings</option>
+              {buildings.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <GeneralMeetingTable meetings={filteredMeetings} isLoading={isLoading} />
       </div>

@@ -101,9 +101,9 @@ describe("GeneralMeetingListPage", () => {
   it("renders building filter dropdown with All buildings default", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Building:")).toBeInTheDocument();
+      expect(screen.getByLabelText("Building")).toBeInTheDocument();
     });
-    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    const select = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(select.value).toBe("");
     expect(screen.getByRole("option", { name: "All buildings" })).toBeInTheDocument();
   });
@@ -123,7 +123,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     });
-    const select = screen.getByLabelText("Building:");
+    const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b1");
     // Only Alpha Tower meeting (agm1 / 2024 AGM) should show
     expect(screen.getByText("2024 AGM")).toBeInTheDocument();
@@ -136,7 +136,7 @@ describe("GeneralMeetingListPage", () => {
     await waitFor(() => {
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     });
-    const select = screen.getByLabelText("Building:");
+    const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b2");
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
@@ -148,7 +148,7 @@ describe("GeneralMeetingListPage", () => {
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
-    const select = screen.getByLabelText("Building:");
+    const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b1");
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
     await user.selectOptions(select, "");
@@ -163,7 +163,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
-    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    const select = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(select.value).toBe("b2");
   });
 
@@ -173,7 +173,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
-    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    const select = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(select.value).toBe("b1");
   });
 
