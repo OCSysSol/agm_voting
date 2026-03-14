@@ -1,8 +1,8 @@
 """
-Email service for AGM results report delivery via Resend.
+Email service for AGM results report delivery via SMTP (aiosmtplib).
 
 Provides:
-- send_report(): render the HTML template and send via Resend
+- send_report(): render the HTML template and send via SMTP with STARTTLS
 - trigger_with_retry(): background task with exponential backoff, up to 30 attempts
 - requeue_pending_on_startup(): re-launch retry tasks for pending deliveries on startup
 """
@@ -14,7 +14,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import resend
+import aiosmtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -108,15 +110,21 @@ class EmailService:
             motions=detail["motions"],
         )
 
-        # Send via Resend
-        resend.api_key = settings.resend_api_key
-        params: resend.Emails.SendParams = {
-            "from": settings.resend_from_email,
-            "to": [manager_email],
-            "subject": f"General Meeting Results Report: {agm_title}",
-            "html": html_body,
-        }
-        resend.Emails.send(params)
+        # Send via SMTP (STARTTLS)
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"General Meeting Results Report: {agm_title}"
+        msg["From"] = settings.smtp_from_email
+        msg["To"] = manager_email
+        msg.attach(MIMEText(html_body, "html"))
+
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            start_tls=True,
+        )
 
         log.info("email_sent", to=manager_email, subject=f"General Meeting Results Report: {agm_title}")
 

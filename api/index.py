@@ -7,8 +7,11 @@ the FastAPI `app` instance for Vercel's Python runtime (ASGI).
 Environment variables expected (set in Vercel project settings):
   DATABASE_URL      postgresql+asyncpg://... (cloud Postgres)
   SESSION_SECRET    random secret for session cookies
-  RESEND_API_KEY    Resend API key for email delivery
-  RESEND_FROM_EMAIL sender address for result emails
+  SMTP_HOST         SMTP server hostname (e.g. mail-au.smtp2go.com)
+  SMTP_PORT         SMTP server port (e.g. 2525 for STARTTLS)
+  SMTP_USERNAME     SMTP authentication username
+  SMTP_PASSWORD     SMTP authentication password
+  SMTP_FROM_EMAIL   sender address for result emails
   ALLOWED_ORIGIN    frontend URL (e.g. https://your-project.vercel.app)
 """
 import os
