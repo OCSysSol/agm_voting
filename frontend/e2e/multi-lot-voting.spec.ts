@@ -13,15 +13,15 @@
  * Self-contained — seeds its own building, lot owners, and AGM via the admin
  * API so it does not interfere with other E2E tests.
  *
- * UI notes (derived from reading LotSelectionPage.tsx and ConfirmationPage.tsx):
- * - LotSelectionPage has NO checkboxes; it votes for all *pending* lots at once.
- *   To simulate a partial submission the test manipulates sessionStorage to
- *   restrict `meeting_lots_<id>` to only one lot_owner_id before clicking
- *   "Start Voting".
+ * UI notes (derived from reading VotingPage.tsx and ConfirmationPage.tsx):
+ * - VotingPage shows a sidebar with lot checkboxes and motions immediately
+ *   visible alongside — there is no "Start Voting" gate.
+ * - To simulate a partial submission the test unchecks one lot in the sidebar
+ *   before clicking "Submit ballot".
  * - ConfirmationPage renders lots grouped by lot number when isMultiLot=true,
  *   with a heading "Lot <number>" above each lot's vote rows.
- * - When all lots are already submitted, LotSelectionPage shows a
- *   "View Submission" button instead of "Start Voting".
+ * - When all lots are already submitted, the sidebar shows a "View Submission"
+ *   button. Auth also redirects directly to confirmation when all lots are done.
  * - remaining_lot_owner_ids is returned by the my-ballot API but is NOT
  *   rendered as a CTA on the current ConfirmationPage; re-entry is done by
  *   navigating back to the auth page and re-authenticating.
@@ -210,18 +210,16 @@ test.describe("Multi-lot voter journey", () => {
     // Should land on voting page (lot panel shown at top for multi-lot voters)
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Both lots visible in lot panel at top
+    // Both lots visible in sidebar
     await expect(page.getByText(`Lot ${LOT_NUMBER_1}`)).toBeVisible();
     await expect(page.getByText(`Lot ${LOT_NUMBER_2}`)).toBeVisible();
 
     // Subtitle confirms two lots pending
     await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
-    // "Start Voting" button present in lot panel
-    await expect(page.getByRole("button", { name: "Start Voting" })).toBeVisible();
-    await page.getByRole("button", { name: "Start Voting" }).click();
+    // No "Start Voting" button — motions are immediately visible in the main column
+    await expect(page.getByRole("button", { name: "Start Voting" })).not.toBeVisible();
 
-    // Motions appear on the same page after clicking Start Voting (no navigation)
     // Vote on both motions
     const motionCards = page.locator(".motion-card");
     await expect(motionCards).toHaveCount(2);
@@ -276,17 +274,16 @@ test.describe("Multi-lot voter journey", () => {
     await authenticate(page);
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Both lots should be pending — lot panel at top of page
+    // Both lots should be pending — lot panel shown as sidebar
     await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
     // ── Step 3: Deselect ML-2 so only ML-1 is voted in this session ─────────
     // Uncheck ML-2 via the UI; VotingPage writes only selected IDs to
-    // sessionStorage when "Start Voting" is clicked.
+    // sessionStorage when "Submit ballot" is clicked.
     await page.getByRole("checkbox", { name: `Select Lot ${LOT_NUMBER_2}` }).uncheck();
     await expect(page.getByText("You are voting for 1 lot.")).toBeVisible();
 
-    await page.getByRole("button", { name: "Start Voting" }).click();
-    // Motions appear on the same page after clicking Start Voting (no navigation)
+    // Motions are already visible alongside the sidebar (no navigation needed)
 
     // Vote on both motions
     const motionCards = page.locator(".motion-card");
@@ -332,8 +329,7 @@ test.describe("Multi-lot voter journey", () => {
     // Subtitle shows 1 pending lot
     await expect(page.getByText("You are voting for 1 lot.")).toBeVisible();
 
-    // Click "Start Voting" to proceed to motions on the same page
-    await page.getByRole("button", { name: "Start Voting" }).click();
+    // No "Start Voting" button — motions are already visible alongside the sidebar
 
     // Vote for ML-2
     const cards = page.locator(".motion-card");
@@ -404,7 +400,7 @@ test.describe("Multi-lot voter journey", () => {
       await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
       // Complete the submission so the "View Submission" CTA path can be exercised
-      await page.getByRole("button", { name: "Start Voting" }).click();
+      // No "Start Voting" button — motions are immediately visible
 
       const cards = page.locator(".motion-card");
       await expect(cards).toHaveCount(2);
@@ -453,8 +449,7 @@ test.describe("Multi-lot voter journey", () => {
     await authenticate(page);
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    await page.getByRole("button", { name: "Start Voting" }).click();
-    // Motions appear on the same page after clicking Start Voting (no navigation)
+    // No "Start Voting" button — motions are immediately visible
 
     const cards = page.locator(".motion-card");
     await expect(cards).toHaveCount(2);

@@ -353,7 +353,7 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("single-lot proxy: lot panel shown with 'Lot X via Proxy' badge", async () => {
+  it("single-lot proxy: lot info shown with 'via Proxy' badge and motions immediately visible", async () => {
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([{ lot_owner_id: "lo1", lot_number: "99", financial_position: "normal", already_submitted: false, is_proxy: true }])
@@ -362,30 +362,49 @@ describe("VotingPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Your Lots" })).toBeInTheDocument();
     });
-    expect(screen.getByText("Lot 99 via Proxy")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start Voting" })).toBeInTheDocument();
-    // Motions not visible yet
-    expect(screen.queryByRole("heading", { name: "Motion 1" })).not.toBeInTheDocument();
+    expect(screen.getByText("via Proxy")).toBeInTheDocument();
+    // Old badge text must be gone
+    expect(screen.queryByText("Lot 99 via Proxy")).not.toBeInTheDocument();
+    // No "Start Voting" button — motions are immediately visible
+    expect(screen.queryByRole("button", { name: "Start Voting" })).not.toBeInTheDocument();
+    // Motions immediately visible (no gate)
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("single-lot proxy: clicking Start Voting hides lot panel and shows motions", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+  it("single-lot proxy: motions are visible alongside lot info without any Start Voting click", async () => {
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([{ lot_owner_id: "lo1", lot_number: "99", financial_position: "normal", already_submitted: false, is_proxy: true }])
     );
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Start Voting" }));
-    await user.click(screen.getByRole("button", { name: "Start Voting" }));
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("heading", { name: "Your Lots" })).not.toBeInTheDocument();
+    // Lot info strip is visible at the same time
+    expect(screen.getByRole("heading", { name: "Your Lots" })).toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("multi-lot: lot panel shown with checkboxes and subtitle count", async () => {
+  it("single-lot proxy already submitted: shows Already submitted badge and View Submission button", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "99", financial_position: "normal", already_submitted: true, is_proxy: true }])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Already submitted")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "View Submission" }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: sidebar shown with checkboxes and subtitle count, motions visible alongside", async () => {
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
@@ -400,7 +419,10 @@ describe("VotingPage", () => {
     expect(screen.getByText("You are voting for 2 lots.")).toBeInTheDocument();
     const checkboxes = screen.getAllByRole("checkbox");
     expect(checkboxes).toHaveLength(2);
-    expect(screen.queryByRole("heading", { name: "Motion 1" })).not.toBeInTheDocument();
+    // Motions are immediately visible — no Start Voting gate
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
@@ -421,7 +443,7 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("multi-lot: Start Voting with no lots selected shows validation alert", async () => {
+  it("multi-lot: Submit ballot with no lots selected shows validation alert", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
@@ -435,14 +457,14 @@ describe("VotingPage", () => {
     const checkboxes = screen.getAllByRole("checkbox");
     await user.click(checkboxes[0]);
     await user.click(checkboxes[1]);
-    const btn = screen.getByRole("button", { name: "Start Voting" });
-    expect(btn).toHaveAttribute("aria-disabled", "true");
-    await user.click(btn);
+    // Submit ballot button (no Start Voting gate) — clicking with no lots selected triggers alert
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Please select at least one lot");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("multi-lot: Start Voting writes selected IDs to sessionStorage and shows motions", async () => {
+  it("multi-lot: Submit ballot writes selected IDs to sessionStorage", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
@@ -452,18 +474,32 @@ describe("VotingPage", () => {
       ])
     );
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Start Voting" }));
-    // Uncheck lot 2
+    // Motions are immediately visible — uncheck lot 2 then submit
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     const checkboxes = screen.getAllByRole("checkbox");
     await user.click(checkboxes[1]);
-    await user.click(screen.getByRole("button", { name: "Start Voting" }));
+    // Click Submit ballot — it writes selected IDs to sessionStorage before opening dialog
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     const stored = JSON.parse(sessionStorage.getItem(`meeting_lots_${AGM_ID}`) ?? "[]") as string[];
     expect(stored).toEqual(["lo1"]);
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
-    });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
     sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
+  it("multi-lot: proxy badge shows 'via Proxy' (not lot number) in sidebar", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: true },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    expect(screen.getByText("via Proxy")).toBeInTheDocument();
+    // Must NOT contain "Lot 2 via Proxy" — badge text is just "via Proxy"
+    expect(screen.queryByText("Lot 2 via Proxy")).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
   it("multi-lot: in-arrear badge shown in lot panel", async () => {
@@ -559,10 +595,11 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getAllByRole("checkbox"));
     const checkboxes = screen.getAllByRole("checkbox");
-    // Uncheck all and trigger error
+    // Uncheck all and trigger error via Submit ballot
     await user.click(checkboxes[0]);
     await user.click(checkboxes[1]);
-    await user.click(screen.getByRole("button", { name: "Start Voting" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     expect(screen.getByRole("alert")).toBeInTheDocument();
     // Re-check one — alert should clear
     await user.click(checkboxes[0]);
@@ -572,8 +609,9 @@ describe("VotingPage", () => {
 
   // --- in-arrear lot tests ---
 
-  it("shows in-arrear notice when lot info has in-arrear lots", async () => {
-    // Set up motions with motion_type
+  it("in-arrear lots: no blocking notice — general motions are fully interactive", async () => {
+    // Fix 3: in-arrear restriction is per-lot at the backend; the frontend no longer
+    // blocks or disables General Motions for in-arrear voters.
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
@@ -588,45 +626,18 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByTestId("in-arrear-notice")).toBeInTheDocument();
-      expect(screen.getByText(/5A.*are in arrear/)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
+    // No in-arrear notice or blocking banner
+    expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
+    // Vote buttons on the general motion are not aria-disabled
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    expect(forButtons[0]).not.toHaveAttribute("aria-disabled");
     sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
   });
 
-  it("shows in-arrear modal when clicking locked general motion button", async () => {
+  it("in-arrear lots: general motions voteable, progress bar counts actual choices only", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
-    server.use(
-      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
-        HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general" },
-        ])
-      )
-    );
-    sessionStorage.setItem(
-      `meeting_lot_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
-    );
-    renderPage();
-    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-
-    // Click the "For" button on the locked general motion
-    const forButton = screen.getByRole("button", { name: "For" });
-    await user.click(forButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-      expect(screen.getByText(/Can't vote on General Motion as financial position is in arrear/)).toBeInTheDocument();
-    });
-
-    // Dismiss the modal
-    await user.click(screen.getByRole("button", { name: "OK" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
-  });
-
-  it("counts in-arrear general motions as answered in progress bar", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
@@ -640,7 +651,13 @@ describe("VotingPage", () => {
       JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
     );
     renderPage();
-    // General motion is auto-answered, so 1/2 answered from the start
+    // Neither motion is auto-answered — progress starts at 0/2
+    await waitFor(() => {
+      expect(screen.getByLabelText("0 / 2 motions answered")).toBeInTheDocument();
+    });
+    // Voter CAN vote on the general motion
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    await user.click(forButtons[0]);
     await waitFor(() => {
       expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
     });

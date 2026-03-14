@@ -384,18 +384,20 @@ test.describe("Proxy voter journey", () => {
         // The single lot shows Lot PX-B
         await expect(lotItems.first()).toContainText(LOT_B_NUMBER);
 
-        // LOT-B must have the proxy badge saying "via Proxy"
+        // LOT-B must have the proxy badge saying "VIA PROXY" (not "LOT PX-B VIA PROXY")
         const proxyBadge = lotItems
           .first()
           .locator(".lot-selection__badge--proxy");
         await expect(proxyBadge).toBeVisible();
         await expect(proxyBadge).toContainText("via Proxy");
+        // Badge must NOT repeat the lot number
+        await expect(proxyBadge).not.toContainText(LOT_B_NUMBER);
 
         // LOT-A must NOT be listed (proxy voter does not own it and is not proxied for it)
         await expect(page.getByText(`Lot ${LOT_A_NUMBER}`)).not.toBeVisible();
 
-        // Proceed to voting (reveals motion cards on same page)
-        await page.getByRole("button", { name: "Start Voting" }).click();
+        // No "Start Voting" button — motions are immediately visible (sidebar layout)
+        await expect(page.getByRole("button", { name: "Start Voting" })).not.toBeVisible();
       }
 
       if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
@@ -485,15 +487,16 @@ test.describe("Proxy voter journey", () => {
           mxAItem.locator(".lot-selection__badge--proxy")
         ).not.toBeVisible();
 
-        // MX-C: proxy lot — proxy badge shows "via Proxy"
+        // MX-C: proxy lot — proxy badge shows "via Proxy" (not "LOT MX-C VIA PROXY")
         const mxCItem = lotItems.filter({ hasText: `Lot ${MIXED_LOT_C_NUMBER}` });
         await expect(mxCItem).toBeVisible();
         const proxyCBadge = mxCItem.locator(".lot-selection__badge--proxy");
         await expect(proxyCBadge).toBeVisible();
         await expect(proxyCBadge).toContainText("via Proxy");
+        await expect(proxyCBadge).not.toContainText(MIXED_LOT_C_NUMBER);
 
-        // Proceed to voting (reveals motion cards on same page)
-        await page.getByRole("button", { name: "Start Voting" }).click();
+        // No "Start Voting" button — motions are immediately visible alongside sidebar
+        await expect(page.getByRole("button", { name: "Start Voting" })).not.toBeVisible();
       }
 
       if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {

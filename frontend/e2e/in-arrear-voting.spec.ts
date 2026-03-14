@@ -2,10 +2,15 @@
  * Functional test: in-arrear lot owner voting behaviour.
  *
  * Verifies:
- * 1. General motions are shown as "Not eligible (in arrear)" — no vote buttons
- * 2. Special motions show normal Yes/No/Abstain vote buttons
+ * 1. General motions ARE interactive — in-arrear restriction is enforced per-lot
+ *    at the backend (not blocked on the frontend).
+ * 2. Special motions show normal Yes/No/Abstain vote buttons.
  * 3. After submission, the confirmation page shows not_eligible for the
- *    general motion and the chosen vote for the special motion
+ *    general motion (backend records it) and the chosen vote for the special motion.
+ *
+ * The frontend no longer shows an "in arrear" notice or disables General Motions.
+ * The backend records `not_eligible` for in-arrear lots on General Motions at
+ * submission time, regardless of what choice (if any) the voter made.
  *
  * Self-contained — seeds its own building, lot owner, and AGM via the admin
  * API so it does not interfere with other E2E tests.
@@ -162,30 +167,26 @@ test.describe("In-arrear lot owner voting", () => {
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
-      // ── In-arrear notice must be visible ────────────────────────────────
-      await expect(page.getByTestId("in-arrear-notice")).toBeVisible({ timeout: 10000 });
-      await expect(page.getByTestId("in-arrear-notice")).toContainText("in arrear");
-      await expect(page.getByTestId("in-arrear-notice")).toContainText(LOT_NUMBER);
+      // ── In-arrear notice is NOT shown — frontend no longer blocks general motions ──
+      await expect(page.getByTestId("in-arrear-notice")).not.toBeVisible();
 
-      // ── General motion: buttons aria-disabled, shows "Not eligible" label ──
+      // ── General motion: vote buttons are ENABLED (not aria-disabled) ──────
       const motionCards = page.locator(".motion-card");
       await expect(motionCards).toHaveCount(2);
 
       const generalCard = motionCards.filter({ hasText: "General Motion — Budget Approval" });
-      await expect(generalCard.getByTestId("in-arrear-label")).toBeVisible();
-      await expect(generalCard.getByTestId("in-arrear-label")).toContainText("Not eligible");
-      // Vote buttons are rendered but aria-disabled (not actually clickable for real vote)
-      await expect(generalCard.getByRole("button", { name: "For" })).toHaveAttribute("aria-disabled", "true");
-      await expect(generalCard.getByRole("button", { name: "Against" })).toHaveAttribute("aria-disabled", "true");
+      await expect(generalCard.getByRole("button", { name: "For" })).toBeVisible();
+      await expect(generalCard.getByRole("button", { name: "For" })).not.toHaveAttribute("aria-disabled");
+      await expect(generalCard.getByRole("button", { name: "Against" })).not.toHaveAttribute("aria-disabled");
 
-      // ── Special motion: vote buttons are enabled (not aria-disabled) ──────
+      // ── Special motion: vote buttons are enabled ──────────────────────────
       const specialCard = motionCards.filter({ hasText: "Special Motion — Bylaw Amendment" });
       await expect(specialCard.getByRole("button", { name: "For" })).toBeVisible();
       await expect(specialCard.getByRole("button", { name: "Against" })).toBeVisible();
       await expect(specialCard.getByRole("button", { name: "Abstain" })).toBeVisible();
       await expect(specialCard.getByRole("button", { name: "For" })).not.toHaveAttribute("aria-disabled");
 
-      // Vote For on the special motion
+      // Vote For on the special motion (the backend will record not_eligible for the general motion)
       await specialCard.getByRole("button", { name: "For" }).click();
 
       // Submit ballot

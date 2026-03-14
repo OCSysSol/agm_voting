@@ -91,11 +91,13 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 **Description:** As a proxy voter, I want to see which lots are mine and which I am voting for as proxy, so I can make informed selections.
 
 **Acceptance Criteria:**
-- [ ] Lot selection screen shows all lots (own + proxied) in a single flat list
-- [ ] Own lots show no extra label (or a subtle "Your lot" label — designer's choice)
-- [ ] Proxied lots show a clear "Proxy" badge or label (e.g. "Lot 42 via Proxy")
+- [ ] Multi-lot voters see a sidebar with lot checkboxes alongside the motions (two-column layout)
+- [ ] Single-lot proxy voters see a compact lot info strip above the motions (single-column)
+- [ ] Proxied lots show a "VIA PROXY" badge — badge text is just "via Proxy" (not "Lot 42 via Proxy", to avoid repeating the lot number already shown in the list item label)
+- [ ] Own lots show no proxy badge
 - [ ] In-arrear badge still shown per lot regardless of proxy status
 - [ ] Already-submitted lots remain greyed out and non-interactive, with their proxy/own label still visible
+- [ ] No "Start Voting" gate — lots and motions are always visible simultaneously
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
@@ -195,5 +197,5 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 _All resolved._
 
-- **Lot owner name on proxy label:** No — lot owner names are not stored and will not be added. Proxied lots show lot number only (e.g. "Lot 42 via Proxy").
+- **Lot owner name on proxy label:** No — lot owner names are not stored and will not be added. Proxied lots show a "via Proxy" badge only (lot number is already shown as the list item label; repeating it in the badge is redundant).
 - **Proxy removed mid-session:** The in-flight session remains valid and the vote is accepted. Proxy authorisation is checked at authentication time only, not at vote submission time.

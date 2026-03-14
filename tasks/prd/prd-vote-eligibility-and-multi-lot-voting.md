@@ -145,12 +145,12 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 
 ### US-V08: In-arrear lot voting restrictions
 
-**Description:** As a lot owner with in-arrear lots, I want the system to clearly prevent me from voting on General Motions and explain why, so I understand my eligibility.
+**Description:** As a lot owner with in-arrear lots, the system records `not_eligible` for General Motions at the **backend per-lot** level. The frontend does not block or disable General Motion buttons — a voter with mixed lots (some financial, some in arrears) can vote on General Motions for their financial lots without restriction.
 
 **Acceptance Criteria:**
-- [ ] When the user has selected one or more in-arrear lots, the voting page shows a notice: "Lots [X, Y] are in arrear and can only vote on Special Motions."
-- [ ] General Motion vote option buttons are **disabled and greyed out** for in-arrear lots — they cannot be clicked
-- [ ] If an in-arrear lot owner clicks a disabled General Motion option, a **modal dialog** appears with the message: "Can't vote on General Motion as financial position is in arrear." The dialog has a single dismiss button.
+- [ ] General Motion vote buttons are **fully interactive** for all voters — the frontend does NOT disable or grey out buttons based on financial position
+- [ ] No "in arrear" notice banner or blocking modal is shown on the voting page
+- [ ] The "In Arrear" badge is still shown on the lot in the sidebar (informational only)
 - [ ] Special Motion rows are fully interactive for all lots (normal and in-arrear)
 - [ ] `VoteChoice` enum gains a new value: `not_eligible` — this is the value recorded for in-arrear lots on General Motions
 - [ ] On ballot submission, the backend records `not_eligible` for any General Motion vote from an in-arrear lot (enforced via `financial_position_snapshot` on `AGMLotWeight`), regardless of what the frontend sends
@@ -215,7 +215,7 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 - FR-V4: Authentication request is `{ email, building_id, agm_id }`. The response lists all lots the email is authorised to vote for, with per-lot `already_submitted` status. A 401 is returned if the email has no association with any lot in the given building.
 - FR-V5: Ballot submission uniqueness is enforced per `(agm_id, lot_owner_id)`. A second submission for the same lot returns 409. `voter_email` is stored on the submission for audit purposes only.
 - FR-V6: When a voter submits for multiple lots at once (`POST /api/agm/{id}/vote` with `lot_owner_ids: list[UUID]`), all listed lots receive identical vote records. Any lot in the list that has already submitted is rejected (the entire request fails; no partial commit).
-- FR-V7: For in-arrear lots, the backend silently drops any votes on General Motions from the submitted ballot. General Motion votes for in-arrear lots are not stored. Only Special Motion votes are recorded.
+- FR-V7: For in-arrear lots, the backend records `not_eligible` on General Motions at submission time, regardless of what choice (if any) the voter made on the frontend. The frontend does not block or disable General Motion buttons — in-arrear restriction is enforced per-lot at the backend only.
 - FR-V8: `AGMLotWeight` gains a `financial_position_snapshot` column that captures each lot's financial position at AGM creation time. This snapshot — not the live `lot_owners.financial_position` — governs in-arrear eligibility for votes on that AGM.
 - FR-V9: Draft votes are stored per `(lot_owner_id, agm_id)`. Each lot has its own draft state. Re-authenticating with the same email restores drafts for all unsubmitted lots.
 - FR-V10: Import rows with a blank `Email` column create/update the lot without adding an email entry. This does not cause a validation error.
@@ -240,7 +240,7 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 
 - The lot selection screen should be lightweight and fast to complete — lot owners at an AGM may be on mobile. Use a simple checklist with clear lot numbers and status badges.
 - Financial position badges: "In Arrear" should use a distinct colour (e.g., amber or red) to stand out from "Normal" (grey/green).
-- When the user is voting for a mix of normal and in-arrear lots, clearly indicate at the top of the voting page which lots are restricted. Do not hide General Motions — show them but mark them as locked for affected lots.
+- When the user is voting for a mix of normal and in-arrear lots, the voting page shows the "In Arrear" badge on affected lots in the sidebar (informational). General Motions are NOT locked or disabled — all motion buttons remain interactive. The backend enforces per-lot eligibility at submission time.
 - Confirmation screen: if the submission covered multiple lots, show the lot number alongside each motion row, or group by lot.
 
 ---

@@ -1745,6 +1745,29 @@ button, input, select, textarea {
   color: var(--text-muted);
 }
 
+/* === VOTING LAYOUT === */
+.voting-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.voting-layout__sidebar {
+  width: 280px;
+  flex-shrink: 0;
+}
+.voting-layout__main {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .voting-layout {
+    flex-direction: column;
+  }
+  .voting-layout__sidebar {
+    width: auto;
+  }
+}
+
 /* === UTILITIES === */
 .mt-8  { margin-top:  8px; }
 .mt-16 { margin-top: 16px; }

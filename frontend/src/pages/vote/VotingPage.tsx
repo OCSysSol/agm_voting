@@ -35,33 +35,15 @@ export function VotingPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
-  const [showInArrearModal, setShowInArrearModal] = useState(false);
 
   // Current meeting metadata
   const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingOut | null>(null);
   const [buildingName, setBuildingName] = useState("");
 
-  // In-arrear lot information
-  const [inArrearLotNumbers, setInArrearLotNumbers] = useState<string[]>([]);
-  const [hasInArrearLots, setHasInArrearLots] = useState(false);
-
   // Lot selection state
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNoSelectionError, setShowNoSelectionError] = useState(false);
-
-  // Initialise lotsConfirmed synchronously from sessionStorage:
-  // auto-confirm for single non-proxy voters so they never see the lot panel
-  const [lotsConfirmed, setLotsConfirmed] = useState<boolean>(() => {
-    const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
-    if (!raw) return true;
-    try {
-      const lots = JSON.parse(raw) as LotInfo[];
-      return lots.length <= 1 && !lots.some((l) => l.is_proxy);
-    } catch {
-      return true;
-    }
-  });
 
   // Load allLots from sessionStorage on mount
   useEffect(() => {
@@ -75,23 +57,6 @@ export function VotingPage() {
       setSelectedIds(new Set(pending));
     } catch {
       // ignore parse errors
-    }
-  }, [meetingId]);
-
-  useEffect(() => {
-    if (!meetingId) return;
-    const stored = sessionStorage.getItem(`meeting_lot_info_${meetingId}`);
-    if (stored) {
-      try {
-        const lots = JSON.parse(stored) as LotInfo[];
-        const arrearNumbers = lots
-          .filter((l) => l.financial_position === "in_arrear")
-          .map((l) => l.lot_number);
-        setInArrearLotNumbers(arrearNumbers);
-        setHasInArrearLots(arrearNumbers.length > 0);
-      } catch {
-        // ignore parse errors
-      }
     }
   }, [meetingId]);
 
@@ -172,6 +137,8 @@ export function VotingPage() {
 
   const submitMutation = useMutation({
     mutationFn: () => {
+      // For multi-lot voters: use the currently selected IDs (written to sessionStorage
+      // when Submit is clicked). For single-lot voters: fall back to stored lots.
       const storedLots = sessionStorage.getItem(`meeting_lots_${meetingId}`);
       const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
       return submitBallot(meetingId!, lotOwnerIds);
@@ -209,20 +176,6 @@ export function VotingPage() {
     setShowNoSelectionError(false);
   };
 
-  const handleStartVoting = () => {
-    if (isMultiLot && selectedIds.size === 0) {
-      setShowNoSelectionError(true);
-      return;
-    }
-    if (isMultiLot) {
-      sessionStorage.setItem(
-        `meeting_lots_${meetingId}`,
-        JSON.stringify([...selectedIds])
-      );
-    }
-    setLotsConfirmed(true);
-  };
-
   const handleViewSubmission = () => {
     navigate(`/vote/${meetingId}/confirmation`);
   };
@@ -231,26 +184,22 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  const handleInArrearGeneralMotionClick = () => {
-    setShowInArrearModal(true);
-  };
+  const answeredCount = motions ? motions.filter((m) => !!choices[m.id]).length : 0;
 
-  const answeredCount = motions
-    ? motions.filter((m) => {
-        // In-arrear general motions are auto-answered as not_eligible
-        if (hasInArrearLots && m.motion_type === "general") return true;
-        return !!choices[m.id];
-      }).length
-    : 0;
-
-  const unansweredMotions = motions
-    ? motions.filter((m) => {
-        if (hasInArrearLots && m.motion_type === "general") return false;
-        return !choices[m.id];
-      })
-    : [];
+  const unansweredMotions = motions ? motions.filter((m) => !choices[m.id]) : [];
 
   const handleSubmitClick = () => {
+    if (isMultiLot && selectedIds.size === 0) {
+      setShowNoSelectionError(true);
+      return;
+    }
+    // Persist the selected lot IDs so submitMutation can read them
+    if (isMultiLot) {
+      sessionStorage.setItem(
+        `meeting_lots_${meetingId}`,
+        JSON.stringify([...selectedIds])
+      );
+    }
     setHighlightUnanswered(true);
     setShowDialog(true);
   };
@@ -284,8 +233,75 @@ export function VotingPage() {
 
   const isWarning = secsRemaining <= 300 && secsRemaining > 0;
 
-  // Whether to show lot-selection panel
-  const showLotPanel = !lotsConfirmed && allLots.length > 0;
+  // Sidebar is only rendered for multi-lot voters (single-lot voters see motions full-width)
+  const showSidebar = isMultiLot && allLots.length > 0;
+
+  const sidebarContent = showSidebar ? (
+    <div className="voting-layout__sidebar">
+      <div className="lot-selection">
+        <h2 className="lot-selection__title">Your Lots</h2>
+        <p className="lot-selection__subtitle">
+          {allSubmitted
+            ? "All lots have been submitted."
+            : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
+        </p>
+
+        <ul className="lot-selection__list" role="list">
+          {allLots.map((lot) => (
+            <li
+              key={lot.lot_owner_id}
+              className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
+              aria-disabled={lot.already_submitted ? "true" : undefined}
+            >
+              <input
+                type="checkbox"
+                id={`lot-checkbox-${lot.lot_owner_id}`}
+                className="lot-selection__checkbox"
+                checked={selectedIds.has(lot.lot_owner_id)}
+                disabled={lot.already_submitted}
+                onChange={() => handleToggle(lot.lot_owner_id)}
+                aria-label={`Select Lot ${lot.lot_number}`}
+              />
+
+              <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
+
+              {lot.is_proxy && (
+                <span className="lot-selection__badge lot-selection__badge--proxy">
+                  via Proxy
+                </span>
+              )}
+
+              {lot.financial_position === "in_arrear" && (
+                <span className="lot-selection__badge lot-selection__badge--arrear">
+                  In Arrear
+                </span>
+              )}
+
+              {lot.already_submitted && (
+                <span className="lot-selection__badge lot-selection__badge--submitted">
+                  Already submitted
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        {showNoSelectionError && (
+          <p role="alert">Please select at least one lot</p>
+        )}
+
+        {allSubmitted && (
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={handleViewSubmission}
+          >
+            View Submission
+          </button>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <main className="voter-content">
@@ -320,116 +336,59 @@ export function VotingPage() {
         </div>
       )}
 
-      {/* Lot selection panel — shown for multi-lot or proxy voters before motions */}
-      {showLotPanel && (
-        <div className="lot-selection">
-          <h2 className="lot-selection__title">Your Lots</h2>
-          <p className="lot-selection__subtitle">
-            {allSubmitted
-              ? "All lots have been submitted."
-              : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
-          </p>
+      <div className={showSidebar ? "voting-layout" : undefined}>
+        {sidebarContent}
 
-          <ul className="lot-selection__list" role="list">
-            {allLots.map((lot) => (
-              <li
-                key={lot.lot_owner_id}
-                className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
-                aria-disabled={lot.already_submitted ? "true" : undefined}
-              >
-                {isMultiLot && (
-                  <input
-                    type="checkbox"
-                    id={`lot-checkbox-${lot.lot_owner_id}`}
-                    className="lot-selection__checkbox"
-                    checked={selectedIds.has(lot.lot_owner_id)}
-                    disabled={lot.already_submitted}
-                    onChange={() => handleToggle(lot.lot_owner_id)}
-                    aria-label={`Select Lot ${lot.lot_number}`}
-                  />
-                )}
-
-                <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
-
-                {lot.is_proxy && (
+        <div className={showSidebar ? "voting-layout__main" : undefined}>
+          {/* Single-lot proxy voters: show a compact lot info strip above motions */}
+          {!isMultiLot && allLots.length === 1 && allLots[0].is_proxy && (
+            <div className="lot-selection lot-selection--inline">
+              <h2 className="lot-selection__title">Your Lots</h2>
+              <ul className="lot-selection__list" role="list">
+                <li
+                  className={`lot-selection__item${allLots[0].already_submitted ? " lot-selection__item--submitted" : ""}`}
+                  aria-disabled={allLots[0].already_submitted ? "true" : undefined}
+                >
+                  <span className="lot-selection__lot-number">Lot {allLots[0].lot_number}</span>
                   <span className="lot-selection__badge lot-selection__badge--proxy">
-                    Lot {lot.lot_number} via Proxy
+                    via Proxy
                   </span>
-                )}
-
-                {lot.financial_position === "in_arrear" && (
-                  <span className="lot-selection__badge lot-selection__badge--arrear">
-                    In Arrear
-                  </span>
-                )}
-
-                {lot.already_submitted && (
-                  <span className="lot-selection__badge lot-selection__badge--submitted">
-                    Already submitted
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-
-          {showNoSelectionError && (
-            <p role="alert">Please select at least one lot</p>
-          )}
-
-          {allSubmitted ? (
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={handleViewSubmission}
-            >
-              View Submission
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`btn btn--primary${isMultiLot && selectedIds.size === 0 ? " btn--disabled" : ""}`}
-              aria-disabled={isMultiLot && selectedIds.size === 0 ? "true" : undefined}
-              onClick={handleStartVoting}
-            >
-              Start Voting
-            </button>
-          )}
-        </div>
-      )}
-
-      {lotsConfirmed && (
-        <>
-          {hasInArrearLots && (
-            <div role="alert" className="in-arrear-notice" data-testid="in-arrear-notice">
-              Lots [{inArrearLotNumbers.join(", ")}] are in arrear and can only vote on Special Motions.
+                  {allLots[0].already_submitted && (
+                    <span className="lot-selection__badge lot-selection__badge--submitted">
+                      Already submitted
+                    </span>
+                  )}
+                </li>
+              </ul>
+              {allLots[0].already_submitted && (
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={handleViewSubmission}
+                >
+                  View Submission
+                </button>
+              )}
             </div>
           )}
 
           {motions && (
             <>
               <ProgressBar answered={answeredCount} total={motions.length} />
-              {motions.map((motion) => {
-                const isGeneralMotionLockedForInArrear =
-                  hasInArrearLots && motion.motion_type === "general";
-                return (
-                  <MotionCard
-                    key={motion.id}
-                    motion={motion}
-                    meetingId={meetingId!}
-                    choice={choices[motion.id] ?? null}
-                    onChoiceChange={handleChoiceChange}
-                    disabled={isClosed}
-                    highlight={
-                      highlightUnanswered &&
-                      !choices[motion.id] &&
-                      !isGeneralMotionLockedForInArrear
-                    }
-                    inArrearLocked={isGeneralMotionLockedForInArrear}
-                    onInArrearClick={handleInArrearGeneralMotionClick}
-                  />
-                );
-              })}
-              {!isClosed && (
+              {motions.map((motion) => (
+                <MotionCard
+                  key={motion.id}
+                  motion={motion}
+                  meetingId={meetingId!}
+                  choice={choices[motion.id] ?? null}
+                  onChoiceChange={handleChoiceChange}
+                  disabled={isClosed}
+                  highlight={highlightUnanswered && !choices[motion.id]}
+                  inArrearLocked={false}
+                  onInArrearClick={undefined}
+                />
+              ))}
+              {!isClosed && !allSubmitted && (
                 <div className="submit-section">
                   <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
                     Submit ballot
@@ -438,8 +397,8 @@ export function VotingPage() {
               )}
             </>
           )}
-        </>
-      )}
+        </div>
+      </div>
 
       {showDialog && (
         <SubmitDialog
@@ -447,30 +406,6 @@ export function VotingPage() {
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />
-      )}
-
-      {showInArrearModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="in-arrear-modal-title"
-          className="dialog-overlay"
-        >
-          <div className="dialog">
-            <p id="in-arrear-modal-title" className="dialog__message">
-              Can&apos;t vote on General Motion as financial position is in arrear.
-            </p>
-            <div className="dialog__actions">
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => setShowInArrearModal(false)}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </main>
   );
