@@ -26,17 +26,8 @@ test.describe("Lot owner voting flow", () => {
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Wait for auth to complete and navigate away from /auth.
-    // Auth now always routes to /lot-selection first (unless already submitted
-    // or AGM closed, which goes directly to /confirmation).
-    await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, { timeout: 20000 });
-
-    // If landed on lot-selection, building name and meeting title should be visible in header
-    if (page.url().includes("/lot-selection")) {
-      await expect(page.getByText(E2E_BUILDING_NAME)).toBeVisible({ timeout: 10000 });
-      await expect(page.getByRole("button", { name: "Start Voting" })).toBeVisible();
-      await page.getByRole("button", { name: "Start Voting" }).click();
-      await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
-    }
+    // Auth now routes directly to /voting (or /confirmation if already submitted).
+    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     // If the ballot for E2E-1 was already submitted in a previous test run and
     // auth redirected straight to /confirmation, skip the voting steps.
@@ -93,9 +84,9 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Continue" }).click();
 
-    // Correct credentials should advance past the auth page — to lot-selection
-    // (or confirmation if E2E-1 already submitted a ballot in an earlier test).
-    await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, { timeout: 15000 });
+    // Correct credentials should advance past the auth page — to /voting
+    // (or /confirmation if E2E-1 already submitted a ballot in an earlier test).
+    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 15000 });
   });
 
   test("AGM closed state: closed AGM shows View My Submission button", async ({ page }) => {

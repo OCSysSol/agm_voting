@@ -45,6 +45,39 @@ export function VotingPage() {
   const [inArrearLotNumbers, setInArrearLotNumbers] = useState<string[]>([]);
   const [hasInArrearLots, setHasInArrearLots] = useState(false);
 
+  // Lot selection state
+  const [allLots, setAllLots] = useState<LotInfo[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showNoSelectionError, setShowNoSelectionError] = useState(false);
+
+  // Initialise lotsConfirmed synchronously from sessionStorage:
+  // auto-confirm for single non-proxy voters so they never see the lot panel
+  const [lotsConfirmed, setLotsConfirmed] = useState<boolean>(() => {
+    const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
+    if (!raw) return true;
+    try {
+      const lots = JSON.parse(raw) as LotInfo[];
+      return lots.length <= 1 && !lots.some((l) => l.is_proxy);
+    } catch {
+      return true;
+    }
+  });
+
+  // Load allLots from sessionStorage on mount
+  useEffect(() => {
+    if (!meetingId) return;
+    const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
+    if (!raw) return;
+    try {
+      const lots = JSON.parse(raw) as LotInfo[];
+      setAllLots(lots);
+      const pending = lots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
+      setSelectedIds(new Set(pending));
+    } catch {
+      // ignore parse errors
+    }
+  }, [meetingId]);
+
   useEffect(() => {
     if (!meetingId) return;
     const stored = sessionStorage.getItem(`meeting_lot_info_${meetingId}`);
@@ -157,6 +190,43 @@ export function VotingPage() {
     },
   });
 
+  // Derived values for lot panel
+  const isMultiLot = allLots.length > 1;
+  const allSubmitted = allLots.length > 0 && allLots.every((l) => l.already_submitted);
+  const pendingLots = allLots.filter((l) => !l.already_submitted);
+  const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
+
+  const handleToggle = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    setShowNoSelectionError(false);
+  };
+
+  const handleStartVoting = () => {
+    if (isMultiLot && selectedIds.size === 0) {
+      setShowNoSelectionError(true);
+      return;
+    }
+    if (isMultiLot) {
+      sessionStorage.setItem(
+        `meeting_lots_${meetingId}`,
+        JSON.stringify([...selectedIds])
+      );
+    }
+    setLotsConfirmed(true);
+  };
+
+  const handleViewSubmission = () => {
+    navigate(`/vote/${meetingId}/confirmation`);
+  };
+
   const handleChoiceChange = (motionId: string, choice: VoteChoice | null) => {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
@@ -214,9 +284,12 @@ export function VotingPage() {
 
   const isWarning = secsRemaining <= 300 && secsRemaining > 0;
 
+  // Whether to show lot-selection panel
+  const showLotPanel = !lotsConfirmed && allLots.length > 0;
+
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/lot-selection`)}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}`)}>
         ← Back
       </button>
       {isClosed && <ClosedBanner />}
@@ -247,42 +320,123 @@ export function VotingPage() {
         </div>
       )}
 
-      {hasInArrearLots && (
-        <div role="alert" className="in-arrear-notice" data-testid="in-arrear-notice">
-          Lots [{inArrearLotNumbers.join(", ")}] are in arrear and can only vote on Special Motions.
+      {/* Lot selection panel — shown for multi-lot or proxy voters before motions */}
+      {showLotPanel && (
+        <div className="lot-selection">
+          <h2 className="lot-selection__title">Your Lots</h2>
+          <p className="lot-selection__subtitle">
+            {allSubmitted
+              ? "All lots have been submitted."
+              : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
+          </p>
+
+          <ul className="lot-selection__list" role="list">
+            {allLots.map((lot) => (
+              <li
+                key={lot.lot_owner_id}
+                className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
+                aria-disabled={lot.already_submitted ? "true" : undefined}
+              >
+                {isMultiLot && (
+                  <input
+                    type="checkbox"
+                    id={`lot-checkbox-${lot.lot_owner_id}`}
+                    className="lot-selection__checkbox"
+                    checked={selectedIds.has(lot.lot_owner_id)}
+                    disabled={lot.already_submitted}
+                    onChange={() => handleToggle(lot.lot_owner_id)}
+                    aria-label={`Select Lot ${lot.lot_number}`}
+                  />
+                )}
+
+                <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
+
+                {lot.is_proxy && (
+                  <span className="lot-selection__badge lot-selection__badge--proxy">
+                    Lot {lot.lot_number} via Proxy
+                  </span>
+                )}
+
+                {lot.financial_position === "in_arrear" && (
+                  <span className="lot-selection__badge lot-selection__badge--arrear">
+                    In Arrear
+                  </span>
+                )}
+
+                {lot.already_submitted && (
+                  <span className="lot-selection__badge lot-selection__badge--submitted">
+                    Already submitted
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {showNoSelectionError && (
+            <p role="alert">Please select at least one lot</p>
+          )}
+
+          {allSubmitted ? (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={handleViewSubmission}
+            >
+              View Submission
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`btn btn--primary${isMultiLot && selectedIds.size === 0 ? " btn--disabled" : ""}`}
+              aria-disabled={isMultiLot && selectedIds.size === 0 ? "true" : undefined}
+              onClick={handleStartVoting}
+            >
+              Start Voting
+            </button>
+          )}
         </div>
       )}
 
-      {motions && (
+      {lotsConfirmed && (
         <>
-          <ProgressBar answered={answeredCount} total={motions.length} />
-          {motions.map((motion) => {
-            const isGeneralMotionLockedForInArrear =
-              hasInArrearLots && motion.motion_type === "general";
-            return (
-              <MotionCard
-                key={motion.id}
-                motion={motion}
-                meetingId={meetingId!}
-                choice={choices[motion.id] ?? null}
-                onChoiceChange={handleChoiceChange}
-                disabled={isClosed}
-                highlight={
-                  highlightUnanswered &&
-                  !choices[motion.id] &&
-                  !isGeneralMotionLockedForInArrear
-                }
-                inArrearLocked={isGeneralMotionLockedForInArrear}
-                onInArrearClick={handleInArrearGeneralMotionClick}
-              />
-            );
-          })}
-          {!isClosed && (
-            <div className="submit-section">
-              <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
-                Submit ballot
-              </button>
+          {hasInArrearLots && (
+            <div role="alert" className="in-arrear-notice" data-testid="in-arrear-notice">
+              Lots [{inArrearLotNumbers.join(", ")}] are in arrear and can only vote on Special Motions.
             </div>
+          )}
+
+          {motions && (
+            <>
+              <ProgressBar answered={answeredCount} total={motions.length} />
+              {motions.map((motion) => {
+                const isGeneralMotionLockedForInArrear =
+                  hasInArrearLots && motion.motion_type === "general";
+                return (
+                  <MotionCard
+                    key={motion.id}
+                    motion={motion}
+                    meetingId={meetingId!}
+                    choice={choices[motion.id] ?? null}
+                    onChoiceChange={handleChoiceChange}
+                    disabled={isClosed}
+                    highlight={
+                      highlightUnanswered &&
+                      !choices[motion.id] &&
+                      !isGeneralMotionLockedForInArrear
+                    }
+                    inArrearLocked={isGeneralMotionLockedForInArrear}
+                    onInArrearClick={handleInArrearGeneralMotionClick}
+                  />
+                );
+              })}
+              {!isClosed && (
+                <div className="submit-section">
+                  <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
+                    Submit ballot
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

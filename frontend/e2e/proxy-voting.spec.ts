@@ -369,13 +369,13 @@ test.describe("Proxy voter journey", () => {
       await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
-      // Should land on lot-selection or confirmation
-      await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, {
+      // Should land on voting page (lot panel shown for proxy voters) or confirmation
+      await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, {
         timeout: 20000,
       });
 
-      if (page.url().includes("/lot-selection")) {
-        // ── Lot selection assertions ──────────────────────────────────────────
+      if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
+        // ── Lot panel assertions (top of VotingPage for proxy/multi-lot voters) ──
 
         // Only LOT-B should be listed (proxy voter has no direct lots)
         const lotItems = page.locator(".lot-selection__item");
@@ -384,22 +384,21 @@ test.describe("Proxy voter journey", () => {
         // The single lot shows Lot PX-B
         await expect(lotItems.first()).toContainText(LOT_B_NUMBER);
 
-        // LOT-B must have the "Proxy" badge
+        // LOT-B must have the proxy badge saying "via Proxy"
         const proxyBadge = lotItems
           .first()
           .locator(".lot-selection__badge--proxy");
         await expect(proxyBadge).toBeVisible();
-        await expect(proxyBadge).toContainText("Proxy");
+        await expect(proxyBadge).toContainText("via Proxy");
 
         // LOT-A must NOT be listed (proxy voter does not own it and is not proxied for it)
         await expect(page.getByText(`Lot ${LOT_A_NUMBER}`)).not.toBeVisible();
 
-        // Proceed to voting
+        // Proceed to voting (reveals motion cards on same page)
         await page.getByRole("button", { name: "Start Voting" }).click();
-        await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
       }
 
-      if (page.url().includes("/voting")) {
+      if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
         // Vote "For" on the motion
         const motionCards = page.locator(".motion-card");
         await expect(motionCards).toHaveCount(1);
@@ -468,12 +467,12 @@ test.describe("Proxy voter journey", () => {
       await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
-      await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, {
+      await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, {
         timeout: 20000,
       });
 
-      if (page.url().includes("/lot-selection")) {
-        // ── Lot selection assertions ──────────────────────────────────────────
+      if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
+        // ── Lot panel assertions (top of VotingPage for proxy/multi-lot voters) ──
 
         // Both lots must be listed
         const lotItems = page.locator(".lot-selection__item");
@@ -486,19 +485,18 @@ test.describe("Proxy voter journey", () => {
           mxAItem.locator(".lot-selection__badge--proxy")
         ).not.toBeVisible();
 
-        // MX-C: proxy lot — proxy badge visible
+        // MX-C: proxy lot — proxy badge shows "via Proxy"
         const mxCItem = lotItems.filter({ hasText: `Lot ${MIXED_LOT_C_NUMBER}` });
         await expect(mxCItem).toBeVisible();
         const proxyCBadge = mxCItem.locator(".lot-selection__badge--proxy");
         await expect(proxyCBadge).toBeVisible();
-        await expect(proxyCBadge).toContainText("Proxy");
+        await expect(proxyCBadge).toContainText("via Proxy");
 
-        // Proceed to voting
+        // Proceed to voting (reveals motion cards on same page)
         await page.getByRole("button", { name: "Start Voting" }).click();
-        await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
       }
 
-      if (page.url().includes("/voting")) {
+      if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
         // Vote "Against" on the motion
         const motionCards = page.locator(".motion-card");
         await expect(motionCards).toHaveCount(1);
@@ -563,16 +561,16 @@ test.describe("Proxy voter journey", () => {
       await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
-      // Should be redirected to lot-selection or confirmation (not stuck on auth page with error)
-      await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, {
+      // Should be redirected to voting page (lot panel shown for proxy voters) or confirmation
+      await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, {
         timeout: 20000,
       });
 
-      if (page.url().includes("/lot-selection")) {
+      if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
         // LOT-A must NOT be visible — proxy voter is not proxied for LOT-A
         await expect(page.getByText(`Lot ${LOT_A_NUMBER}`)).not.toBeVisible();
 
-        // LOT-B must be visible with proxy badge
+        // LOT-B must be visible with proxy badge showing "via Proxy"
         await expect(page.getByText(`Lot ${LOT_B_NUMBER}`)).toBeVisible();
         await expect(
           page.locator(".lot-selection__badge--proxy").first()

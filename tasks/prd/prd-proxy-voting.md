@@ -93,7 +93,7 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 **Acceptance Criteria:**
 - [ ] Lot selection screen shows all lots (own + proxied) in a single flat list
 - [ ] Own lots show no extra label (or a subtle "Your lot" label — designer's choice)
-- [ ] Proxied lots show a clear "Proxy" badge or label (e.g. "Proxy for Lot 42")
+- [ ] Proxied lots show a clear "Proxy" badge or label (e.g. "Lot 42 via Proxy")
 - [ ] In-arrear badge still shown per lot regardless of proxy status
 - [ ] Already-submitted lots remain greyed out and non-interactive, with their proxy/own label still visible
 - [ ] Typecheck/lint passes
@@ -195,5 +195,5 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 _All resolved._
 
-- **Lot owner name on proxy label:** No — lot owner names are not stored and will not be added. Proxied lots show lot number only (e.g. "Proxy for Lot 42").
+- **Lot owner name on proxy label:** No — lot owner names are not stored and will not be added. Proxied lots show lot number only (e.g. "Lot 42 via Proxy").
 - **Proxy removed mid-session:** The in-flight session remains valid and the vote is accepted. Proxy authorisation is checked at authentication time only, not at vote submission time.

@@ -41,7 +41,7 @@ export function AuthPage() {
       if (data.agm_status === "closed" || allSubmitted) {
         navigate(`/vote/${meetingId}/confirmation`);
       } else {
-        navigate(`/vote/${meetingId}/lot-selection`);
+        navigate(`/vote/${meetingId}/voting`);
       }
     },
     onError: (error: Error) => {

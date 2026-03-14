@@ -1,7 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import { BuildingSelectPage } from "./pages/vote/BuildingSelectPage";
 import { AuthPage } from "./pages/vote/AuthPage";
-import { LotSelectionPage } from "./pages/vote/LotSelectionPage";
 import { VotingPage } from "./pages/vote/VotingPage";
 import { ConfirmationPage } from "./pages/vote/ConfirmationPage";
 import { VoterShell } from "./components/vote/VoterShell";
@@ -15,8 +14,7 @@ export default function App() {
       <Route element={<VoterShell />}>
         <Route path="/" element={<BuildingSelectPage />} />
         <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
-        <Route path="/vote/:meetingId/lot-selection" element={<LotSelectionPage />} />
-        <Route path="/vote/:meetingId/voting" element={<VotingPage />} />
+<Route path="/vote/:meetingId/voting" element={<VotingPage />} />
         <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
       </Route>
 

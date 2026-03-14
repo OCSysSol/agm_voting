@@ -158,14 +158,8 @@ test.describe("In-arrear lot owner voting", () => {
     await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
-    // Should land on lot-selection or confirmation
-    await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, { timeout: 20000 });
-
-    if (page.url().includes("/lot-selection")) {
-      await expect(page.getByRole("button", { name: "Start Voting" })).toBeVisible();
-      await page.getByRole("button", { name: "Start Voting" }).click();
-      await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
-    }
+    // Should land on voting or confirmation (auth routes directly to /voting now)
+    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
       // ── In-arrear notice must be visible ────────────────────────────────
