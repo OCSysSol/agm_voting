@@ -64,13 +64,6 @@ describe("Voting Flow Integration", () => {
     });
   });
 
-  it("lot-selection page renders after navigating to /vote/:meetingId/lot-selection", async () => {
-    renderApp(`/vote/${AGM_ID}/lot-selection`);
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Your Lots" })).toBeInTheDocument();
-    });
-  });
-
   it("voting page renders motions", async () => {
     renderApp(`/vote/${AGM_ID}/voting`);
     await waitFor(() => {

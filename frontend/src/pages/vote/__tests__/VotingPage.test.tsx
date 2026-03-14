@@ -329,12 +329,244 @@ describe("VotingPage", () => {
     expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
   });
 
-  it("back button navigates to lot-selection page", async () => {
+  it("back button navigates to auth page", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     await user.click(screen.getByRole("button", { name: "← Back" }));
-    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/lot-selection`);
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}`);
+  });
+
+  // --- Lot selection panel ---
+
+  it("single-lot non-proxy: lot panel not shown, motions immediately visible", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Your Lots" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("single-lot proxy: lot panel shown with 'Lot X via Proxy' badge", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "99", financial_position: "normal", already_submitted: false, is_proxy: true }])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Your Lots" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Lot 99 via Proxy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Voting" })).toBeInTheDocument();
+    // Motions not visible yet
+    expect(screen.queryByRole("heading", { name: "Motion 1" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("single-lot proxy: clicking Start Voting hides lot panel and shows motions", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "99", financial_position: "normal", already_submitted: false, is_proxy: true }])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Start Voting" }));
+    await user.click(screen.getByRole("button", { name: "Start Voting" }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Your Lots" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: lot panel shown with checkboxes and subtitle count", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Your Lots" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("You are voting for 2 lots.")).toBeInTheDocument();
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes).toHaveLength(2);
+    expect(screen.queryByRole("heading", { name: "Motion 1" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: unchecking a lot updates subtitle count", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[1]);
+    expect(screen.getByText("You are voting for 1 lot.")).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: Start Voting with no lots selected shows validation alert", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    const btn = screen.getByRole("button", { name: "Start Voting" });
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+    await user.click(btn);
+    expect(screen.getByRole("alert")).toHaveTextContent("Please select at least one lot");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: Start Voting writes selected IDs to sessionStorage and shows motions", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Start Voting" }));
+    // Uncheck lot 2
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[1]);
+    await user.click(screen.getByRole("button", { name: "Start Voting" }));
+    const stored = JSON.parse(sessionStorage.getItem(`meeting_lots_${AGM_ID}`) ?? "[]") as string[];
+    expect(stored).toEqual(["lo1"]);
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
+  it("multi-lot: in-arrear badge shown in lot panel", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "in_arrear", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    expect(screen.getByText("In Arrear")).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: already-submitted lot has disabled checkbox and submitted badge", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes[1]).toBeDisabled();
+    expect(screen.getByText("Already submitted")).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("all-submitted lots (multi-lot): shows View Submission button", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Voting" })).not.toBeInTheDocument();
+    expect(screen.getByText("All lots have been submitted.")).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("all-submitted lots (multi-lot): View Submission button navigates to confirmation", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "View Submission" }));
+    await user.click(screen.getByRole("button", { name: "View Submission" }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("lot panel not shown when sessionStorage is empty", async () => {
+    // No meeting_lots_info set — lotsConfirmed initialises to true
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Your Lots" })).not.toBeInTheDocument();
+  });
+
+  it("lot panel not shown on invalid JSON in meeting_lots_info", async () => {
+    sessionStorage.setItem(`meeting_lots_info_${AGM_ID}`, "not-valid-json{{{");
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Your Lots" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: re-checking a lot clears the no-selection error", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+    const checkboxes = screen.getAllByRole("checkbox");
+    // Uncheck all and trigger error
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    await user.click(screen.getByRole("button", { name: "Start Voting" }));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    // Re-check one — alert should clear
+    await user.click(checkboxes[0]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
   // --- in-arrear lot tests ---

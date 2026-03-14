@@ -207,22 +207,21 @@ test.describe("Multi-lot voter journey", () => {
     await goToAuthPage(page);
     await authenticate(page);
 
-    // Should land on lot-selection (both lots unsubmitted)
-    await expect(page).toHaveURL(/vote\/.*\/lot-selection/, { timeout: 20000 });
+    // Should land on voting page (lot panel shown at top for multi-lot voters)
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Both lots visible on selection screen
+    // Both lots visible in lot panel at top
     await expect(page.getByText(`Lot ${LOT_NUMBER_1}`)).toBeVisible();
     await expect(page.getByText(`Lot ${LOT_NUMBER_2}`)).toBeVisible();
 
     // Subtitle confirms two lots pending
     await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
-    // "Start Voting" button present
+    // "Start Voting" button present in lot panel
     await expect(page.getByRole("button", { name: "Start Voting" })).toBeVisible();
     await page.getByRole("button", { name: "Start Voting" }).click();
 
-    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
-
+    // Motions appear on the same page after clicking Start Voting (no navigation)
     // Vote on both motions
     const motionCards = page.locator(".motion-card");
     await expect(motionCards).toHaveCount(2);
@@ -272,22 +271,22 @@ test.describe("Multi-lot voter journey", () => {
     await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
     await api.dispose();
 
-    // ── Step 2: Authenticate; land on lot-selection ──────────────────────────
+    // ── Step 2: Authenticate; land on voting page (lot panel shown at top) ─────
     await goToAuthPage(page);
     await authenticate(page);
-    await expect(page).toHaveURL(/vote\/.*\/lot-selection/, { timeout: 20000 });
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Both lots should be pending
+    // Both lots should be pending — lot panel at top of page
     await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
     // ── Step 3: Deselect ML-2 so only ML-1 is voted in this session ─────────
-    // Uncheck ML-2 via the UI; LotSelectionPage writes only selected IDs to
+    // Uncheck ML-2 via the UI; VotingPage writes only selected IDs to
     // sessionStorage when "Start Voting" is clicked.
     await page.getByRole("checkbox", { name: `Select Lot ${LOT_NUMBER_2}` }).uncheck();
     await expect(page.getByText("You are voting for 1 lot.")).toBeVisible();
 
     await page.getByRole("button", { name: "Start Voting" }).click();
-    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
+    // Motions appear on the same page after clicking Start Voting (no navigation)
 
     // Vote on both motions
     const motionCards = page.locator(".motion-card");
@@ -320,8 +319,8 @@ test.describe("Multi-lot voter journey", () => {
     await goToAuthPage(page);
     await authenticate(page);
 
-    // Lot selection: ML-1 shows "Already submitted", ML-2 is still pending
-    await expect(page).toHaveURL(/vote\/.*\/lot-selection/, { timeout: 20000 });
+    // Lot panel: ML-1 shows "Already submitted", ML-2 is still pending
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     const ml1Item = page.locator(".lot-selection__item").filter({ hasText: `Lot ${LOT_NUMBER_1}` });
     await expect(ml1Item.getByText("Already submitted")).toBeVisible();
@@ -333,9 +332,8 @@ test.describe("Multi-lot voter journey", () => {
     // Subtitle shows 1 pending lot
     await expect(page.getByText("You are voting for 1 lot.")).toBeVisible();
 
-    // Click "Start Voting" to vote for ML-2
+    // Click "Start Voting" to proceed to motions on the same page
     await page.getByRole("button", { name: "Start Voting" }).click();
-    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
 
     // Vote for ML-2
     const cards = page.locator(".motion-card");
@@ -401,13 +399,12 @@ test.describe("Multi-lot voter journey", () => {
       await expect(page.getByText(`Lot ${LOT_NUMBER_1}`, { exact: true })).toBeVisible();
       await expect(page.getByText(`Lot ${LOT_NUMBER_2}`, { exact: true })).toBeVisible();
     } else {
-      // Ballots were cleared — land on lot-selection and verify both lots are fresh
-      await expect(page).toHaveURL(/vote\/.*\/lot-selection/, { timeout: 20000 });
+      // Ballots were cleared — land on voting page (lot panel shown at top) and verify both lots are fresh
+      await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
       await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
       // Complete the submission so the "View Submission" CTA path can be exercised
       await page.getByRole("button", { name: "Start Voting" }).click();
-      await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
 
       const cards = page.locator(".motion-card");
       await expect(cards).toHaveCount(2);
@@ -454,10 +451,10 @@ test.describe("Multi-lot voter journey", () => {
     // Authenticate and vote both lots via the normal flow
     await goToAuthPage(page);
     await authenticate(page);
-    await expect(page).toHaveURL(/vote\/.*\/lot-selection/, { timeout: 20000 });
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     await page.getByRole("button", { name: "Start Voting" }).click();
-    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
+    // Motions appear on the same page after clicking Start Voting (no navigation)
 
     const cards = page.locator(".motion-card");
     await expect(cards).toHaveCount(2);
@@ -485,11 +482,11 @@ test.describe("Multi-lot voter journey", () => {
     await expect(page.getByText(`Lot ${LOT_NUMBER_1}`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Lot ${LOT_NUMBER_2}`, { exact: true })).toBeVisible();
 
-    // Navigate directly to lot-selection to exercise that path too
-    await page.goto(`/vote/${meetingId}/lot-selection`);
-    await expect(page).toHaveURL(/lot-selection/, { timeout: 10000 });
+    // Navigate directly to /voting to exercise the "all submitted" path via the lot panel
+    await page.goto(`/vote/${meetingId}/voting`);
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
 
-    // Both items show "Already submitted" badge
+    // Both items show "Already submitted" badge (lot panel rendered from sessionStorage)
     await expect(page.locator(".lot-selection__item--submitted")).toHaveCount(2);
 
     // The subtitle says "All lots have been submitted."

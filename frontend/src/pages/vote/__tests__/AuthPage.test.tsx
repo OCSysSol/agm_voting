@@ -53,12 +53,12 @@ describe("AuthPage", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
-  it("navigates to lot-selection page on success (not already submitted)", async () => {
+  it("navigates to voting page on success (not already submitted)", async () => {
     mockNavigate.mockClear();
     renderPage();
     await fillAndSubmit("42", "owner@example.com");
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/lot-selection`);
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
   });
 
