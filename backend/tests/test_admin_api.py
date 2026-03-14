@@ -4022,6 +4022,141 @@ class TestAddEmailDuplicate:
 
 
 # ---------------------------------------------------------------------------
+# PUT /api/admin/lot-owners/{lot_owner_id}/proxy
+# DELETE /api/admin/lot-owners/{lot_owner_id}/proxy
+# ---------------------------------------------------------------------------
+
+
+class TestSetLotOwnerProxy:
+    # --- Happy path ---
+
+    async def test_set_proxy_creates_proxy_and_returns_proxy_email(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /lot-owners/{id}/proxy with valid email creates proxy and returns proxy_email."""
+        lo = LotOwner(building_id=building.id, lot_number="PX01", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "proxy@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "proxy@test.com"
+
+    async def test_set_proxy_replaces_existing_proxy(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /lot-owners/{id}/proxy when proxy already exists replaces it (upsert)."""
+        lo = LotOwner(building_id=building.id, lot_number="PX02", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="old_proxy@test.com"))
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "new_proxy@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "new_proxy@test.com"
+
+    # --- Input validation ---
+
+    async def test_empty_proxy_email_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT with empty proxy_email → 422."""
+        lo = LotOwner(building_id=building.id, lot_number="PX03", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": ""},
+        )
+        assert response.status_code == 422
+
+    async def test_missing_proxy_email_field_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT with missing proxy_email field → 422."""
+        lo = LotOwner(building_id=building.id, lot_number="PX04", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_set_proxy_on_nonexistent_lot_owner_returns_404(
+        self, client: AsyncClient
+    ):
+        """PUT on non-existent lot owner → 404."""
+        response = await client.put(
+            f"/api/admin/lot-owners/{uuid.uuid4()}/proxy",
+            json={"proxy_email": "proxy@test.com"},
+        )
+        assert response.status_code == 404
+
+
+class TestRemoveLotOwnerProxy:
+    # --- Happy path ---
+
+    async def test_remove_proxy_returns_null_proxy_email(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """DELETE /lot-owners/{id}/proxy removes proxy and returns proxy_email: null."""
+        lo = LotOwner(building_id=building.id, lot_number="PX05", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="proxy_to_remove@test.com"))
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.delete(
+            f"/api/admin/lot-owners/{lo.id}/proxy"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] is None
+
+    # --- State / precondition errors ---
+
+    async def test_remove_proxy_on_nonexistent_lot_owner_returns_404(
+        self, client: AsyncClient
+    ):
+        """DELETE on non-existent lot owner → 404."""
+        response = await client.delete(
+            f"/api/admin/lot-owners/{uuid.uuid4()}/proxy"
+        )
+        assert response.status_code == 404
+
+    async def test_remove_proxy_when_no_proxy_set_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """DELETE when no proxy is set → 404."""
+        lo = LotOwner(building_id=building.id, lot_number="PX06", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.delete(
+            f"/api/admin/lot-owners/{lo.id}/proxy"
+        )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # get_effective_status helper — unit tests (US-CD01)
 # ---------------------------------------------------------------------------
 

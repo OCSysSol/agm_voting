@@ -818,6 +818,82 @@ async def remove_email_from_lot_owner(
     }
 
 
+async def set_lot_owner_proxy(
+    lot_owner_id: uuid.UUID,
+    proxy_email: str,
+    db: AsyncSession,
+) -> dict:
+    """Create or replace the proxy nomination for a lot owner."""
+    result = await db.execute(
+        select(LotOwner).where(LotOwner.id == lot_owner_id)
+    )
+    lot_owner = result.scalar_one_or_none()
+    if lot_owner is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    proxy_result = await db.execute(
+        select(LotProxy).where(LotProxy.lot_owner_id == lot_owner_id)
+    )
+    existing_proxy = proxy_result.scalar_one_or_none()
+    if existing_proxy is not None:
+        existing_proxy.proxy_email = proxy_email
+    else:
+        db.add(LotProxy(lot_owner_id=lot_owner_id, proxy_email=proxy_email))
+
+    await db.commit()
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": proxy_email,
+    }
+
+
+async def remove_lot_owner_proxy(
+    lot_owner_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict:
+    """Remove the proxy nomination for a lot owner. 404 if no proxy is set."""
+    result = await db.execute(
+        select(LotOwner).where(LotOwner.id == lot_owner_id)
+    )
+    lot_owner = result.scalar_one_or_none()
+    if lot_owner is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    proxy_result = await db.execute(
+        select(LotProxy).where(LotProxy.lot_owner_id == lot_owner_id)
+    )
+    existing_proxy = proxy_result.scalar_one_or_none()
+    if existing_proxy is None:
+        raise HTTPException(status_code=404, detail="No proxy nomination found for this lot owner")
+
+    await db.delete(existing_proxy)
+    await db.commit()
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+    )
+    emails = [r[0] for r in emails_result.all() if r[0] is not None]
+
+    return {
+        "id": lot_owner.id,
+        "lot_number": lot_owner.lot_number,
+        "emails": emails,
+        "unit_entitlement": lot_owner.unit_entitlement,
+        "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
+        "proxy_email": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # General Meetings
 # ---------------------------------------------------------------------------

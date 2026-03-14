@@ -35,6 +35,7 @@ from app.schemas.admin import (
     LotOwnerUpdate,
     ProxyImportResult,
     ResendReportOut,
+    SetProxyRequest,
 )
 from app.services import admin_service
 
@@ -276,6 +277,33 @@ async def remove_email_from_lot_owner(
 ) -> LotOwnerOut:
     """Remove an email address from a lot owner."""
     owner = await admin_service.remove_email_from_lot_owner(lot_owner_id, email, db)
+    return LotOwnerOut(**owner)
+
+
+@router.put(
+    "/lot-owners/{lot_owner_id}/proxy",
+    response_model=LotOwnerOut,
+)
+async def set_lot_owner_proxy(
+    lot_owner_id: uuid.UUID,
+    data: SetProxyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    """Set or replace the proxy nomination for a lot owner."""
+    owner = await admin_service.set_lot_owner_proxy(lot_owner_id, data.proxy_email, db)
+    return LotOwnerOut(**owner)
+
+
+@router.delete(
+    "/lot-owners/{lot_owner_id}/proxy",
+    response_model=LotOwnerOut,
+)
+async def remove_lot_owner_proxy(
+    lot_owner_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    """Remove the proxy nomination for a lot owner."""
+    owner = await admin_service.remove_lot_owner_proxy(lot_owner_id, db)
     return LotOwnerOut(**owner)
 
 
