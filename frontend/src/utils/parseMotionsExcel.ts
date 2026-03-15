@@ -22,9 +22,9 @@ function parseMotionType(raw: unknown): MotionType {
  *
  * Required columns (case-insensitive): Motion, Description
  * Optional columns:
- *   - Title: when present, used as the motion title; Description becomes the
- *     full description text. When absent, Description is used as the title
- *     (backwards-compatible with the old 2-column format).
+ *   - Title (or Agenda Item): when present, used as the motion title;
+ *     Description becomes the full description text. When absent, Description
+ *     is used as the title (backwards-compatible with the old 2-column format).
  *   - Motion Type: "General" or "Special" (case-insensitive); defaults to
  *     "general" when absent or unrecognised.
  *
@@ -55,7 +55,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
   const motionColIdx = headers.findIndex((h) => h === "motion");
   const descColIdx = headers.findIndex((h) => h === "description");
-  const titleColIdx = headers.findIndex((h) => h === "title");
+  const titleColIdx = headers.findIndex((h) => h === "title" || h === "agenda item");
   const motionTypeColIdx = headers.findIndex((h) => h === "motion type");
 
   const missingErrors: string[] = [];

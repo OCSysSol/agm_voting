@@ -40,7 +40,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Each row in the file becomes one motion entry using the following column mapping (all column names are case-insensitive):
   - `Motion` (required) → motion order index
   - `Description` (required) → motion description when `Title` column is present; used as the motion title when `Title` column is absent (backwards-compatible 2-column format)
-  - `Title` (optional) → motion title; if blank, falls back to `Description` as title
+  - `Title` or `Agenda Item` (optional) → motion title; if blank, falls back to `Description` as title. When both `Title` and `Agenda Item` columns are present, `Title` takes precedence (whichever appears first in the header row)
   - `Motion Type` (optional) → `"general"` or `"special"` (case-insensitive); defaults to `"general"` when absent or unrecognised
 - [ ] Files with only `Motion` + `Description` columns (old 2-column format) continue to work without errors
 - [ ] Motions are displayed in ascending `Motion` order
@@ -107,7 +107,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 - **FR-16:** The AGM creation form must include a file input that accepts `.xlsx` and `.xls` files only.
 - **FR-17:** When a valid Excel file is uploaded, the frontend parses it client-side (no server round-trip for parsing) and pre-fills the motion rows on the form.
-- **FR-18:** The import file must contain at minimum two columns: `Motion` (integer) and `Description` (non-empty string). Column names are case-insensitive. Two additional optional columns are supported: `Title` (string) and `Motion Type` (`"general"` or `"special"`). When `Title` is present it is used as the motion title and `Description` becomes the full description text. When `Title` is absent the file is treated as the old 2-column format: `Description` is used as the motion title and `description` is set to an empty string. `Motion Type` defaults to `"general"` when absent or unrecognised.
+- **FR-18:** The import file must contain at minimum two columns: `Motion` (integer) and `Description` (non-empty string). Column names are case-insensitive. Two additional optional columns are supported: `Title` or its alias `Agenda Item` (string), and `Motion Type` (`"general"` or `"special"`). When `Title` or `Agenda Item` is present it is used as the motion title and `Description` becomes the full description text. When both `Title` and `Agenda Item` appear in the same file, `Title` takes precedence (whichever appears first in the header row). When neither is present the file is treated as the old 2-column format: `Description` is used as the motion title and `description` is set to an empty string. `Motion Type` defaults to `"general"` when absent or unrecognised.
 - **FR-19:** If any validation error is found in the uploaded file, display all errors in a summary at the top of the upload section. Do not partially pre-fill the form.
 - **FR-20:** Completely blank rows in the Excel file are silently skipped during parsing.
 - **FR-21:** After pre-filling, the host retains full ability to edit, add, or remove motions before saving the AGM.

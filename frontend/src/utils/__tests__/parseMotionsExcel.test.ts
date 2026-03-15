@@ -567,6 +567,92 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({ errors: ["Duplicate Motion number: 1"] });
   });
 
+  // --- Agenda Item column alias for Title ---
+
+  it("treats 'Agenda Item' column as title alias (same behaviour as Title)", async () => {
+    setupMockSheetData([
+      ["Motion", "Agenda Item", "Motion Type", "Description"],
+      [1, "My Agenda Title", "general", "Full description text"],
+      [2, "Another Agenda Item", "special", "Another description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "My Agenda Title", description: "Full description text", motion_type: "general" },
+        { title: "Another Agenda Item", description: "Another description", motion_type: "special" },
+      ],
+    });
+  });
+
+  it("treats 'AGENDA ITEM' (case-insensitive) column as title alias", async () => {
+    setupMockSheetData([
+      ["Motion", "AGENDA ITEM", "Motion Type", "Description"],
+      [1, "Case-insensitive title", "general", "Some description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Case-insensitive title", description: "Some description", motion_type: "general" }],
+    });
+  });
+
+  it("parses Agenda Item + Motion Type + Description columns all correctly", async () => {
+    setupMockSheetData([
+      ["Motion", "Agenda Item", "Motion Type", "Description"],
+      [1, "Approve minutes", "general", "Approve the minutes of the previous AGM"],
+      [2, "Fix levy", "special", "Fix the levy amount for the next financial year"],
+      [3, "Elect committee", "general", "Elect new committee members"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "Approve minutes", description: "Approve the minutes of the previous AGM", motion_type: "general" },
+        { title: "Fix levy", description: "Fix the levy amount for the next financial year", motion_type: "special" },
+        { title: "Elect committee", description: "Elect new committee members", motion_type: "general" },
+      ],
+    });
+  });
+
+  it("falls back to Description when Agenda Item cell is blank", async () => {
+    setupMockSheetData([
+      ["Motion", "Agenda Item", "Motion Type", "Description"],
+      [1, null, "general", "Fallback from blank agenda item"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Fallback from blank agenda item", description: "Fallback from blank agenda item", motion_type: "general" }],
+    });
+  });
+
+  it("uses Title when both Title and Agenda Item columns are present (Title appears first)", async () => {
+    // findIndex returns the first match: "title" === "title" wins before "agenda item"
+    setupMockSheetData([
+      ["Motion", "Title", "Agenda Item", "Motion Type", "Description"],
+      [1, "Title value", "Agenda Item value", "general", "Full description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Title value", description: "Full description", motion_type: "general" }],
+    });
+  });
+
+  it("works with only Motion + Agenda Item columns (no Motion Type or Description header — but Description required)", async () => {
+    // Agenda Item present, Motion Type absent — description col is still required
+    setupMockSheetData([
+      ["Motion", "Agenda Item", "Description"],
+      [1, "My agenda title", "Full description here"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "My agenda title", description: "Full description here", motion_type: "general" }],
+    });
+  });
+
   // --- CSV file support ---
 
   it("parses a CSV file using the same XLSX.read call (type: 'array')", async () => {
