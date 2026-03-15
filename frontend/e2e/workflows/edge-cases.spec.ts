@@ -112,8 +112,8 @@ test.describe("WF8: Edge cases", () => {
     await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
     await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
 
-    // Navigate back to home
-    await page.getByRole("button", { name: "← Back to home" }).click();
+    // Navigate back to home — go directly to avoid aborting in-flight confirmation requests
+    await page.goto("/");
     await expect(page).toHaveURL("/", { timeout: 10000 });
 
     // Second session: re-authenticate

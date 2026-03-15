@@ -51,7 +51,7 @@ export interface MotionTally {
 }
 
 export interface MotionDetail {
-  motion_id: string;
+  id: string;
   title: string;
   order_index: number;
   motion_type: string;
@@ -305,8 +305,8 @@ export async function getMeetingDetails(
       `Failed to get meeting details for ${meetingId} (${res.status()}): ${await res.text()}`
     );
   }
-  const data = (await res.json()) as { motion_details?: MotionDetail[] };
-  return data.motion_details ?? [];
+  const data = (await res.json()) as { motions?: MotionDetail[] };
+  return data.motions ?? [];
 }
 
 /**

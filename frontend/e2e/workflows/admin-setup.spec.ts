@@ -166,20 +166,16 @@ test.describe("WF1: Admin building setup lifecycle", () => {
 
     const proxyCsvContent = "Lot#,Proxy Email\nWF1-3,wf1-proxy@test.com\n";
 
-    // Locate the proxy import file input
-    const proxyFileInput = page.getByLabel(/proxy/i).first();
+    // The proxy nominations file input is hidden (display:none) — setInputFiles works on hidden inputs
+    const proxyFileInput = page.locator('input[aria-label="Proxy nominations file"]');
     await proxyFileInput.setInputFiles({
       name: "proxies.csv",
       mimeType: "text/csv",
       buffer: Buffer.from(proxyCsvContent),
     });
 
-    // Click the import proxies button
-    const importProxiesBtn = page.getByRole("button", { name: /import proxy/i });
-    await importProxiesBtn.click();
-
-    // Success message or response visible
-    await expect(page.getByText(/upserted|success|complete/i)).toBeVisible({ timeout: 15000 });
+    // Upload triggers automatically on file selection; success message appears
+    await expect(page.getByText(/import complete/i)).toBeVisible({ timeout: 15000 });
   });
 
   // WF1.7: All data visible in admin UI
@@ -273,7 +269,7 @@ test.describe("WF2: Meeting creation and motion management", () => {
     });
 
     // Upload motions CSV
-    const motionFileInput = page.getByLabel(/motions file|csv file/i);
+    const motionFileInput = page.getByLabel("Upload motions (CSV or Excel)");
     await motionFileInput.setInputFiles({
       name: "motions.csv",
       mimeType: "text/csv",
