@@ -171,9 +171,8 @@ test.describe("WF8: Edge cases", () => {
     // Should be routed to confirmation (closed meeting)
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
 
-    // Absent ballot created at close shows "Ballot submitted" with Abstained votes
-    await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("Abstained")).toBeVisible({ timeout: 10000 });
+    // Absent voter on closed meeting sees "You did not submit a ballot for this meeting."
+    await expect(page.getByText("You did not submit a ballot for this meeting.")).toBeVisible({ timeout: 15000 });
 
     // No voting actions available — meeting is closed
     await expect(page.getByRole("button", { name: "Submit ballot" })).not.toBeVisible();
