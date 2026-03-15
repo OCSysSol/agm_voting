@@ -243,6 +243,20 @@ export async function createPendingMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
+  // Close any existing open/pending meetings for this building
+  const agmsRes = await api.get("/api/admin/general-meetings");
+  const agms = (await agmsRes.json()) as {
+    id: string;
+    status: string;
+    building_id: string;
+  }[];
+  const openAgms = agms.filter(
+    (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+  );
+  for (const agm of openAgms) {
+    await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+  }
+
   const meetingAt = new Date();
   meetingAt.setHours(meetingAt.getHours() + 2); // 2 hours in the future
   const closesAt = new Date();
