@@ -24,6 +24,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import HTTPException
+
 from app.models import (
     Building,
     FinancialPosition,
@@ -31,6 +33,11 @@ from app.models import (
     LotProxy,
 )
 from app.models.lot_owner_email import LotOwnerEmail
+from app.services.admin_service import (
+    _parse_closing_balance,
+    _parse_simple_financial_position_csv_rows,
+    _parse_tocs_financial_position_csv_rows,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +626,22 @@ class TestImportFinancialPositionsCSV:
         assert data["updated"] == 0
         assert data["skipped"] == 0
 
+    async def test_simple_csv_with_only_financial_position_header_returns_zeros(
+        self, client: AsyncClient, building_with_owners: Building
+    ):
+        """CSV with 'Financial Position' as first column (no 'Lot#') is treated as TOCS
+        format (auto-detection: first cell != 'lot#') and returns empty results."""
+        csv_data = make_csv(["Financial Position"], [["Normal"]])
+        response = await client.post(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import-financial-positions",
+            files={"file": ("fp.csv", csv_data, "text/csv")},
+        )
+        # TOCS parser finds no 'Lot#' section header rows → returns empty list → 0 updated
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated"] == 0
+        assert data["skipped"] == 0
+
     async def test_case_insensitive_headers(
         self, client: AsyncClient, building_with_owners: Building
     ):
@@ -676,13 +699,18 @@ class TestImportFinancialPositionsCSV:
     async def test_missing_lot_hash_header(
         self, client: AsyncClient, building_with_owners: Building
     ):
-        csv_data = make_csv(["Financial Position"], [["Normal"]])
+        """A CSV whose first cell is not 'Lot#' is routed to the TOCS parser, which
+        returns an empty result (no fund sections found) rather than a 422.
+        Use the simple format with both required headers to test the missing-Lot# 422."""
+        # Explicitly use the simple-format path by having 'Lot#' as first header
+        # then a row that triggers the simple-path validation (missing Financial Position header)
+        csv_data = make_csv(["Lot#"], [["1A"]])
         response = await client.post(
             f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import-financial-positions",
             files={"file": ("fp.csv", csv_data, "text/csv")},
         )
         assert response.status_code == 422
-        assert "lot#" in str(response.json()["detail"]).lower()
+        assert "financial position" in str(response.json()["detail"]).lower()
 
     async def test_missing_financial_position_header(
         self, client: AsyncClient, building_with_owners: Building
@@ -716,14 +744,19 @@ class TestImportFinancialPositionsCSV:
 
     # --- Edge cases ---
 
-    async def test_no_headers_csv_returns_422(
+    async def test_no_headers_csv_returns_zeros(
         self, client: AsyncClient, building_with_owners: Building
     ):
+        """Empty CSV bytes are auto-detected as TOCS format (first cell not 'Lot#').
+        TOCS parser finds no fund sections → returns empty list → 200 with 0 results."""
         response = await client.post(
             f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import-financial-positions",
             files={"file": ("fp.csv", b"", "text/csv")},
         )
-        assert response.status_code == 422
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated"] == 0
+        assert data["skipped"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -856,3 +889,328 @@ class TestImportFinancialPositionsExcel:
         )
         # Empty financial_position should be caught as validation error
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _parse_closing_balance
+# ---------------------------------------------------------------------------
+
+
+class TestParseClosingBalance:
+    """Unit tests for _parse_closing_balance covering all TOCS balance cell variants."""
+
+    # --- Happy path: normal (zero / credit) ---
+
+    def test_dollar_dash_returns_normal(self):
+        assert _parse_closing_balance("$-") == FinancialPosition.normal
+
+    def test_dollar_dash_with_spaces_returns_normal(self):
+        assert _parse_closing_balance(" $-   ") == FinancialPosition.normal
+
+    def test_empty_string_returns_normal(self):
+        assert _parse_closing_balance("") == FinancialPosition.normal
+
+    def test_whitespace_only_returns_normal(self):
+        assert _parse_closing_balance("   ") == FinancialPosition.normal
+
+    def test_bracketed_credit_returns_normal(self):
+        """$(190.77) → credit/advance → normal."""
+        assert _parse_closing_balance("$(190.77)") == FinancialPosition.normal
+
+    def test_bracketed_credit_with_comma_returns_normal(self):
+        """$(1,200.00) → normal."""
+        assert _parse_closing_balance("$(1,200.00)") == FinancialPosition.normal
+
+    def test_bracketed_credit_with_spaces_returns_normal(self):
+        assert _parse_closing_balance(" $(190.77)") == FinancialPosition.normal
+
+    # --- Happy path: in_arrear (positive balance) ---
+
+    def test_positive_balance_returns_in_arrear(self):
+        """$1,882.06 → in_arrear."""
+        assert _parse_closing_balance("$1,882.06 ") == FinancialPosition.in_arrear
+
+    def test_small_positive_balance_returns_in_arrear(self):
+        """$619.96 → in_arrear."""
+        assert _parse_closing_balance("$619.96") == FinancialPosition.in_arrear
+
+    def test_positive_no_cents_returns_in_arrear(self):
+        assert _parse_closing_balance("$967.16 ") == FinancialPosition.in_arrear
+
+    # --- Boundary values ---
+
+    def test_dash_only_after_stripping_dollar_is_normal(self):
+        """Stripped = '-' after removing $ → normal."""
+        assert _parse_closing_balance("$-   ") == FinancialPosition.normal
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _parse_simple_financial_position_csv_rows
+# ---------------------------------------------------------------------------
+
+
+class TestParseSimpleFinancialPositionCsvRows:
+    """Unit tests for _parse_simple_financial_position_csv_rows."""
+
+    # --- Edge cases: fieldnames None branch (line covered by empty bytes) ---
+
+    def test_empty_bytes_raises_422(self):
+        """Empty CSV bytes → DictReader.fieldnames is None → HTTPException 422."""
+        with pytest.raises(HTTPException) as exc_info:
+            _parse_simple_financial_position_csv_rows(b"")
+        assert exc_info.value.status_code == 422
+        assert "no headers" in exc_info.value.detail.lower()
+
+    # --- Input validation: missing headers ---
+
+    def test_missing_financial_position_header_raises_422(self):
+        data = "Lot#\n1A\n".encode()
+        with pytest.raises(HTTPException) as exc_info:
+            _parse_simple_financial_position_csv_rows(data)
+        assert exc_info.value.status_code == 422
+        assert "financial position" in exc_info.value.detail.lower()
+
+    def test_missing_lot_hash_header_raises_422(self):
+        data = "Financial Position\nNormal\n".encode()
+        with pytest.raises(HTTPException) as exc_info:
+            _parse_simple_financial_position_csv_rows(data)
+        assert exc_info.value.status_code == 422
+        assert "lot#" in exc_info.value.detail.lower()
+
+    # --- Happy path ---
+
+    def test_valid_rows_returned(self):
+        data = "Lot#,Financial Position\n1A,Normal\n2B,In Arrear\n".encode()
+        rows = _parse_simple_financial_position_csv_rows(data)
+        assert rows == [
+            {"lot_number": "1A", "financial_position_raw": "Normal"},
+            {"lot_number": "2B", "financial_position_raw": "In Arrear"},
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _parse_tocs_financial_position_csv_rows
+# ---------------------------------------------------------------------------
+
+
+class TestParseTocsFinancialPositionCsvRows:
+    """Unit tests for _parse_tocs_financial_position_csv_rows."""
+
+    # --- Happy path: real TOCS file ---
+
+    def test_real_tocs_file_lot5_is_in_arrear(self):
+        """Lot 5 has Admin Fund closing balance $1,882.06 → in_arrear."""
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        rows = _parse_tocs_financial_position_csv_rows(content)
+        result = {r["lot_number"]: r["financial_position_raw"] for r in rows}
+        assert result["5"] == FinancialPosition.in_arrear.value
+
+    def test_real_tocs_file_lot2_is_normal(self):
+        """Lot 2 has Admin Fund closing balance $(190.77) (credit) → normal."""
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        rows = _parse_tocs_financial_position_csv_rows(content)
+        result = {r["lot_number"]: r["financial_position_raw"] for r in rows}
+        assert result["2"] == FinancialPosition.normal.value
+
+    def test_real_tocs_file_lot8_is_in_arrear_from_maintenance_fund(self):
+        """Lot 8 is normal in Admin Fund ($19,748.40 actually in_arrear!) but the real
+        check: lot 8 Admin Fund has $19,748.40 → in_arrear; also check Maintenance
+        Fund lot 8 = $619.96 → in_arrear. Worst-case → in_arrear."""
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        rows = _parse_tocs_financial_position_csv_rows(content)
+        result = {r["lot_number"]: r["financial_position_raw"] for r in rows}
+        assert result["8"] == FinancialPosition.in_arrear.value
+
+    def test_real_tocs_file_returns_all_51_lots(self):
+        """All 51 lots from both fund sections are deduplicated into the result.
+        Worst-case across Admin + Maintenance funds, no totals/summary rows included."""
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        rows = _parse_tocs_financial_position_csv_rows(content)
+        lot_numbers = [r["lot_number"] for r in rows]
+        # Verify no summary rows (Totals/Arrears/Advances) leaked through
+        assert not any("total" in ln.lower() or "arrear" in ln.lower() or "advance" in ln.lower() for ln in lot_numbers)
+        # Verify all 51 unique lot numbers are present
+        assert len(rows) == 51
+
+    # --- Auto-detection: simple vs TOCS ---
+
+    def test_auto_detect_routes_simple_format_to_simple_parser(self):
+        """CSV starting with 'Lot#' → simple parser → raises 422 for missing FP header."""
+        data = "Lot#,Financial Position\n1,Normal\n".encode()
+        rows = _parse_simple_financial_position_csv_rows(data)
+        assert rows[0]["lot_number"] == "1"
+        assert rows[0]["financial_position_raw"] == "Normal"
+
+    # --- Worst-case across fund sections ---
+
+    def test_worst_case_in_arrear_in_any_fund_wins(self):
+        """A lot that is normal in one section but in_arrear in another → in_arrear."""
+        csv_content = (
+            "Header Row,,\n"
+            "\n"
+            "Admin Fund,,\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            "Totals,,\n"
+            "\n"
+            "Maintenance Fund,,\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$500.00,$-\n"
+            "Totals,,\n"
+        ).encode("utf-8")
+        rows = _parse_tocs_financial_position_csv_rows(csv_content)
+        result = {r["lot_number"]: r["financial_position_raw"] for r in rows}
+        assert result["1"] == FinancialPosition.in_arrear.value
+
+    def test_worst_case_normal_in_both_funds_stays_normal(self):
+        """A lot that is normal in both sections → normal."""
+        csv_content = (
+            "Header Row,,\n"
+            "\n"
+            "Admin Fund,,\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            "Totals,,\n"
+            "\n"
+            "Maintenance Fund,,\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            "Totals,,\n"
+        ).encode("utf-8")
+        rows = _parse_tocs_financial_position_csv_rows(csv_content)
+        result = {r["lot_number"]: r["financial_position_raw"] for r in rows}
+        assert result["1"] == FinancialPosition.normal.value
+
+    # --- Edge cases ---
+
+    def test_empty_content_returns_empty_list(self):
+        rows = _parse_tocs_financial_position_csv_rows(b"")
+        assert rows == []
+
+    def test_no_section_headers_returns_empty_list(self):
+        """Content with no 'Lot#' section headers → empty result."""
+        data = "Company Name\nAddress\nSome Report\n".encode()
+        rows = _parse_tocs_financial_position_csv_rows(data)
+        assert rows == []
+
+    def test_latin1_encoded_content_decoded_successfully(self):
+        """Latin-1 fallback (line 1576-1577): content that fails UTF-8-sig decoding."""
+        # Create bytes that are valid latin-1 but not utf-8
+        header = "Company\r\n\r\nLot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\r\n".encode("latin-1")
+        row = "1,A,Caf\xe9 Owner,$-,$-,$-,$-,$-,$-\r\n".encode("latin-1")
+        totals = "Totals,,\r\n".encode("latin-1")
+        content = header + row + totals
+        rows = _parse_tocs_financial_position_csv_rows(content)
+        assert len(rows) == 1
+        assert rows[0]["lot_number"] == "1"
+
+    def test_blank_row_terminates_section(self):
+        """A blank row (all empty cells) ends the current section (line 1611: break)."""
+        csv_content = (
+            "Header\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            ",,,,,,,\n"
+            "2,B,Bob,$-,$-,$-,$-,$100.00,$-\n"
+        ).encode("utf-8")
+        rows = _parse_tocs_financial_position_csv_rows(csv_content)
+        # Blank row terminates section; lot 2 is after the blank row and not included
+        lot_numbers = [r["lot_number"] for r in rows]
+        assert "1" in lot_numbers
+        assert "2" not in lot_numbers
+
+    def test_lot_hash_header_in_data_terminates_section(self):
+        """Another 'Lot#' header row mid-section ends the current section (line 1622: break)."""
+        csv_content = (
+            "Header\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "2,B,Bob,$-,$-,$-,$-,$-,$-\n"
+        ).encode("utf-8")
+        rows = _parse_tocs_financial_position_csv_rows(csv_content)
+        # The second Lot# header row terminates the first section; the second section
+        # is also started (section_starts includes both header rows)
+        lot_numbers = [r["lot_number"] for r in rows]
+        assert "1" in lot_numbers
+        assert "2" in lot_numbers
+
+    def test_empty_lot_number_in_data_row_skipped(self):
+        """A data row with empty lot# cell is skipped (line 1626: continue)."""
+        csv_content = (
+            "Header\n"
+            "Lot#,Unit#,Owner Name,Opening Balance,Levied,Special Levy,Paid,Closing Balance,Interest Paid\n"
+            "1,A,Alice,$-,$-,$-,$-,$-,$-\n"
+            ",,Empty lot row,$-,$-,$-,$-,$200.00,$-\n"
+            "2,B,Bob,$-,$-,$-,$-,$-,$-\n"
+            "Totals,,\n"
+        ).encode("utf-8")
+        rows = _parse_tocs_financial_position_csv_rows(csv_content)
+        lot_numbers = [r["lot_number"] for r in rows]
+        # Empty lot# row skipped; both lot 1 and 2 present
+        assert "1" in lot_numbers
+        assert "2" in lot_numbers
+        assert "" not in lot_numbers
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: TOCS CSV via POST endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestImportFinancialPositionsTOCSCSV:
+    """Integration tests: POST real TOCS Lot Positions Report to the endpoint."""
+
+    # --- Happy path ---
+
+    async def test_tocs_file_updates_lot_positions(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_owners: Building
+    ):
+        """Uploading the real TOCS CSV returns 200. All 51 parsed lots are skipped because
+        the building_with_owners fixture has lots 1A/2B/3C which don't match 1-51."""
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        response = await client.post(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import-financial-positions",
+            files={"file": ("lot_positions.csv", content, "text/csv")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # All 51 parsed TOCS lots are skipped (none match 1A/2B/3C)
+        assert data["updated"] == 0
+        assert data["skipped"] == 51
+
+    async def test_tocs_file_with_matching_lots_updates_correctly(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_owners: Building
+    ):
+        """Lots named '5' and '8' in the building get correct positions from TOCS file."""
+        # Add matching lot owners for the lots that exist in the TOCS file
+        lot5 = LotOwner(
+            building_id=building_with_owners.id,
+            lot_number="5",
+            unit_entitlement=100,
+        )
+        lot8 = LotOwner(
+            building_id=building_with_owners.id,
+            lot_number="8",
+            unit_entitlement=100,
+        )
+        db_session.add_all([lot5, lot8])
+        await db_session.flush()
+
+        with open("../examples/Lot financial position.csv", "rb") as f:
+            content = f.read()
+        response = await client.post(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners/import-financial-positions",
+            files={"file": ("lot_positions.csv", content, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        await db_session.refresh(lot5)
+        await db_session.refresh(lot8)
+        assert lot5.financial_position == FinancialPosition.in_arrear
+        assert lot8.financial_position == FinancialPosition.in_arrear

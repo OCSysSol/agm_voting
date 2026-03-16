@@ -24,6 +24,12 @@ describe("FinancialPositionUpload", () => {
     expect(screen.getByRole("button", { name: "Choose file" })).toBeInTheDocument();
   });
 
+  it("renders hint text describing both accepted formats", () => {
+    renderComponent();
+    expect(screen.getByText(/TOCS/)).toBeInTheDocument();
+    expect(screen.getByText(/auto-detected/)).toBeInTheDocument();
+  });
+
   it("shows success message with counts after upload", async () => {
     const user = userEvent.setup();
     renderComponent();

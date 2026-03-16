@@ -39,8 +39,9 @@ export default function FinancialPositionUpload({ buildingId, onSuccess }: Finan
       </div>
       <div className="admin-upload">
         <p className="admin-upload__hint">
-          CSV or Excel. Required columns: <code>Lot#</code>, <code>Financial Position</code>.
-          Accepted values: <code>Normal</code>, <code>In Arrear</code>.
+          CSV or Excel. Accepts the simple template format (columns: <code>Lot#</code>,{" "}
+          <code>Financial Position</code>; values: <code>Normal</code>, <code>In Arrear</code>) or
+          the TOCS &ldquo;Lot Positions Report&rdquo; CSV export (auto-detected).
         </p>
         <div className="admin-upload__row">
           <input

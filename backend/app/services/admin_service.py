@@ -1543,9 +1543,107 @@ def _parse_financial_position_import(raw: str) -> FinancialPosition | None:
     raise ValueError(f"Invalid Financial Position value: '{raw}'")
 
 
-def _parse_financial_position_csv_rows(content: bytes) -> list[dict]:
-    """Parse CSV bytes into list of {lot_number, financial_position_raw} dicts.
+def _parse_closing_balance(raw: str) -> FinancialPosition:
+    """Parse a TOCS Closing Balance cell to FinancialPosition.
 
+    - '$-' or '$ -' or empty → normal (zero balance)
+    - Contains '(' → normal (credit/advance, negative balance)
+    - Otherwise (positive number like $1,882.06) → in_arrear
+    """
+    cleaned = raw.strip().replace(" ", "")
+    if not cleaned or cleaned in ("$-", "-"):
+        return FinancialPosition.normal
+    if "(" in cleaned:
+        return FinancialPosition.normal
+    return FinancialPosition.in_arrear
+
+
+def _parse_tocs_financial_position_csv_rows(content: bytes) -> list[dict]:
+    """Parse a TOCS Lot Positions Report CSV into {lot_number, financial_position_raw} dicts.
+
+    The TOCS format has:
+    - Header rows at the top (company name, address, etc.)
+    - Multiple fund sections, each starting with a 'Lot#' header row
+    - 9 columns: Lot#, Unit#, Owner Name, Opening Balance, Levied, Special Levy, Paid,
+      Closing Balance, Interest Paid
+    - Totals/Arrears/Advances summary rows at the end of each section
+    - Blank rows between sections
+
+    Uses worst-case logic: if a lot is in_arrear in ANY fund section → in_arrear.
+    """
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.reader(io.StringIO(text))
+    all_rows = list(reader)
+
+    # Find section header rows (rows where first non-empty cell is 'lot#')
+    section_starts: list[int] = []
+    for i, row in enumerate(all_rows):
+        first_cell = next((c.strip() for c in row if c.strip()), "")
+        if first_cell.lower() == "lot#":
+            section_starts.append(i)
+
+    # Accumulate worst-case positions across all fund sections
+    result: dict[str, FinancialPosition] = {}
+
+    _stop_keywords = ("total", "arrear", "advance")
+
+    for header_idx in section_starts:
+        # Determine column indices from this section's header row
+        header_row = all_rows[header_idx]
+        # Find Lot# col (index 0 in standard TOCS) and Closing Balance col (index 7)
+        lot_col = 0
+        closing_col = 7
+        for col_i, cell in enumerate(header_row):
+            cell_lower = cell.strip().lower()
+            if cell_lower == "lot#":
+                lot_col = col_i
+            elif cell_lower == "closing balance":
+                closing_col = col_i
+
+        # Read data rows until a stop condition
+        for row in all_rows[header_idx + 1:]:
+            # Blank row → end of section
+            if not any(c.strip() for c in row):
+                break
+
+            first_cell = row[lot_col].strip() if lot_col < len(row) else ""
+
+            # Summary rows (Totals/Arrears/Advances) — may be prefixed with fund name
+            # e.g. "Administrative Fund Totals", "Maintenance Fund Arrears"
+            if any(kw in first_cell.lower() for kw in _stop_keywords):
+                break
+
+            # Another Lot# header → end of section (shouldn't happen but be safe)
+            if first_cell.lower() == "lot#":
+                break
+
+            # Skip rows with empty or non-lot lot# values
+            if not first_cell:
+                continue
+
+            # Extract closing balance
+            closing_raw = row[closing_col].strip() if closing_col < len(row) else ""
+            position = _parse_closing_balance(closing_raw)
+
+            # Worst-case: upgrade to in_arrear if either value is in_arrear
+            existing = result.get(first_cell)
+            if existing is None or position == FinancialPosition.in_arrear:
+                result[first_cell] = position
+
+    return [
+        {"lot_number": lot_number, "financial_position_raw": fp.value}
+        for lot_number, fp in result.items()
+    ]
+
+
+def _parse_simple_financial_position_csv_rows(content: bytes) -> list[dict]:
+    """Parse simple template CSV bytes into list of {lot_number, financial_position_raw} dicts.
+
+    Simple format: two columns — Lot#, Financial Position.
     Raises HTTPException 422 on missing headers.
     """
     text = content.decode("utf-8-sig")
@@ -1570,6 +1668,22 @@ def _parse_financial_position_csv_rows(content: bytes) -> list[dict]:
         fp_raw = row_lower.get("financial position", "").strip()
         rows.append({"lot_number": lot_number, "financial_position_raw": fp_raw})
     return rows
+
+
+def _parse_financial_position_csv_rows(content: bytes) -> list[dict]:
+    """Parse CSV bytes — auto-detects simple template vs TOCS Lot Positions Report format.
+
+    Simple format starts with 'Lot#' as the first cell of the first line.
+    TOCS format has header rows before the first 'Lot#' section.
+    """
+    text = content.decode("utf-8-sig")
+    first_line = text.strip().split("\n")[0] if text.strip() else ""
+    first_cell = first_line.split(",")[0].strip().strip('"').lower()
+
+    if first_cell == "lot#":
+        return _parse_simple_financial_position_csv_rows(content)
+    else:
+        return _parse_tocs_financial_position_csv_rows(content)
 
 
 def _parse_financial_position_excel_rows(content: bytes) -> list[dict]:

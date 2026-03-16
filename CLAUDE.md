@@ -293,7 +293,7 @@ When a change affects an existing E2E scenario (new page in the voter flow, chan
 
 ## Example Files
 
-Two example files live in `examples/` at the project root. Use these as test fixtures for import-related features — do not create synthetic test data when these files can be used instead.
+Three example files live in `examples/` at the project root. Use these as test fixtures for import-related features — do not create synthetic test data when these files can be used instead.
 
 ### `examples/Owners_SBT.xlsx` — Lot owner import template
 
@@ -316,6 +316,13 @@ Two example files live in `examples/` at the project root. Use these as test fix
 | `Description` | `Motion.description` (full text shown to voters) |
 
 2 data rows. Column names are case-insensitive. Blank rows silently skipped.
+
+### `examples/Lot financial position.csv` — TOCS Lot Positions Report
+
+Auto-extracted from the TOCS management system. Contains Administrative Fund and Maintenance Fund sections.
+Key columns: `Lot#` → `LotOwner.lot_number`, `Closing Balance` → determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
+Multiple fund sections: worst-case across all sections (arrears in any → `in_arrear`).
+51 lots (lot numbers 1–51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
 
 ---
 
