@@ -298,7 +298,7 @@ class TestRequestOtp:
     async def test_request_otp_rate_limit_returns_429(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """Second request within 60s returns 429."""
+        """Second request within 60s returns 429 (production mode only)."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
 
@@ -307,13 +307,42 @@ class TestRequestOtp:
         _otp_rate_limit[rate_key] = datetime.now(UTC)
 
         try:
-            with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock):
+            # testing_mode=False so the rate limit check is active
+            with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+                 patch("app.routers.auth.settings") as mock_settings:
+                mock_settings.testing_mode = False
                 response = await client.post(
                     "/api/auth/request-otp",
                     json={"email": voter_email, "general_meeting_id": str(agm.id)},
                 )
             assert response.status_code == 429
             assert "Please wait" in response.json()["detail"]
+        finally:
+            _otp_rate_limit.pop(rate_key, None)
+
+    async def test_request_otp_rate_limit_bypassed_in_testing_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Rate limit is skipped when testing_mode=True — allows E2E test setup and
+        test body to request OTPs for the same email+meeting without 60s wait."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+
+        # Pre-seed rate limit as if a request was just made
+        rate_key = (voter_email, agm.id)
+        _otp_rate_limit[rate_key] = datetime.now(UTC)
+
+        try:
+            with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send, \
+                 patch("app.routers.auth.settings") as mock_settings:
+                mock_settings.testing_mode = True
+                response = await client.post(
+                    "/api/auth/request-otp",
+                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
+                )
+            # Must succeed (200), not 429
+            assert response.status_code == 200
+            assert response.json() == {"sent": True}
         finally:
             _otp_rate_limit.pop(rate_key, None)
 

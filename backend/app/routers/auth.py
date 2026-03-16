@@ -68,16 +68,19 @@ async def request_otp(
     if meeting is None:
         raise HTTPException(status_code=404, detail="General Meeting not found")
 
-    # 2. Rate limit: 60 seconds between requests for same (email, meeting_id)
+    # 2. Rate limit: 60 seconds between requests for same (email, meeting_id).
+    #    Disabled in testing_mode so E2E tests can re-request OTPs immediately
+    #    after setup (beforeAll) without hitting the 429 rate limit.
     rate_key = (body.email, body.general_meeting_id)
-    last_sent = _otp_rate_limit.get(rate_key)
-    if last_sent is not None:
-        elapsed = (datetime.now(UTC) - last_sent).total_seconds()
-        if elapsed < 60:
-            raise HTTPException(
-                status_code=429,
-                detail="Please wait before requesting another code",
-            )
+    if not settings.testing_mode:
+        last_sent = _otp_rate_limit.get(rate_key)
+        if last_sent is not None:
+            elapsed = (datetime.now(UTC) - last_sent).total_seconds()
+            if elapsed < 60:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Please wait before requesting another code",
+                )
 
     # 3. Check if email is known in this building (enumeration-safe: still return 200 if not found)
     emails_result = await db.execute(
