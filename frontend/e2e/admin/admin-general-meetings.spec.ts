@@ -3,8 +3,8 @@ import { test, expect } from "../fixtures";
 test.describe("Admin General Meetings", () => {
   test("navigates to General Meetings page via sidebar", async ({ page }) => {
     await page.goto("/admin/general-meetings");
-    await expect(page.getByText("Admin Portal")).toBeVisible();
-    await expect(page.getByRole("link", { name: "General Meetings" })).toBeVisible();
+    await expect(page.getByText("Admin Portal").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "General Meetings" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "General Meetings" })).toBeVisible();
   });
 

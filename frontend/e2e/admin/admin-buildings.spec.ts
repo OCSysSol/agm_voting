@@ -3,8 +3,8 @@ import { test, expect } from "../fixtures";
 test.describe("Admin Buildings", () => {
   test("navigates to buildings page via sidebar", async ({ page }) => {
     await page.goto("/admin/buildings");
-    await expect(page.getByText("Admin Portal")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Buildings" })).toBeVisible();
+    await expect(page.getByText("Admin Portal").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Buildings" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Buildings", exact: true })).toBeVisible();
   });
 
