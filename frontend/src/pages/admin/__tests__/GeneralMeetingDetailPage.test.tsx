@@ -172,20 +172,20 @@ describe("GeneralMeetingDetailPage", () => {
     expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
   });
 
-  it("shows 'Summary page:' section label on the meeting detail page", async () => {
+  it("shows 'Voting link' section label on the meeting detail page", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText(/Summary/)).toBeInTheDocument();
+      expect(screen.getByText(/Voting link/)).toBeInTheDocument();
     });
   });
 
-  it("renders summary URL link with correct href", async () => {
+  it("renders voting URL link with correct href", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /\/general-meeting\/agm1\/summary/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /\/vote\/agm1\/auth/ })).toBeInTheDocument();
     });
-    const link = screen.getByRole("link", { name: /\/general-meeting\/agm1\/summary/ });
-    expect(link).toHaveAttribute("href", expect.stringContaining("/general-meeting/agm1/summary"));
+    const link = screen.getByRole("link", { name: /\/vote\/agm1\/auth/ });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/vote/agm1/auth"));
   });
 
   it("shows Retry Send success after clicking retry", async () => {

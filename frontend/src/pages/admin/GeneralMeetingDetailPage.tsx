@@ -115,7 +115,7 @@ export default function GeneralMeetingDetailPage() {
           </span>
         )}
         <span className="admin-meta__item">
-          <span className="admin-meta__label">Summary</span>
+          <span className="admin-meta__label">Voting link</span>
           <ShareSummaryLink meetingId={meetingId!} />
         </span>
       </div>
