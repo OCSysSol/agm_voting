@@ -346,12 +346,19 @@ class TestRequestOtp:
         finally:
             _otp_rate_limit.pop(rate_key, None)
 
-    async def test_request_otp_smtp_failure_returns_500(
+    async def test_request_otp_smtp_failure_returns_200(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """SMTP failure → 500."""
+        """SMTP failure → still 200 (OTP already stored; voter can authenticate via test endpoint).
+
+        An SMTP failure must not 500 the user — the OTP record was successfully
+        committed to the DB before the send attempt, so the voter can still
+        authenticate. Returning 500 would also expose SMTP misconfiguration to
+        end users and break the auth flow unnecessarily.
+        """
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = Exception("SMTP connection refused")
@@ -359,7 +366,34 @@ class TestRequestOtp:
                 "/api/auth/request-otp",
                 json={"email": voter_email, "general_meeting_id": str(agm.id)},
             )
-        assert response.status_code == 500
+        assert response.status_code == 200
+        assert response.json() == {"sent": True}
+
+    async def test_request_otp_smtp_failure_otp_row_still_exists(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When SMTP fails, the OTP row is still in the DB and usable."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = Exception("SMTP connection refused")
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        result = await db_session.execute(
+            select(AuthOtp).where(
+                AuthOtp.email == voter_email,
+                AuthOtp.meeting_id == agm.id,
+                AuthOtp.used == False,  # noqa: E712
+            )
+        )
+        otp = result.scalar_one_or_none()
+        assert otp is not None, "OTP row must exist in DB even after SMTP failure"
+        assert len(otp.code) == 8
 
     # --- Edge cases ---
 

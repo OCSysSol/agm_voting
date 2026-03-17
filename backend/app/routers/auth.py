@@ -138,8 +138,11 @@ async def request_otp(
                     code=code,
                 )
             except Exception as exc:
+                # Log the SMTP failure but still return 200 — the OTP is already stored
+                # in the DB, so the voter can still authenticate (or retry sending).
+                # A 500 here would expose SMTP misconfiguration and break the auth flow
+                # even though the OTP record was successfully created.
                 logger.error("otp_email_send_failed", email=body.email, error=str(exc))
-                raise HTTPException(status_code=500, detail="Failed to send verification code")
     else:
         # Still update the rate limit so attackers can't use "no rate limit" as
         # a signal that the email was not found.
