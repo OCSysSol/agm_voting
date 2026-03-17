@@ -92,7 +92,7 @@ Use this for features that touch only one side (backend only or frontend only), 
      VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
      npx playwright test
    ```
-   > **Run exactly once. Never re-run or self-fix.** If tests fail, record every failure and report to the orchestrator. Do not decide a failure is "flaky" or "infrastructure noise" — the orchestrator decides.
+   > **HARD STOP after one run.** Run the suite exactly once, wait for it to finish completely, then stop. Do not re-run. Do not make any code changes. Do not commit or push again. Do not attempt to fix anything — not even a one-line change. Report every failure verbatim to the orchestrator and release the slot. The orchestrator decides what is a flake vs a real failure and what to fix.
 8. Release the push slot — report results to orchestrator (pass or fail)
 9. Fix any recorded failures (slot is now free; another agent may hold it)
 10. If fixes needed: re-queue (back to step 4, rejoins the **back** of the queue)

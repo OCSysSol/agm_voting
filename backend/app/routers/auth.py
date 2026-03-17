@@ -129,16 +129,17 @@ async def request_otp(
         # 6. Update rate limit tracker
         _otp_rate_limit[rate_key] = datetime.now(UTC)
 
-        # 7. Send the OTP email
-        try:
-            await send_otp_email(
-                to_email=body.email,
-                meeting_title=meeting.title,
-                code=code,
-            )
-        except Exception as exc:
-            logger.error("otp_email_send_failed", email=body.email, error=str(exc))
-            raise HTTPException(status_code=500, detail="Failed to send verification code")
+        # 7. Send the OTP email (skipped when skip_email=True, e.g. in E2E test helpers)
+        if not body.skip_email:
+            try:
+                await send_otp_email(
+                    to_email=body.email,
+                    meeting_title=meeting.title,
+                    code=code,
+                )
+            except Exception as exc:
+                logger.error("otp_email_send_failed", email=body.email, error=str(exc))
+                raise HTTPException(status_code=500, detail="Failed to send verification code")
     else:
         # Still update the rate limit so attackers can't use "no rate limit" as
         # a signal that the email was not found.

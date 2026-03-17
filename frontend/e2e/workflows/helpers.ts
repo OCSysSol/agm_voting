@@ -367,6 +367,30 @@ export async function makeAdminApi(
 // ── Voter UI helpers ──────────────────────────────────────────────────────────
 
 /**
+ * Request an OTP for (email, meetingId) via the backend API with skip_email=true.
+ * The OTP is generated and stored in the DB but no email is sent — use getTestOtp
+ * to retrieve it afterwards.
+ */
+export async function requestOtp(
+  api: APIRequestContext,
+  email: string,
+  meetingId: string
+): Promise<void> {
+  const res = await api.post("/api/auth/request-otp", {
+    data: {
+      email,
+      general_meeting_id: meetingId,
+      skip_email: true,
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `Failed to request OTP for ${email} (${res.status()}): ${await res.text()}`
+    );
+  }
+}
+
+/**
  * Retrieve the most recent unused OTP for (email, meetingId) from the test-only
  * backend endpoint. Requires the backend to be running with TESTING_MODE=true.
  */
