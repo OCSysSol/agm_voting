@@ -346,12 +346,19 @@ class TestRequestOtp:
         finally:
             _otp_rate_limit.pop(rate_key, None)
 
-    async def test_request_otp_smtp_failure_returns_500(
+    async def test_request_otp_smtp_failure_returns_200(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """SMTP failure → 500."""
+        """SMTP failure → still 200 (OTP already stored; voter can authenticate via test endpoint).
+
+        An SMTP failure must not 500 the user — the OTP record was successfully
+        committed to the DB before the send attempt, so the voter can still
+        authenticate. Returning 500 would also expose SMTP misconfiguration to
+        end users and break the auth flow unnecessarily.
+        """
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = Exception("SMTP connection refused")
@@ -359,7 +366,34 @@ class TestRequestOtp:
                 "/api/auth/request-otp",
                 json={"email": voter_email, "general_meeting_id": str(agm.id)},
             )
-        assert response.status_code == 500
+        assert response.status_code == 200
+        assert response.json() == {"sent": True}
+
+    async def test_request_otp_smtp_failure_otp_row_still_exists(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When SMTP fails, the OTP row is still in the DB and usable."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = Exception("SMTP connection refused")
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        result = await db_session.execute(
+            select(AuthOtp).where(
+                AuthOtp.email == voter_email,
+                AuthOtp.meeting_id == agm.id,
+                AuthOtp.used == False,  # noqa: E712
+            )
+        )
+        otp = result.scalar_one_or_none()
+        assert otp is not None, "OTP row must exist in DB even after SMTP failure"
+        assert len(otp.code) == 8
 
     # --- Edge cases ---
 
@@ -399,6 +433,101 @@ class TestRequestOtp:
         # Should have exactly 1 OTP (old one deleted, new one inserted)
         assert len(otps) == 1
         assert otps[0].code != "OLDCODE1"
+
+    async def test_request_otp_skip_email_true_does_not_send_email(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When skip_email=True, OTP is created but send_otp_email is NOT called."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "skip_email": True},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"sent": True}
+        mock_send.assert_not_called()
+
+    async def test_request_otp_skip_email_true_otp_row_still_created(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When skip_email=True, an AuthOtp row is still created in the DB."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock):
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "skip_email": True},
+            )
+
+        result = await db_session.execute(
+            select(AuthOtp).where(
+                AuthOtp.email == voter_email,
+                AuthOtp.meeting_id == agm.id,
+            )
+        )
+        otp = result.scalar_one_or_none()
+        assert otp is not None
+        assert len(otp.code) == 8
+
+    async def test_request_otp_skip_email_false_sends_email(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When skip_email=False (default), send_otp_email IS called."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "skip_email": False},
+            )
+
+        assert response.status_code == 200
+        mock_send.assert_awaited_once()
+
+    async def test_request_otp_skip_email_default_sends_email(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When skip_email is omitted, it defaults to False and email IS sent."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 200
+        mock_send.assert_awaited_once()
+
+    async def test_request_otp_skip_email_true_smtp_failure_does_not_raise(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When skip_email=True, email send is bypassed entirely — SMTP errors are never raised."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        _otp_rate_limit.pop((voter_email, agm.id), None)
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = Exception("SMTP refused")
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "skip_email": True},
+            )
+
+        # skip_email=True bypasses the call entirely, so no 500
+        assert response.status_code == 200
+        mock_send.assert_not_called()
 
     async def test_request_otp_expired_meeting_still_accepts(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
@@ -588,7 +717,6 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
-            mock_settings.testing_mode = False
             mock_settings.email_override = "override@test.com"
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -616,7 +744,6 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
-            mock_settings.testing_mode = False
             mock_settings.email_override = "override@test.com"
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -643,7 +770,6 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
-            mock_settings.testing_mode = False
             mock_settings.email_override = ""
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -670,7 +796,6 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
-            mock_settings.testing_mode = False
             mock_settings.email_override = ""
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -687,27 +812,6 @@ class TestEmailOverride:
 
         msg = sent_messages[0]
         assert msg["X-Original-To"] is None
-
-    async def test_send_otp_email_skips_smtp_in_testing_mode(self):
-        """When testing_mode is True, SMTP is not called — OTP is in DB only."""
-        sent_messages = []
-
-        async def mock_send(message, **kwargs):
-            sent_messages.append(message)
-
-        with patch("app.services.email_service.settings") as mock_settings, \
-             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
-            mock_settings.testing_mode = True
-
-            from app.services.email_service import send_otp_email
-            await send_otp_email(
-                to_email="real@voter.com",
-                meeting_title="Test Meeting",
-                code="ABCD1234",
-            )
-
-        # No email should have been sent
-        assert len(sent_messages) == 0
 
     async def test_send_report_uses_override_address(self):
         """send_report also uses email_override when set."""

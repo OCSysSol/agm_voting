@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator
 class OtpRequestBody(BaseModel):
     email: str
     general_meeting_id: uuid.UUID
+    skip_email: bool = False
 
     @field_validator("email")
     @classmethod

@@ -169,6 +169,7 @@ test.describe("Closed meeting voter journey", () => {
       data: {
         email: VOTED_LOT_EMAIL,
         general_meeting_id: seededAgmId,
+        skip_email: true,
       },
     });
     if (!otpReqRes.ok()) {
