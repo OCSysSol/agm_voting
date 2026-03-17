@@ -1170,7 +1170,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             else:
                 abstained_ids.add(lot_id)
 
-        absent_ids: set[uuid.UUID] = eligible_lot_owner_ids - submitted_lot_owner_ids
+        if get_effective_status(general_meeting) == GeneralMeetingStatus.closed:
+            absent_ids: set[uuid.UUID] = eligible_lot_owner_ids - submitted_lot_owner_ids
+        else:
+            absent_ids: set[uuid.UUID] = set()
 
         motion_details.append(
             {
@@ -1279,6 +1282,17 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
     logger.info("Email delivery triggered for General Meeting %s", general_meeting_id)
 
     return general_meeting
+
+
+async def delete_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession) -> None:
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    meeting = result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+    if meeting.status == GeneralMeetingStatus.open:
+        raise HTTPException(status_code=409, detail="Cannot delete an open General Meeting")
+    await db.delete(meeting)
+    await db.commit()
 
 
 async def resend_report(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict:

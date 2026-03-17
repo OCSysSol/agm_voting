@@ -1706,8 +1706,9 @@ class TestGetGeneralMeetingDetail:
         assert tally["no"]["entitlement_sum"] == 80
         assert tally["abstained"]["voter_count"] == 1
         assert tally["abstained"]["entitlement_sum"] == 30
-        assert tally["absent"]["voter_count"] == 1
-        assert tally["absent"]["entitlement_sum"] == 200
+        # Meeting is open: absent tally is suppressed
+        assert tally["absent"]["voter_count"] == 0
+        assert tally["absent"]["entitlement_sum"] == 0
 
     async def test_voter_lists_populated(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1722,12 +1723,12 @@ class TestGetGeneralMeetingDetail:
         yes_emails = {v["voter_email"] for v in voter_lists["yes"]}
         no_emails = {v["voter_email"] for v in voter_lists["no"]}
         abs_emails = {v["voter_email"] for v in voter_lists["abstained"]}
-        absent_emails = {v["voter_email"] for v in voter_lists["absent"]}
 
         assert "yes@test.com" in yes_emails
         assert "no@test.com" in no_emails
         assert "abs@test.com" in abs_emails
-        assert "absent@test.com" in absent_emails
+        # Meeting is open: absent list is empty
+        assert voter_lists["absent"] == []
 
     async def test_no_votes_all_absent(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1775,8 +1776,9 @@ class TestGetGeneralMeetingDetail:
         assert tally["yes"]["voter_count"] == 0
         assert tally["no"]["voter_count"] == 0
         assert tally["abstained"]["voter_count"] == 0
-        assert tally["absent"]["voter_count"] == 1
-        assert tally["absent"]["entitlement_sum"] == 50
+        # Meeting is open: absent tally is suppressed
+        assert tally["absent"]["voter_count"] == 0
+        assert tally["absent"]["entitlement_sum"] == 0
 
     async def test_entitlement_sums_use_snapshot_not_current(
         self, client: AsyncClient, db_session: AsyncSession
@@ -2083,8 +2085,9 @@ class TestGetGeneralMeetingDetail:
         data = response.json()
         assert data["total_eligible_voters"] == 1
         tally = data["motions"][0]["tally"]
-        assert tally["absent"]["voter_count"] == 1
-        assert tally["absent"]["entitlement_sum"] == 75
+        # Meeting is open: absent tally is suppressed
+        assert tally["absent"]["voter_count"] == 0
+        assert tally["absent"]["entitlement_sum"] == 0
 
     async def test_tally_not_eligible_counted_separately(
         self, client: AsyncClient, db_session: AsyncSession
@@ -4847,3 +4850,191 @@ class TestCloseAGMAbsentRecords:
         )
         sub = subs_result.scalar_one_or_none()
         assert sub is None
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/general-meetings/{agm_id} — absent only for closed meetings
+# ---------------------------------------------------------------------------
+
+
+class TestGetGeneralMeetingDetailAbsentBehaviour:
+    """absent tally is only populated for closed meetings."""
+
+    async def _make_agm_with_non_voter(
+        self,
+        db_session: AsyncSession,
+        name: str,
+        status: GeneralMeetingStatus,
+    ):
+        """Create building + AGM with one voter and one non-voter lot."""
+        b = Building(name=name, manager_email=f"{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo_voted = LotOwner(building_id=b.id, lot_number="V1", unit_entitlement=100)
+        lo_absent = LotOwner(building_id=b.id, lot_number="V2", unit_entitlement=50)
+        db_session.add_all([lo_voted, lo_absent])
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo_voted.id, email=f"voted@{name}.test"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo_absent.id, email=f"absent@{name}.test"))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"Absent Behaviour {name}",
+            status=status,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=agm.id, title="Motion AB1", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        for lo in [lo_voted, lo_absent]:
+            db_session.add(GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
+                lot_owner_id=lo.id,
+                unit_entitlement_snapshot=lo.unit_entitlement,
+            ))
+        await db_session.flush()
+
+        # lo_voted submits a ballot
+        db_session.add(Vote(
+            general_meeting_id=agm.id,
+            motion_id=motion.id,
+            voter_email=f"voted@{name}.test",
+            lot_owner_id=lo_voted.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_voted.id,
+            voter_email=f"voted@{name}.test",
+        ))
+        await db_session.commit()
+        return agm
+
+    # --- Happy path ---
+
+    async def test_get_general_meeting_detail_absent_only_for_closed_open_meeting(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Open meeting: absent tally is 0 even when a lot owner has not voted."""
+        agm = await self._make_agm_with_non_voter(
+            db_session, "AbsentOpenTest", GeneralMeetingStatus.open
+        )
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        tally = response.json()["motions"][0]["tally"]
+        assert tally["absent"]["voter_count"] == 0
+        assert tally["absent"]["entitlement_sum"] == 0
+        assert response.json()["motions"][0]["voter_lists"]["absent"] == []
+
+    async def test_get_general_meeting_detail_absent_computed_for_closed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Closed meeting: absent tally reflects lots that did not submit."""
+        agm = await self._make_agm_with_non_voter(
+            db_session, "AbsentClosedTest", GeneralMeetingStatus.closed
+        )
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        tally = response.json()["motions"][0]["tally"]
+        assert tally["absent"]["voter_count"] == 1
+        assert tally["absent"]["entitlement_sum"] == 50
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/general-meetings/{agm_id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteGeneralMeeting:
+    async def _create_meeting(
+        self,
+        db_session: AsyncSession,
+        name: str,
+        status: GeneralMeetingStatus,
+    ) -> GeneralMeeting:
+        b = Building(name=name, manager_email=f"del_{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"Delete Test {name}",
+            status=status,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        return agm
+
+    # --- Happy path ---
+
+    async def test_delete_general_meeting_closed_success(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a closed meeting returns 204."""
+        agm = await self._create_meeting(db_session, "DeleteClosed", GeneralMeetingStatus.closed)
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 204
+
+    async def test_delete_general_meeting_pending_success(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a pending meeting returns 204."""
+        agm = await self._create_meeting(db_session, "DeletePending", GeneralMeetingStatus.pending)
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 204
+
+    async def test_delete_general_meeting_removes_from_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """After DELETE the record no longer exists in the database."""
+        agm = await self._create_meeting(db_session, "DeleteDBCheck", GeneralMeetingStatus.closed)
+        agm_id = agm.id
+        response = await client.delete(f"/api/admin/general-meetings/{agm_id}")
+        assert response.status_code == 204
+        result = await db_session.execute(
+            select(GeneralMeeting).where(GeneralMeeting.id == agm_id)
+        )
+        assert result.scalar_one_or_none() is None
+
+    # --- State / precondition errors ---
+
+    async def test_delete_general_meeting_open_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on an open meeting returns 409."""
+        agm = await self._create_meeting(db_session, "DeleteOpen", GeneralMeetingStatus.open)
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 409
+        assert "Cannot delete an open General Meeting" in response.json()["detail"]
+
+    async def test_delete_general_meeting_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a non-existent meeting ID returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.delete(f"/api/admin/general-meetings/{fake_id}")
+        assert response.status_code == 404
+        assert "General Meeting not found" in response.json()["detail"]
+
+    async def test_delete_general_meeting_unauthenticated_returns_401(
+        self, db_session: AsyncSession
+    ):
+        """DELETE without admin credentials returns 401."""
+        from app.main import app as fastapi_app
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test"
+        ) as unauthenticated_client:
+            agm = await self._create_meeting(db_session, "DeleteUnauth", GeneralMeetingStatus.closed)
+            response = await unauthenticated_client.delete(f"/api/admin/general-meetings/{agm.id}")
+            assert response.status_code == 401

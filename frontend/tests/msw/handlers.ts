@@ -397,6 +397,16 @@ export const adminHandlers = [
     return HttpResponse.json(result);
   }),
 
+  http.delete(`${BASE}/api/admin/general-meetings/:meetingId`, ({ params }) => {
+    if (params.meetingId === "agm1") {
+      return HttpResponse.json({ detail: "Cannot delete an open General Meeting" }, { status: 409 });
+    }
+    if (params.meetingId === "agm-notfound-delete") {
+      return HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 });
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/resend-report`, ({ params }) => {
     if (params.meetingId === "agm-resend-fail") {
       return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });

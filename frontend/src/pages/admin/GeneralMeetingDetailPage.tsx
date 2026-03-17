@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getGeneralMeetingDetail } from "../../api/admin";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getGeneralMeetingDetail, deleteGeneralMeeting } from "../../api/admin";
 import type { GeneralMeetingDetail } from "../../api/admin";
 import StatusBadge from "../../components/admin/StatusBadge";
 import CloseGeneralMeetingButton from "../../components/admin/CloseGeneralMeetingButton";
@@ -26,6 +26,19 @@ export default function GeneralMeetingDetailPage() {
 
   function handleRetrySuccess() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteGeneralMeeting(meetingId!),
+    onSuccess: () => {
+      navigate("/admin/general-meetings");
+    },
+  });
+
+  function handleDelete() {
+    if (window.confirm("Delete this meeting? This cannot be undone.")) {
+      deleteMutation.mutate();
+    }
   }
 
   if (isLoading) return <p className="state-message">Loading General Meeting...</p>;
@@ -69,6 +82,16 @@ export default function GeneralMeetingDetailPage() {
             meetingTitle={meeting.title}
             onSuccess={handleCloseSuccess}
           />
+        )}
+        {(meeting.status === "closed" || meeting.status === "pending") && (
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+          >
+            Delete Meeting
+          </button>
         )}
       </div>
 

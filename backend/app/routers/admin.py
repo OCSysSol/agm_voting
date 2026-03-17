@@ -388,6 +388,15 @@ async def close_general_meeting(
     )
 
 
+@router.delete("/general-meetings/{general_meeting_id}", status_code=204)
+async def delete_general_meeting_endpoint(
+    general_meeting_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    await admin_service.delete_general_meeting(general_meeting_id, db)
+
+
 @router.post(
     "/general-meetings/{general_meeting_id}/resend-report",
     response_model=ResendReportOut,

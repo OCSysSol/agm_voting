@@ -422,3 +422,13 @@ export async function resendReport(meetingId: string): Promise<ResendReportOut> 
     method: "POST",
   });
 }
+
+export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+  const res = await fetch(`${BASE_URL}/api/admin/general-meetings/${meetingId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`Failed to delete meeting: ${res.status}`);
+}

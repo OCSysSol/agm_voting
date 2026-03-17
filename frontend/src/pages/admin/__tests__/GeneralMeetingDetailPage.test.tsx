@@ -250,4 +250,56 @@ describe("GeneralMeetingDetailPage", () => {
     await user.click(screen.getByRole("button", { name: "← Back" }));
     expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings");
   });
+
+  // --- Delete meeting ---
+
+  it("shows Delete Meeting button when meeting is closed", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+  });
+
+  it("shows Delete Meeting button when meeting is pending", async () => {
+    renderPage("agm-pending");
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+  });
+
+  it("does not show Delete Meeting button when meeting is open", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Delete Meeting" })).not.toBeInTheDocument();
+  });
+
+  it("clicking Delete Meeting calls API and navigates away on confirm", async () => {
+    mockNavigate.mockClear();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings");
+    });
+  });
+
+  it("does not navigate when confirm is cancelled", async () => {
+    mockNavigate.mockClear();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
+  });
 });
