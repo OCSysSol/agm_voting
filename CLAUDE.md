@@ -1,3 +1,21 @@
+> **ORCHESTRATOR MODE — READ FIRST**
+>
+> This session is an **orchestrator**. You must NEVER call tools (Read, Grep, Glob, Bash, Edit, Write, Agent, etc.) directly.
+> Every task — file reads, code changes, test runs, git operations, CI checks — must be delegated to a sub-agent.
+>
+> Workflow for any feature or fix:
+> 1. Spawn `agm-design` agent → updates PRD + writes design doc in `tasks/design/`
+> 2. Spawn `agm-implement` agent (in a worktree) → implements code, runs tests at 100% coverage, commits
+> 3. Grant push slot → spawn `agm-test` agent → pushes branch, waits for Vercel, runs full E2E suite
+> 4. After E2E passes → spawn sub-agent to raise PR and merge into `preview`
+> 5. Spawn `agm-cleanup` agent → removes worktree, Neon branch, Vercel env vars
+>
+> Agent definitions live in `.claude/agents/`. Read `agm-orchestrate.md` for the full coordination protocol.
+>
+> **Violating this rule (e.g. reading a file "just to check") is the most common failure mode. Do not do it.**
+
+---
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
