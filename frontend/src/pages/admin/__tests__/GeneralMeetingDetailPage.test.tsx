@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import GeneralMeetingDetailPage from "../GeneralMeetingDetailPage";
-import { ADMIN_MEETING_DETAIL_CLOSED } from "../../../../tests/msw/handlers";
+import { ADMIN_MEETING_DETAIL, ADMIN_MEETING_DETAIL_CLOSED } from "../../../../tests/msw/handlers";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -302,5 +302,143 @@ describe("GeneralMeetingDetailPage", () => {
     });
     await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
     expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
+  });
+
+  // --- Motion visibility toggle ---
+
+  it("renders motion visibility section with table headers", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("columnheader", { name: "#" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Motion" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Type" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Visibility" })).toBeInTheDocument();
+  });
+
+  it("renders toggle checkbox checked for visible motion", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    // The checkbox for a visible motion should be checked
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes[0]).toBeChecked();
+  });
+
+  it("shows 'Visible' label for visible motion", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Visible")).toBeInTheDocument();
+    });
+  });
+
+  it("toggle is disabled when meeting is closed", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes[0]).toBeDisabled();
+  });
+
+  it("clicking toggle on open meeting calls toggleMotionVisibility API", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    await user.click(checkbox);
+    // After successful toggle, query refetches — no error shown
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows error and disables toggle after 409 'received votes' response", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+        return HttpResponse.json(
+          { detail: "Cannot hide a motion that has received votes" },
+          { status: 409 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    await user.click(checkbox);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Cannot hide: motion has received votes")).toBeInTheDocument();
+    // Toggle should now be permanently disabled (motionsWithVotes set)
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes[0]).toBeDisabled();
+  });
+
+  it("shows error for generic visibility failure", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+        return HttpResponse.json({ detail: "Internal server error" }, { status: 500 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    await user.click(checkbox);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Failed to update visibility")).toBeInTheDocument();
+  });
+
+  it("shows 'Cannot change visibility on a closed meeting' error message", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+        return HttpResponse.json(
+          { detail: "Cannot change visibility on a closed meeting" },
+          { status: 409 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+    });
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    await user.click(checkbox);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Cannot change visibility on a closed meeting")).toBeInTheDocument();
+  });
+
+  it("shows 'No motions.' when meeting has no motions", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-no-motions") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-no-motions",
+            motions: [],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-no-motions");
+    await waitFor(() => {
+      expect(screen.getByText("No motions.")).toBeInTheDocument();
+    });
   });
 });

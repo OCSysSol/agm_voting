@@ -15,6 +15,7 @@ export default function GeneralMeetingDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
+  const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
 
   const { data: meeting, isLoading, error } = useQuery<GeneralMeetingDetail>({
     queryKey: ["admin", "general-meetings", meetingId],
@@ -50,7 +51,11 @@ export default function GeneralMeetingDetailPage() {
     },
     onError: (error: Error, variables) => {
       setPendingVisibilityMotionId(null);
-      const msg = error.message.includes("409")
+      const isVotesError = error.message.includes("received votes");
+      if (isVotesError) {
+        setMotionsWithVotes((prev) => new Set([...prev, variables.motionId]));
+      }
+      const msg = isVotesError
         ? "Cannot hide: motion has received votes"
         : error.message.includes("Cannot change visibility on a closed meeting")
         ? "Cannot change visibility on a closed meeting"
@@ -172,51 +177,93 @@ export default function GeneralMeetingDetailPage() {
       )}
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motion Visibility</h2>
-      <div className="admin-card" style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 24 }}>
         {meeting.motions.length === 0 ? (
           <p className="state-message">No motions.</p>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {meeting.motions.map((motion) => (
-              <li key={motion.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ flex: 1 }}>
-                  <strong>{motion.order_index + 1}. {motion.title}</strong>
-                  <span
-                    className={`motion-type-badge${motion.motion_type === "special" ? " motion-type-badge--special" : " motion-type-badge--general"}`}
-                    style={{ marginLeft: 8 }}
-                  >
-                    {motion.motion_type === "special" ? "Special" : "General"}
-                  </span>
-                  {!motion.is_visible && (
-                    <span className="motion-type-badge motion-type-badge--hidden" style={{ marginLeft: 8 }} aria-label="Hidden">
-                      Hidden
-                    </span>
-                  )}
-                </span>
-                {visibilityErrors[motion.id] && (
-                  <span style={{ color: "var(--red)", fontSize: "0.875rem" }} role="alert">
-                    {visibilityErrors[motion.id]}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  aria-label={motion.is_visible ? `Hide motion ${motion.order_index + 1}` : `Show motion ${motion.order_index + 1}`}
-                  disabled={meeting.status === "closed" || pendingVisibilityMotionId === motion.id}
-                  onClick={() => {
-                    setVisibilityErrors((prev) => { const next = { ...prev }; delete next[motion.id]; return next; });
-                    visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
-                  }}
-                >
-                  {pendingVisibilityMotionId === motion.id
-                    ? "..."
-                    : motion.is_visible
-                    ? "Hide"
-                    : "Show"}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="admin-table-wrapper">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Motion</th>
+                  <th>Type</th>
+                  <th>Visibility</th>
+                </tr>
+              </thead>
+              <tbody>
+                {meeting.motions.map((motion) => {
+                  const isLoading = pendingVisibilityMotionId === motion.id;
+                  const isDisabled =
+                    meeting.status === "closed" ||
+                    motionsWithVotes.has(motion.id) ||
+                    isLoading;
+                  const disabledReason =
+                    meeting.status === "closed"
+                      ? "Meeting is closed"
+                      : motionsWithVotes.has(motion.id)
+                      ? "Motion has received votes"
+                      : undefined;
+                  return (
+                    <tr
+                      key={motion.id}
+                      className={!motion.is_visible ? "admin-table__row--muted" : undefined}
+                    >
+                      <td style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}>
+                        {motion.order_index + 1}
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 500 }}>{motion.title}</span>
+                        {motion.description && (
+                          <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                            {motion.description}
+                          </p>
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
+                          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
+                        >
+                          {motion.motion_type === "special" ? "Special" : "General"}
+                        </span>
+                      </td>
+                      <td>
+                        <label
+                          className={`motion-visibility-toggle${isDisabled ? " motion-visibility-toggle--disabled" : ""}${isLoading ? " motion-visibility-toggle--loading" : ""}`}
+                          title={disabledReason}
+                        >
+                          <input
+                            type="checkbox"
+                            className="motion-visibility-toggle__input"
+                            checked={motion.is_visible}
+                            disabled={isDisabled}
+                            onChange={() => {
+                              setVisibilityErrors((prev) => {
+                                const next = { ...prev };
+                                delete next[motion.id];
+                                return next;
+                              });
+                              visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
+                            }}
+                          />
+                          <span className="motion-visibility-toggle__track" />
+                          <span className="motion-visibility-toggle__label">
+                            {motion.is_visible ? "Visible" : "Hidden"}
+                          </span>
+                        </label>
+                        {visibilityErrors[motion.id] && (
+                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
+                            {visibilityErrors[motion.id]}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
