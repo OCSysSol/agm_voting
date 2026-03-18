@@ -51,12 +51,15 @@ Key decisions that must not be inadvertently reversed:
 
 > See user-level `~/.claude/CLAUDE.md` for: PRD-before-code rule and design-first decomposition process.
 
-Workflow is managed by the project's custom agents in `.claude/agents/`:
-- **`agm-design`** — updates PRD, writes design doc, sketches E2E scenarios
-- **`agm-implement`** — implements feature, writes tests, commits, signals ready
-- **`agm-test`** — pushes branch, runs full E2E suite, reports results
-- **`agm-cleanup`** — removes worktrees, branches, Neon DB branches, test data
-- **`agm-orchestrate`** — coordinates all of the above across one or more branches
+Workflow is managed by the project's custom agents in `.claude/agents/`. The orchestrator spawns agents based on the task:
+
+| Agent | File | Trigger / When to spawn |
+|---|---|---|
+| `agm-orchestrate` | `.claude/agents/agm-orchestrate.md` | User requests a new feature, bug fix, or any multi-step work — this is the entry point; coordinates all other agents and the push slot queue |
+| `agm-design` | `.claude/agents/agm-design.md` | First step of every feature: update or create the PRD, write the technical design doc in `tasks/design/`, sketch E2E scenarios — never writes implementation code |
+| `agm-implement` | `.claude/agents/agm-implement.md` | After design doc is written: implement backend + frontend changes in a worktree, run unit and integration tests at 100% coverage, commit, then signal "Ready for push slot" |
+| `agm-test` | `.claude/agents/agm-test.md` | After implementation is committed and the push slot is granted: push the branch, wait for Vercel deployment, run the full Playwright E2E suite once to completion, report all results, release the slot |
+| `agm-cleanup` | `.claude/agents/agm-cleanup.md` | After a PR merges to `preview`: remove git worktree, delete local and remote branch, delete Neon DB branch (if created), remove Vercel branch-scoped env vars, clean test data from preview DB |
 
 For full workflow details, see `.claude/agents/agm-orchestrate.md`.
 
