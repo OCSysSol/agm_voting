@@ -118,7 +118,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - [x] All TypeScript type names and interface names updated (e.g. `AGMOut` → `GeneralMeetingOut`)
 - [x] React component filenames and component function names updated where they contain "AGM" or "Agm"
 - [x] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -154,15 +154,15 @@ A set of UI improvements and correctness fixes for the voting application:
 **Description:** As a building manager, I want to filter the General Meetings list by building so I can quickly find meetings for a specific building when managing multiple buildings.
 
 **Acceptance Criteria:**
-- [ ] A single-select dropdown labelled "All buildings" appears above the General Meetings table
-- [ ] Selecting a building from the dropdown filters the table to show only meetings for that building
-- [ ] Selecting "All buildings" (the default/empty option) removes the filter and shows all meetings
-- [ ] The selected building is stored in the URL as a `?building=<id>` search param
-- [ ] On page load, if `?building=<id>` is present in the URL, the matching building is pre-selected and the table is filtered
-- [ ] Changing the filter updates the URL without triggering a full page navigation
-- [ ] Filtering is client-side — no additional API call is made when the filter changes
-- [ ] The table, pagination, and loading states are unchanged; only the data passed to the table is filtered
-- [ ] Typecheck/lint passes
+- [x] A single-select dropdown labelled "All buildings" appears above the General Meetings table
+- [x] Selecting a building from the dropdown filters the table to show only meetings for that building
+- [x] Selecting "All buildings" (the default/empty option) removes the filter and shows all meetings
+- [x] The selected building is stored in the URL as a `?building=<id>` search param
+- [x] On page load, if `?building=<id>` is present in the URL, the matching building is pre-selected and the table is filtered
+- [x] Changing the filter updates the URL without triggering a full page navigation
+- [x] Filtering is client-side — no additional API call is made when the filter changes
+- [x] The table, pagination, and loading states are unchanged; only the data passed to the table is filtered
+- [x] Typecheck/lint passes
 
 ---
 

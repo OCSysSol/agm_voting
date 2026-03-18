@@ -25,13 +25,13 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a developer, I need to store a visibility flag on each motion so the backend can filter what voters see.
 
 **Acceptance Criteria:**
-- [ ] Add `is_visible` boolean column to the `motions` table, default `true`
-- [ ] Alembic migration generated and runs cleanly against dev and test DBs
-- [ ] Existing motions default to `is_visible = true` (no behaviour change for existing meetings)
-- [ ] `MotionOut` Pydantic schema (voting.py) includes `is_visible: bool`
-- [ ] `MotionOut` Pydantic schema (admin.py) includes `is_visible: bool`
-- [ ] `MotionDetail` Pydantic schema (admin.py) includes `is_visible: bool`
-- [ ] Typecheck/lint passes
+- [x] Add `is_visible` boolean column to the `motions` table, default `true`
+- [x] Alembic migration generated and runs cleanly against dev and test DBs
+- [x] Existing motions default to `is_visible = true` (no behaviour change for existing meetings)
+- [x] `MotionOut` Pydantic schema (voting.py) includes `is_visible: bool`
+- [x] `MotionOut` Pydantic schema (admin.py) includes `is_visible: bool`
+- [x] `MotionDetail` Pydantic schema (admin.py) includes `is_visible: bool`
+- [x] Typecheck/lint passes
 
 ---
 
@@ -40,14 +40,14 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a developer, I need an API endpoint so the admin UI can toggle a motion's visibility.
 
 **Acceptance Criteria:**
-- [ ] `PATCH /api/admin/motions/{motion_id}/visibility` accepts `{ "is_visible": bool }` and updates the field
-- [ ] Returns 200 with the updated motion object on success
-- [ ] Returns 404 if the motion does not exist
-- [ ] Returns 409 if the meeting is `closed` (toggling is not allowed on closed meetings)
-- [ ] Returns 409 if attempting to set `is_visible=false` on a motion that has received votes (at least one submitted `Vote` record exists for that motion)
-- [ ] Returns 403 if the caller is not an authenticated admin
-- [ ] Integration tests cover: toggle on, toggle off (no votes), 404, 409 (closed meeting), 409 (has votes), 403
-- [ ] Typecheck/lint passes
+- [x] `PATCH /api/admin/motions/{motion_id}/visibility` accepts `{ "is_visible": bool }` and updates the field
+- [x] Returns 200 with the updated motion object on success
+- [x] Returns 404 if the motion does not exist
+- [x] Returns 409 if the meeting is `closed` (toggling is not allowed on closed meetings)
+- [x] Returns 409 if attempting to set `is_visible=false` on a motion that has received votes (at least one submitted `Vote` record exists for that motion)
+- [x] Returns 403 if the caller is not an authenticated admin
+- [x] Integration tests cover: toggle on, toggle off (no votes), 404, 409 (closed meeting), 409 (has votes), 403
+- [x] Typecheck/lint passes
 
 ---
 
@@ -56,15 +56,15 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a building manager, I want to toggle the visibility of each motion from the meeting detail page so I can control which motions are live during the meeting.
 
 **Acceptance Criteria:**
-- [ ] Each motion row in the admin meeting detail page shows a visibility toggle (e.g. an eye icon or on/off switch)
-- [ ] The toggle reflects the current `is_visible` state
-- [ ] Clicking the toggle calls `PATCH /api/admin/motions/{motion_id}/visibility` and updates the UI immediately on success
-- [ ] Hidden motions are visually distinguished in the admin list (e.g. dimmed row, "Hidden" badge)
-- [ ] The toggle is disabled (greyed out) when the meeting is `closed`
-- [ ] A loading state is shown on the toggle while the request is in flight
-- [ ] Error state shown if the request fails (does not change toggle state)
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] Each motion row in the admin meeting detail page shows a visibility toggle (e.g. an eye icon or on/off switch)
+- [x] The toggle reflects the current `is_visible` state
+- [x] Clicking the toggle calls `PATCH /api/admin/motions/{motion_id}/visibility` and updates the UI immediately on success
+- [x] Hidden motions are visually distinguished in the admin list (e.g. dimmed row, "Hidden" badge)
+- [x] The toggle is disabled (greyed out) when the meeting is `closed`
+- [x] A loading state is shown on the toggle while the request is in flight
+- [x] Error state shown if the request fails (does not change toggle state)
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -73,15 +73,15 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a voter, I want to see only the motions that are currently active, plus any motions I have already voted on, so I am not confused by motions that haven't been opened yet.
 
 **Acceptance Criteria:**
-- [ ] The voter voting page fetches motions via the existing meeting/motions endpoint
-- [ ] Only motions with `is_visible = true` OR motions the voter has already submitted a vote for are shown
-- [ ] A motion the voter has already voted on is shown in read-only mode (vote selection displayed, cannot be changed) regardless of its current `is_visible` state
-- [ ] A motion that is visible and not yet voted on is shown as a normal votable motion card
-- [ ] "Submit" / "Continue" is enabled when all **currently visible** motions have a selection (previously submitted motions do not need to be re-selected)
-- [ ] If there are no visible motions and no previously submitted motions, the voting page shows a message such as "No motions are available yet. Please check back shortly."
-- [ ] No hint text is shown to voters about how many total motions exist or whether more will be revealed — newly revealed motions simply appear on the next page refresh
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] The voter voting page fetches motions via the existing meeting/motions endpoint
+- [x] Only motions with `is_visible = true` OR motions the voter has already submitted a vote for are shown
+- [x] A motion the voter has already voted on is shown in read-only mode (vote selection displayed, cannot be changed) regardless of its current `is_visible` state
+- [x] A motion that is visible and not yet voted on is shown as a normal votable motion card
+- [x] "Submit" / "Continue" is enabled when all **currently visible** motions have a selection (previously submitted motions do not need to be re-selected)
+- [x] If there are no visible motions and no previously submitted motions, the voting page shows a message such as "No motions are available yet. Please check back shortly."
+- [x] No hint text is shown to voters about how many total motions exist or whether more will be revealed — newly revealed motions simply appear on the next page refresh
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -90,15 +90,15 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a voter who has already submitted votes, I want to return to the voting page and vote on a newly revealed motion so I am not locked out just because I voted earlier.
 
 **Acceptance Criteria:**
-- [ ] A voter who has a `BallotSubmission` record for the meeting can still access the voting page if there are visible motions they have not yet voted on
-- [ ] The `POST /api/auth/verify` response includes `unvoted_visible_count: int` — the count of currently visible motions that the voter (across all their lots) has not yet submitted a vote for
-- [ ] If `unvoted_visible_count > 0`, the frontend routes to the voting page, not confirmation, even if the voter has existing submissions
-- [ ] The voter can submit a vote for the newly visible motion without affecting their previous vote records
-- [ ] After submitting the new motion's vote, if all visible motions are now voted on, the voter is navigated to the confirmation/summary page
-- [ ] The backend records the new vote under the same `BallotSubmission` (or creates a new one per the existing model) without duplicating or overwriting existing vote records
-- [ ] Integration tests: voter submits partial, admin reveals new motion, voter re-enters and submits new motion, all votes present in DB
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] A voter who has a `BallotSubmission` record for the meeting can still access the voting page if there are visible motions they have not yet voted on
+- [x] The `POST /api/auth/verify` response includes `unvoted_visible_count: int` — the count of currently visible motions that the voter (across all their lots) has not yet submitted a vote for
+- [x] If `unvoted_visible_count > 0`, the frontend routes to the voting page, not confirmation, even if the voter has existing submissions
+- [x] The voter can submit a vote for the newly visible motion without affecting their previous vote records
+- [x] After submitting the new motion's vote, if all visible motions are now voted on, the voter is navigated to the confirmation/summary page
+- [x] The backend records the new vote under the same `BallotSubmission` (or creates a new one per the existing model) without duplicating or overwriting existing vote records
+- [x] Integration tests: voter submits partial, admin reveals new motion, voter re-enters and submits new motion, all votes present in DB
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -107,12 +107,12 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a voter, I want the confirmation page to show all motions I have voted on (even if some are now hidden) so I have a complete record of my participation.
 
 **Acceptance Criteria:**
-- [ ] The voter confirmation/summary page lists every motion the voter has submitted a vote for, with their recorded vote
-- [ ] Motions that are currently hidden but were voted on are still shown (visibility flag does not filter the summary)
-- [ ] Motions the voter has not voted on (hidden or not) are not shown on the summary
-- [ ] The display order matches the motion `order_index`
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] The voter confirmation/summary page lists every motion the voter has submitted a vote for, with their recorded vote
+- [x] Motions that are currently hidden but were voted on are still shown (visibility flag does not filter the summary)
+- [x] Motions the voter has not voted on (hidden or not) are not shown on the summary
+- [x] The display order matches the motion `order_index`
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -121,11 +121,84 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a building manager, I want the admin meeting report to show all motions (including hidden ones) clearly marked so I have a complete picture of all votes cast.
 
 **Acceptance Criteria:**
-- [ ] The admin meeting detail / report view shows all motions regardless of `is_visible`
-- [ ] Motions with `is_visible = false` are labelled with a "Hidden" badge in the tally view
-- [ ] Tally data (voter count, entitlement sums) is still computed and displayed for hidden motions
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] The admin meeting detail / report view shows all motions regardless of `is_visible`
+- [x] Motions with `is_visible = false` are labelled with a "Hidden" badge in the tally view
+- [x] Tally data (voter count, entitlement sums) is still computed and displayed for hidden motions
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
+
+---
+
+### US-AM01: Add a new motion to an existing meeting
+
+**Description:** As a building manager, I want to add a new motion to a meeting that is in `pending` or `open` status so I can include late-arriving agenda items without recreating the meeting.
+
+**Acceptance Criteria:**
+- [x] An "Add Motion" button is visible on the admin meeting detail page when the meeting status is `pending` or `open`
+- [x] Clicking "Add Motion" opens a form (inline or modal) with fields: title/description and motion type
+- [x] Submitting the form calls `POST /api/admin/general-meetings/{id}/motions` and the new motion appears in the list immediately
+- [x] New motions are added with `is_visible = false` by default so admins can review before revealing
+- [x] The button is not shown (or is disabled) when the meeting is `closed`
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
+
+---
+
+### US-AM02: Edit a hidden motion
+
+**Description:** As a building manager, I want to edit the title, description, and motion type of a hidden motion so I can correct mistakes before revealing it to voters.
+
+**Acceptance Criteria:**
+- [x] An "Edit" action is available on each hidden motion row in the admin meeting detail page
+- [x] Clicking "Edit" opens a form pre-populated with the current motion fields (title/description and motion type)
+- [x] Submitting the form calls `PATCH /api/admin/motions/{id}` and updates the motion in the list immediately
+- [x] Edit is only available when the motion is hidden (`is_visible = false`) — the action is not shown for visible motions
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
+
+---
+
+### US-AM03: Delete a hidden motion
+
+**Description:** As a building manager, I want to delete a hidden motion that was added by mistake so I can keep the motion list clean.
+
+**Acceptance Criteria:**
+- [x] A "Delete" action is available on each hidden motion row in the admin meeting detail page
+- [x] Clicking "Delete" shows a confirmation prompt before proceeding
+- [x] On confirmation, `DELETE /api/admin/motions/{id}` is called and the motion is removed from the list
+- [x] Delete is only available when the motion is hidden (`is_visible = false`) — the action is not shown for visible motions
+- [x] The button is disabled and shows "Deleting…" while the request is in flight
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
+
+---
+
+### US-AM04: Backend endpoints for add, edit, and delete motions
+
+**Description:** As a developer, I need backend endpoints so the admin UI can add, edit, and delete motions on an existing meeting.
+
+**Acceptance Criteria:**
+- [x] `POST /api/admin/general-meetings/{id}/motions` — creates a new motion on the meeting; returns 201 with the created motion; returns 404 if meeting not found; returns 409 if meeting is `closed`
+- [x] `PATCH /api/admin/motions/{id}` — updates `title`/`description` and/or `motion_type`; returns 200 with updated motion; returns 404 if motion not found; returns 409 if motion is visible or meeting is closed
+- [x] `DELETE /api/admin/motions/{id}` — deletes the motion and all associated votes/ballot records; returns 204; returns 404 if not found; returns 409 if motion is visible or meeting is closed
+- [x] All three endpoints require admin authentication; return 403 otherwise
+- [x] Integration tests cover all happy paths and error cases
+- [x] Typecheck/lint passes
+
+---
+
+### US-AM05: Guard rules — block edit/delete on visible or closed motions; block add on closed meetings
+
+**Description:** As a developer, I need the backend to enforce that admins cannot edit or delete a motion once it is visible or the meeting is closed, and cannot add motions to a closed meeting.
+
+**Acceptance Criteria:**
+- [x] `PATCH /api/admin/motions/{id}` returns 409 with a clear message if `is_visible = true`
+- [x] `PATCH /api/admin/motions/{id}` returns 409 with a clear message if the meeting status is `closed`
+- [x] `DELETE /api/admin/motions/{id}` returns 409 with a clear message if `is_visible = true`
+- [x] `DELETE /api/admin/motions/{id}` returns 409 with a clear message if the meeting status is `closed`
+- [x] `POST /api/admin/general-meetings/{id}/motions` returns 409 with a clear message if the meeting status is `closed`
+- [x] Frontend edit/delete actions are hidden for visible motions (guard is backend-enforced; UI hides to avoid unnecessary errors)
+- [x] Typecheck/lint passes
 
 ---
 
