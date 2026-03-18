@@ -35,7 +35,6 @@ export function AuthPage() {
     onSuccess: (data) => {
       /* c8 ignore next */
       if (!meetingId) return;
-      const allSubmitted = data.lots.length > 0 && data.lots.every((l) => l.already_submitted);
       const pendingLots = data.lots.filter((l) => !l.already_submitted);
       const pendingLotIds = pendingLots.map((l) => l.lot_owner_id);
       // Persist pending lot IDs in sessionStorage so VotingPage can submit on behalf of them
@@ -51,10 +50,16 @@ export function AuthPage() {
         navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });
         return;
       }
-      if (data.agm_status === "closed" || allSubmitted) {
+      if (data.agm_status === "closed") {
         navigate(`/vote/${meetingId}/confirmation`);
-      } else {
+        return;
+      }
+      // Use unvoted_visible_count as the authoritative signal for re-entry routing:
+      // if there are visible motions the voter hasn't voted on yet, go to voting page.
+      if (data.unvoted_visible_count > 0) {
         navigate(`/vote/${meetingId}/voting`);
+      } else {
+        navigate(`/vote/${meetingId}/confirmation`);
       }
     },
     onError: (error: Error) => {

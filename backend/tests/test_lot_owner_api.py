@@ -1275,10 +1275,23 @@ class TestSubmitBallot:
             )
         assert response.status_code == 403
 
-    async def test_already_submitted_returns_409(self, transport, db_session: AsyncSession):
+    async def test_already_submitted_reentry_returns_200(self, transport, db_session: AsyncSession):
+        """Re-entry voting: submitting again when a BallotSubmission already exists
+        is allowed (no-op for already-voted motions). Returns 200 with empty votes list
+        since all visible motions are already voted on."""
         b, lo, agm, m1, m2, email = await self._setup(db_session, "ASS1", "already@submit.com")
         sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=email)
         db_session.add(sub)
+        # Add submitted votes for all visible motions so this is a no-op
+        for m in [m1, m2]:
+            db_session.add(Vote(
+                general_meeting_id=agm.id,
+                motion_id=m.id,
+                voter_email=email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            ))
         token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
@@ -1288,7 +1301,11 @@ class TestSubmitBallot:
                 json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
-        assert response.status_code == 409
+        assert response.status_code == 200
+        data = response.json()
+        assert data["submitted"] is True
+        # No new votes were added (all were already voted)
+        assert data["lots"][0]["votes"] == []
 
     async def test_lot_not_belonging_to_voter_returns_403(self, transport, db_session: AsyncSession):
         """Submitting on behalf of a lot with a different email → 403."""
@@ -1323,8 +1340,8 @@ class TestSubmitBallot:
 
     # --- Edge cases ---
 
-    async def test_concurrent_submit_second_returns_409(self, transport, db_session: AsyncSession):
-        """If a ballot was submitted between check and submit, return 409."""
+    async def test_concurrent_submit_second_is_noop(self, transport, db_session: AsyncSession):
+        """Re-entry: second submit after all motions voted is a no-op returning 200."""
         b, lo, agm, m1, m2, email = await self._setup(db_session, "CON1", "concurrent@submit.com")
         token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
@@ -1333,18 +1350,25 @@ class TestSubmitBallot:
             # First submit — succeeds
             r1 = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
-                json={"lot_owner_ids": [str(lo.id)]},
+                json={
+                    "lot_owner_ids": [str(lo.id)],
+                    "votes": [
+                        {"motion_id": str(m1.id), "choice": "yes"},
+                        {"motion_id": str(m2.id), "choice": "no"},
+                    ],
+                },
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert r1.status_code == 200
 
-            # Second submit — should fail
+            # Second submit — now a no-op (all motions already voted)
             r2 = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
                 json={"lot_owner_ids": [str(lo.id)]},
                 headers={"Authorization": f"Bearer {token}"},
             )
-        assert r2.status_code == 409
+        assert r2.status_code == 200
+        assert r2.json()["lots"][0]["votes"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1712,8 +1736,13 @@ class TestInArrearVoting:
     async def test_my_ballot_in_arrear_shows_general_motion_not_eligible(
         self, transport, db_session: AsyncSession
     ):
-        """my-ballot for in-arrear lot shows general motions as not eligible
-        (voting_service.py lines 424, 437-444)."""
+        """my-ballot for in-arrear lot shows general motions as not eligible.
+
+        With the new design, my-ballot only shows motions for which actual Vote
+        records exist. For in-arrear lots, submit_ballot records a not_eligible
+        Vote for general motions. This test verifies both motions appear in the
+        ballot summary when their Vote records exist.
+        """
         b = make_building("In Arrear MyBallot Building")
         db_session.add(b)
         await db_session.flush()
@@ -1751,7 +1780,15 @@ class TestInArrearVoting:
         db_session.add(weight)
         await db_session.flush()
 
-        # Only voted on special motion (general skipped due to in-arrear)
+        # Both motions have Vote records: general → not_eligible, special → yes
+        v_general = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m_general.id,
+            voter_email="inarrear@myballot.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.not_eligible,
+            status=VoteStatus.submitted,
+        )
         v_special = Vote(
             general_meeting_id=agm.id,
             motion_id=m_special.id,
@@ -1760,7 +1797,7 @@ class TestInArrearVoting:
             choice=VoteChoice.yes,
             status=VoteStatus.submitted,
         )
-        db_session.add(v_special)
+        db_session.add_all([v_general, v_special])
         sub = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lo.id,
@@ -1839,12 +1876,12 @@ class TestInArrearVoting:
         assert len(result.submitted_lots) == 1
         assert result.submitted_lots[0].lot_owner_id == lo1.id
 
-    async def test_my_ballot_fallback_vote_via_voter_email(
+    async def test_my_ballot_per_lot_vote(
         self, transport, db_session: AsyncSession
     ):
-        """Votes that have lot_owner_id=None (old path) should be found via voter_email
-        fallback (voting_service.py line 469)."""
-        b = make_building("Fallback Vote Building")
+        """my-ballot only shows motions with actual submitted Vote records
+        (per-lot path with explicit lot_owner_id)."""
+        b = make_building("Per Lot Vote Building")
         db_session.add(b)
         await db_session.flush()
         lo = make_lot_owner(b, lot_number="FV1")
@@ -1859,16 +1896,16 @@ class TestInArrearVoting:
         db_session.add(m)
         await db_session.flush()
 
-        # Create a vote with lot_owner_id=None (old path vote)
-        old_vote = Vote(
+        # Create a vote with explicit lot_owner_id (new path)
+        vote = Vote(
             general_meeting_id=agm.id,
             motion_id=m.id,
             voter_email="fallback@vote.com",
-            lot_owner_id=None,  # old-style vote without lot_owner_id
+            lot_owner_id=lo.id,
             choice=VoteChoice.no,
             status=VoteStatus.submitted,
         )
-        db_session.add(old_vote)
+        db_session.add(vote)
         sub = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lo.id,
@@ -1889,18 +1926,13 @@ class TestInArrearVoting:
         assert len(votes) == 1
         assert votes[0]["choice"] == "no"
 
-    async def test_my_ballot_fallback_not_contaminated_for_multi_lot_voter(
+    async def test_my_ballot_multi_lot_independent_votes(
         self, transport, db_session: AsyncSession
     ):
-        """Multi-lot voter: fallback query must not raise MultipleResultsFound.
+        """Multi-lot voter: each lot's ballot is independent — no cross-lot vote contamination.
 
-        When a multi-lot voter has old-path votes (lot_owner_id=None) for a
-        motion, the fallback must add IS NULL so it matches exactly one row
-        rather than scanning all submitted votes for that (meeting, motion,
-        email) tuple across every lot.
-
-        Also verifies that each lot's ballot is independent — no cross-lot
-        vote contamination.
+        Both lots use per-lot votes (lot_owner_id set). Verifies that my-ballot
+        correctly partitions votes by lot_owner_id.
         """
         b = make_building("Multi Lot Fallback Building")
         db_session.add(b)
@@ -1921,7 +1953,7 @@ class TestInArrearVoting:
         db_session.add_all([m1, m2])
         await db_session.flush()
 
-        # lo1: new-path votes (with lot_owner_id) for both motions
+        # lo1: per-lot votes for both motions
         for motion, choice in [(m1, VoteChoice.yes), (m2, VoteChoice.no)]:
             db_session.add(Vote(
                 general_meeting_id=agm.id,
@@ -1932,13 +1964,13 @@ class TestInArrearVoting:
                 status=VoteStatus.submitted,
             ))
 
-        # lo2: old-path votes (lot_owner_id=None) for both motions
+        # lo2: per-lot votes for both motions
         for motion, choice in [(m1, VoteChoice.abstained), (m2, VoteChoice.yes)]:
             db_session.add(Vote(
                 general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email="multifall@voter.com",
-                lot_owner_id=None,  # old-style, no lot_owner_id
+                lot_owner_id=lo2.id,
                 choice=choice,
                 status=VoteStatus.submitted,
             ))
@@ -1960,17 +1992,16 @@ class TestInArrearVoting:
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-        # Must not 500 (MultipleResultsFound)
         assert response.status_code == 200
         data = response.json()
         lots_by_id = {s["lot_owner_id"]: s for s in data["submitted_lots"]}
 
-        # lo1 should have its own new-path votes (not lo2's old-path votes)
+        # lo1 should have its own votes
         lo1_votes = {v["motion_title"]: v["choice"] for v in lots_by_id[str(lo1.id)]["votes"]}
         assert lo1_votes["MF Motion 1"] == "yes"
         assert lo1_votes["MF Motion 2"] == "no"
 
-        # lo2's ballot uses the old-path fallback — must find the NULL-lot_owner_id votes
+        # lo2 should have its own votes, not lo1's
         lo2_votes = {v["motion_title"]: v["choice"] for v in lots_by_id[str(lo2.id)]["votes"]}
         assert lo2_votes["MF Motion 1"] == "abstained"
         assert lo2_votes["MF Motion 2"] == "yes"

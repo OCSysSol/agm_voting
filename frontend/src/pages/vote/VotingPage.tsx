@@ -203,9 +203,11 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  const answeredCount = motions ? motions.filter((m) => !!choices[m.id]).length : 0;
+  // Already-voted motions are read-only — only count unvoted visible motions for progress
+  const unvotedMotions = motions ? motions.filter((m) => !m.already_voted) : [];
+  const answeredCount = unvotedMotions.filter((m) => !!choices[m.id]).length;
 
-  const unansweredMotions = motions ? motions.filter((m) => !choices[m.id]) : [];
+  const unansweredMotions = unvotedMotions.filter((m) => !choices[m.id]);
 
   const handleSubmitClick = () => {
     if (isMultiLot && selectedIds.size === 0) {
@@ -473,30 +475,46 @@ export function VotingPage() {
 
           {motions && (
             <>
-              <ProgressBar answered={answeredCount} total={motions.length} />
-              {arrearBannerMode !== "none" && (
-                <div className="arrear-notice" data-testid="arrear-banner" role="note">
-                  {arrearBannerMode === "all"
-                    ? "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
-                    : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
-                </div>
-              )}
-              {motions.map((motion) => (
-                <MotionCard
-                  key={motion.id}
-                  motion={motion}
-                  choice={choices[motion.id] ?? null}
-                  onChoiceChange={handleChoiceChange}
-                  disabled={isClosed}
-                  highlight={highlightUnanswered && !choices[motion.id]}
-                />
-              ))}
-              {!isClosed && !allSubmitted && (
-                <div className="submit-section">
-                  <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
-                    Submit ballot
-                  </button>
-                </div>
+              {motions.length === 0 ? (
+                <p className="state-message" data-testid="no-motions-message">
+                  No motions are available yet. Please check back shortly.
+                </p>
+              ) : (
+                <>
+                  <ProgressBar answered={answeredCount} total={unvotedMotions.length} />
+                  {arrearBannerMode !== "none" && (
+                    <div className="arrear-notice" data-testid="arrear-banner" role="note">
+                      {arrearBannerMode === "all"
+                        ? "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
+                        : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
+                    </div>
+                  )}
+                  {motions.map((motion) => (
+                    <MotionCard
+                      key={motion.id}
+                      motion={motion}
+                      choice={choices[motion.id] ?? null}
+                      onChoiceChange={handleChoiceChange}
+                      disabled={isClosed}
+                      highlight={highlightUnanswered && !motion.already_voted && !choices[motion.id]}
+                      readOnly={motion.already_voted}
+                    />
+                  ))}
+                  {unvotedMotions.length === 0 && !isClosed && (
+                    <div className="submit-section">
+                      <button type="button" className="btn btn--primary" onClick={handleViewSubmission}>
+                        View Submission
+                      </button>
+                    </div>
+                  )}
+                  {unvotedMotions.length > 0 && !isClosed && !allSubmitted && (
+                    <div className="submit-section">
+                      <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
+                        Submit ballot
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
