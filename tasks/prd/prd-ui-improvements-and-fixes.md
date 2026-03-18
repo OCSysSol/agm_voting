@@ -184,16 +184,42 @@ A set of UI improvements and correctness fixes for the voting application:
 **Description:** As a building manager, I want to delete a meeting that is in a closed or pending state so I can remove test meetings or incorrectly created meetings without leaving clutter.
 
 **Acceptance Criteria:**
-- [ ] A "Delete Meeting" button is visible on the General Meeting detail page when the meeting status is `closed` or `pending`
-- [ ] The button is not shown for meetings with status `open` — open meetings cannot be deleted
-- [ ] Clicking "Delete Meeting" shows a browser confirmation dialog before proceeding
-- [ ] On confirmation, `DELETE /api/admin/general-meetings/{id}` is called
-  - [ ] Returns 204 on success; the meeting and all associated data (ballot submissions, lot weights, motions, OTP records) are cascade-deleted
-  - [ ] Returns 404 if the meeting does not exist
-  - [ ] Returns 409 if the meeting status is `open`
-- [ ] On successful deletion, the admin is navigated to the General Meetings list page
-- [ ] The button is disabled and shows "Deleting…" while the request is in flight
-- [ ] Typecheck/lint passes
+- [x] A "Delete Meeting" button is visible on the General Meeting detail page when the meeting status is `closed` or `pending`
+- [x] The button is not shown for meetings with status `open` — open meetings cannot be deleted
+- [x] Clicking "Delete Meeting" shows a browser confirmation dialog before proceeding
+- [x] On confirmation, `DELETE /api/admin/general-meetings/{id}` is called
+  - [x] Returns 204 on success; the meeting and all associated data (ballot submissions, lot weights, motions, OTP records) are cascade-deleted
+  - [x] Returns 404 if the meeting does not exist
+  - [x] Returns 409 if the meeting status is `open`
+- [x] On successful deletion, the admin is navigated to the General Meetings list page
+- [x] The button is disabled and shows "Deleting…" while the request is in flight
+- [x] Typecheck/lint passes
+
+---
+
+### US-TECH01: Vercel Analytics and Speed Insights
+
+**Description:** As a product owner, I want Vercel Analytics and Speed Insights instrumented in the frontend so I can monitor real-user performance and usage patterns.
+
+**Acceptance Criteria:**
+- [x] `@vercel/analytics` package added to frontend dependencies
+- [x] `@vercel/speed-insights` package added to frontend dependencies
+- [x] `<Analytics />` component from `@vercel/analytics/react` mounted in `App.tsx`
+- [x] `<SpeedInsights />` component from `@vercel/speed-insights/react` mounted in `App.tsx`
+- [x] Both components are mocked in frontend unit tests so they don't interfere with test rendering
+- [x] Typecheck/lint passes
+
+---
+
+### US-TECH02: Fix browser caching of index.html
+
+**Description:** As a user, I should not need to force-refresh my browser after a deployment to see the latest version of the app.
+
+**Acceptance Criteria:**
+- [x] `index.html` is served with `Cache-Control: no-cache, no-store, must-revalidate` so browsers always revalidate on the next visit
+- [x] Hashed asset files (JS/CSS bundles under `/assets/`) are served with `Cache-Control: public, max-age=31536000, immutable` for optimal caching
+- [x] Implementation uses a `_ImmutableStaticFiles` subclass in `api/index.py` to inject immutable cache headers on the `/assets` mount
+- [x] Typecheck/lint passes
 
 ---
 
@@ -211,6 +237,8 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-10: On Lambda cold start, meetings with `close_date < now()` and `status = 'open'` are automatically set to `closed` and absent ballot submissions are generated for all non-voting lots
 - FR-11: Voters cannot reach the voting page for a meeting that is past its close date; they are routed to the read-only confirmation screen
 - FR-12: The General Meetings list page has a single-select building filter dropdown; filter state is persisted as a `?building=<id>` URL search param; filtering is client-side
+- FR-13: Vercel Analytics and Speed Insights are mounted in the frontend app
+- FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
 
 ---
 

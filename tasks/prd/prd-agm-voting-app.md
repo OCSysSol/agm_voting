@@ -37,16 +37,16 @@ A web application for body corporates to run voting during Annual General Meetin
 **Description:** As a building manager, I want to permanently delete a building that has been archived so I can remove test or incorrectly created buildings from the system.
 
 **Acceptance Criteria:**
-- [ ] `DELETE /api/admin/buildings/:id` endpoint added
-- [ ] Returns 204 on success; the building and all cascade data (lot owners, general meeting lot weights, ballot submissions, votes, session records, motions, general meetings) are deleted
-- [ ] Returns 404 if the building does not exist
-- [ ] Returns 409 if the building is not archived (only archived buildings can be deleted)
-- [ ] A "Delete Building" button is visible on the building detail/edit page only when the building is archived
-- [ ] Clicking the button shows a browser confirmation dialog before proceeding
-- [ ] On success, admin is navigated to the buildings list
-- [ ] Button shows "Deleting…" while the request is in flight
-- [ ] Typecheck/lint passes
-- [ ] All tests pass at 100% coverage
+- [x] `DELETE /api/admin/buildings/:id` endpoint added
+- [x] Returns 204 on success; the building and all cascade data (lot owners, general meeting lot weights, ballot submissions, votes, session records, motions, general meetings) are deleted
+- [x] Returns 404 if the building does not exist
+- [x] Returns 409 if the building is not archived (only archived buildings can be deleted)
+- [x] A "Delete Building" button is visible on the building detail/edit page only when the building is archived
+- [x] Clicking the button shows a browser confirmation dialog before proceeding
+- [x] On success, admin is navigated to the buildings list
+- [x] Button shows "Deleting…" while the request is in flight
+- [x] Typecheck/lint passes
+- [x] All tests pass at 100% coverage
 
 ---
 
