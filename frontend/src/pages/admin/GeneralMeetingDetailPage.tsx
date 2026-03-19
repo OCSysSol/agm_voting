@@ -456,149 +456,29 @@ export default function GeneralMeetingDetailPage() {
                               setEditMotionError(null);
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              className="motion-visibility-toggle__input"
-                              checked={motion.is_visible}
-                              disabled={isVisDisabled}
-                              onChange={() => {
-                                setVisibilityErrors((prev) => {
-                                  const next = { ...prev };
-                                  delete next[motion.id];
-                                  return next;
-                                });
-                                visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
-                              }}
-                            />
-                            <span className="motion-visibility-toggle__track" />
-                            <span className="motion-visibility-toggle__label">
-                              {motion.is_visible ? "Visible" : "Hidden"}
-                            </span>
-                          </label>
-                          {visibilityErrors[motion.id] && (
-                            <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                              {visibilityErrors[motion.id]}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              type="button"
-                              className="btn btn--table-edit btn--sm"
-                              disabled={isEditDeleteDisabled}
-                              title={editDeleteTitle}
-                              onClick={() => {
-                                setEditingMotionId(motion.id);
-                                setEditForm({
-                                  title: motion.title,
-                                  description: motion.description ?? "",
-                                  motion_type: motion.motion_type,
-                                });
-                                setEditMotionError(null);
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn--table-delete btn--sm"
-                              disabled={isEditDeleteDisabled}
-                              title={editDeleteTitle}
-                              onClick={() => {
-                                if (window.confirm("Delete this motion? This cannot be undone.")) {
-                                  deleteMotionMutation.mutate(motion.id);
-                                }
-                              }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                          {deleteMotionErrors[motion.id] && (
-                            <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                              {deleteMotionErrors[motion.id]}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                      {editingMotionId === motion.id && (
-                        <tr key={`edit-${motion.id}`}>
-                          <td colSpan={5}>
-                            <div className="admin-card" style={{ margin: "8px 0" }}>
-                              <h4 className="admin-card__title">Edit Motion</h4>
-                              <form
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  updateMotionMutation.mutate({
-                                    motionId: motion.id,
-                                    data: {
-                                      title: editForm.title || undefined,
-                                      description: editForm.description || undefined,
-                                      motion_type: editForm.motion_type,
-                                    },
-                                  });
-                                }}
-                              >
-                                <div className="field">
-                                  <label className="field__label" htmlFor={`edit-title-${motion.id}`}>Title</label>
-                                  <input
-                                    id={`edit-title-${motion.id}`}
-                                    className="field__input"
-                                    aria-label="Edit Title"
-                                    value={editForm.title}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                                  />
-                                </div>
-                                <div className="field">
-                                  <label className="field__label" htmlFor={`edit-desc-${motion.id}`}>Description</label>
-                                  <textarea
-                                    id={`edit-desc-${motion.id}`}
-                                    className="field__input"
-                                    aria-label="Edit Description"
-                                    value={editForm.description}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                                  />
-                                </div>
-                                <div className="field">
-                                  <label className="field__label" htmlFor={`edit-type-${motion.id}`}>Motion Type</label>
-                                  <select
-                                    id={`edit-type-${motion.id}`}
-                                    className="field__select"
-                                    aria-label="Edit Motion Type"
-                                    value={editForm.motion_type}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, motion_type: e.target.value as MotionType }))}
-                                  >
-                                    <option value="general">General</option>
-                                    <option value="special">Special</option>
-                                  </select>
-                                </div>
-                                {editMotionError && (
-                                  <span role="alert" className="field__error">
-                                    {editMotionError}
-                                  </span>
-                                )}
-                                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                                  <button
-                                    type="submit"
-                                    className="btn btn--primary"
-                                    disabled={updateMotionMutation.isPending}
-                                  >
-                                    {updateMotionMutation.isPending ? "Saving…" : "Save"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn--secondary"
-                                    onClick={() => setEditingMotionId(null)}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </form>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--table-delete btn--sm"
+                            disabled={isEditDeleteDisabled}
+                            title={editDeleteTitle}
+                            onClick={() => {
+                              if (window.confirm("Delete this motion? This cannot be undone.")) {
+                                deleteMotionMutation.mutate(motion.id);
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        {deleteMotionErrors[motion.id] && (
+                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
+                            {deleteMotionErrors[motion.id]}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
