@@ -385,15 +385,18 @@ export default function GeneralMeetingDetailPage() {
                       : undefined;
                   const isEditDeleteDisabled = motion.is_visible || meeting.status === "closed";
                   const editDeleteTitle = isEditDeleteDisabled ? "Hide this motion first to edit or delete" : undefined;
+                  const mutedCell = !motion.is_visible ? "admin-table__cell--muted" : undefined;
                   return (
                     <tr
                       key={motion.id}
-                      className={!motion.is_visible ? "admin-table__row--muted" : undefined}
                     >
-                      <td style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}>
+                      <td
+                        className={mutedCell}
+                        style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}
+                      >
                         {motion.order_index + 1}
                       </td>
-                      <td>
+                      <td className={mutedCell}>
                         <span style={{ fontWeight: 500 }}>{motion.title}</span>
                         {motion.description && (
                           <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
@@ -401,7 +404,7 @@ export default function GeneralMeetingDetailPage() {
                           </p>
                         )}
                       </td>
-                      <td>
+                      <td className={mutedCell}>
                         <span
                           className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
                           aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
@@ -409,7 +412,7 @@ export default function GeneralMeetingDetailPage() {
                           {motion.motion_type === "special" ? "Special" : "General"}
                         </span>
                       </td>
-                      <td>
+                      <td className={mutedCell}>
                         <label
                           className={`motion-visibility-toggle${isVisDisabled ? " motion-visibility-toggle--disabled" : ""}${isVisLoading ? " motion-visibility-toggle--loading" : ""}`}
                           title={disabledReason}

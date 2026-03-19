@@ -655,9 +655,9 @@ button, input, select, textarea {
   font-weight: 600;
 }
 
-/* Admin table muted row */
-.admin-table__row--muted td {
-  opacity: 0.6;
+/* Admin table muted cell — applied to text cells only, not the actions cell */
+.admin-table__cell--muted {
+  opacity: 0.45;
 }
 
 .motion-card__footer {
