@@ -129,6 +129,24 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 ---
 
+### US-MV08: Bulk hide/show all motions
+
+**Description:** As a building manager, I want to show all or hide all motions at once so I can quickly control visibility at the start or end of a voting session without toggling each motion individually.
+
+**Acceptance Criteria:**
+- [ ] Two buttons appear above the motion table: "Show All" and "Hide All"
+- [ ] "Show All" sets `is_visible = true` for all motions in the meeting
+- [ ] "Hide All" sets `is_visible = false` for all motions in the meeting that have NOT received any votes (motions with votes cannot be hidden — 409 rule still applies, skip them silently)
+- [ ] Both buttons are disabled when the meeting status is `closed`
+- [ ] "Show All" is disabled when all motions are already visible
+- [ ] "Hide All" is disabled when all hide-eligible motions are already hidden (i.e. no currently-visible motion is eligible to be hidden)
+- [ ] A loading state is shown on the active button while requests are in flight
+- [ ] Individual per-motion toggles continue to work alongside the bulk buttons
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ### US-AM01: Add a new motion to an existing meeting
 
 **Description:** As a building manager, I want to add a new motion to a meeting that is in `pending` or `open` status so I can include late-arriving agenda items without recreating the meeting.
