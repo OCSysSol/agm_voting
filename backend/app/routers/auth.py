@@ -22,6 +22,7 @@ from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
 from app.models.motion import Motion
+from app.models.session_record import SessionRecord
 from app.models.vote import Vote, VoteStatus
 from app.schemas.auth import (
     AuthVerifyRequest,
@@ -29,6 +30,7 @@ from app.schemas.auth import (
     LotInfo,
     OtpRequestBody,
     OtpRequestResponse,
+    SessionRestoreRequest,
 )
 from app.services.auth_service import create_session
 from app.services.email_service import send_otp_email
@@ -341,6 +343,165 @@ async def verify_auth(
         building_name=building.name,
         meeting_title=meeting.title,
         unvoted_visible_count=unvoted_visible_count,
+        session_token=token,
+    )
+
+
+@router.post("/auth/session", response_model=AuthVerifyResponse)
+async def restore_session(
+    request: SessionRestoreRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> AuthVerifyResponse:
+    """
+    Restore a voter session from a previously issued session token (stored in localStorage).
+    Validates the token, checks that the AGM is still open, and returns the same
+    AuthVerifyResponse shape as POST /api/auth/verify so the frontend can skip the OTP flow.
+
+    Returns 401 if the token is invalid, expired, or the AGM is closed.
+    """
+    # 1. Look up session by token + meeting_id + expiry using get_session logic directly.
+    #    get_session() requires Cookie/Header params so we call the DB directly here.
+    now = datetime.now(UTC)
+    session_result = await db.execute(
+        select(SessionRecord).where(
+            SessionRecord.session_token == request.session_token,
+            SessionRecord.general_meeting_id == request.general_meeting_id,
+            SessionRecord.expires_at > now,
+        )
+    )
+    session_record = session_result.scalar_one_or_none()
+    if session_record is None:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    # 2. Load the GeneralMeeting
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(GeneralMeeting.id == request.general_meeting_id)
+    )
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:  # pragma: no cover  # SessionRecord has ON DELETE CASCADE FK to GeneralMeeting; meeting cannot be deleted while session exists
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+
+    # 3. Reject closed meetings — forces frontend through normal OTP flow which
+    #    handles closed-meeting routing via agm_status: "closed".
+    if get_effective_status(meeting).value == "closed":
+        raise HTTPException(status_code=401, detail="Session expired — meeting is closed")
+
+    voter_email = session_record.voter_email
+    building_id = meeting.building_id
+
+    # 4. Run lot-lookup (same as verify_auth steps 4–9)
+    emails_result = await db.execute(
+        select(LotOwnerEmail)
+        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        .where(
+            LotOwnerEmail.email == voter_email,
+            LotOwner.building_id == building_id,
+        )
+    )
+    email_records = list(emails_result.scalars().all())
+    direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
+
+    proxy_result = await db.execute(
+        select(LotProxy)
+        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        .where(
+            LotProxy.proxy_email == voter_email,
+            LotOwner.building_id == building_id,
+        )
+    )
+    proxy_records = list(proxy_result.scalars().all())
+    proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
+
+    all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
+
+    # 5. Fetch Building for name
+    building_result = await db.execute(
+        select(Building).where(Building.id == building_id)
+    )
+    building = building_result.scalar_one()
+
+    # 6. Fetch LotOwner records
+    lots_result = await db.execute(
+        select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
+    )
+    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
+
+    # 7. Fetch visible motions
+    visible_motions_result = await db.execute(
+        select(Motion).where(
+            Motion.general_meeting_id == request.general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
+        )
+    )
+    visible_motions = list(visible_motions_result.scalars().all())
+    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
+
+    # 8. Fetch submitted votes per lot
+    voted_by_lot_result = await db.execute(
+        select(Vote.lot_owner_id, Vote.motion_id).where(
+            Vote.general_meeting_id == request.general_meeting_id,
+            Vote.lot_owner_id.in_(all_lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
+        )
+    )
+    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for lot_owner_id, motion_id in voted_by_lot_result.all():
+        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
+
+    # 9. Build lot list with fresh already_submitted flags
+    lots = []
+    for lot_owner_id in all_lot_owner_ids:
+        lo = lot_owners.get(lot_owner_id)
+        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
+            continue
+        is_proxy = lot_owner_id not in direct_lot_owner_ids
+        fp = lo.financial_position
+        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
+        already_submitted = (
+            len(visible_motion_ids) > 0
+            and visible_motion_ids.issubset(voted_for_this_lot)
+        )
+        lots.append(LotInfo(
+            lot_owner_id=lo.id,
+            lot_number=lo.lot_number,
+            financial_position=fp.value if hasattr(fp, "value") else fp,
+            already_submitted=already_submitted,
+            is_proxy=is_proxy,
+        ))
+
+    lots.sort(key=lambda l: l.lot_number)
+
+    any_lot_not_submitted = any(not l.already_submitted for l in lots)
+    if any_lot_not_submitted:
+        unvoted_visible_count = len(visible_motions)
+    else:
+        unvoted_visible_count = 0
+
+    # 10. Re-issue a new session token and set the cookie
+    new_token = await create_session(
+        db=db,
+        voter_email=voter_email,
+        building_id=building_id,
+        general_meeting_id=request.general_meeting_id,
+    )
+    await db.commit()
+
+    response.set_cookie(
+        key="meeting_session",
+        value=new_token,
+        httponly=True,
+        samesite="lax",
+    )
+
+    return AuthVerifyResponse(
+        lots=lots,
+        voter_email=voter_email,
+        agm_status=get_effective_status(meeting).value,
+        building_name=building.name,
+        meeting_title=meeting.title,
+        unvoted_visible_count=unvoted_visible_count,
+        session_token=new_token,
     )
 
 

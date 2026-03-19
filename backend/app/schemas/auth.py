@@ -4,6 +4,18 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 
+class SessionRestoreRequest(BaseModel):
+    session_token: str
+    general_meeting_id: uuid.UUID
+
+    @field_validator("session_token")
+    @classmethod
+    def token_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("session_token must not be empty")
+        return v
+
+
 class OtpRequestBody(BaseModel):
     email: str
     general_meeting_id: uuid.UUID
@@ -56,3 +68,4 @@ class AuthVerifyResponse(BaseModel):
     building_name: str
     meeting_title: str
     unvoted_visible_count: int = 0
+    session_token: str = ""

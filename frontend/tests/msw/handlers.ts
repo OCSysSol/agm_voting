@@ -733,8 +733,28 @@ export const handlers = [
       building_name: "Sunset Towers",
       meeting_title: "2024 AGM",
       unvoted_visible_count: 1,
+      session_token: "test-session-token-abc123",
     })
   ),
+
+  http.post(`${BASE}/api/auth/session`, async ({ request }) => {
+    const body = await request.json() as { session_token?: string; general_meeting_id?: string };
+    if (body?.session_token === "invalid-token" || body?.session_token === "expired-token") {
+      return HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 });
+    }
+    if (body?.session_token === "closed-meeting-token") {
+      return HttpResponse.json({ detail: "Session expired — meeting is closed" }, { status: 401 });
+    }
+    return HttpResponse.json({
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+      voter_email: "owner@example.com",
+      agm_status: "open",
+      building_name: "Sunset Towers",
+      meeting_title: "2024 AGM",
+      unvoted_visible_count: 1,
+      session_token: "new-session-token-xyz789",
+    });
+  }),
 
   http.get(`${BASE}/api/general-meeting/:meetingId/motions`, () =>
     HttpResponse.json(motionFixtures)

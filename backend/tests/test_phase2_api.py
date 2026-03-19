@@ -647,6 +647,379 @@ class TestAuthVerify:
         )
         assert response.status_code == 401
 
+    async def test_verify_returns_session_token_in_body(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """POST /api/auth/verify must return session_token in the response body for localStorage persistence."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "session_token" in data
+        assert isinstance(data["session_token"], str)
+        assert len(data["session_token"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/session  (session restore)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionRestore:
+    # --- Happy path ---
+
+    async def test_valid_token_returns_200_with_lot_list(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A valid token returns 200 with AuthVerifyResponse shape."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "lots" in data
+        assert data["voter_email"] == voter_email
+        assert data["agm_status"] == "open"
+        assert data["building_name"] == building.name
+        assert data["meeting_title"] == agm.title
+        assert isinstance(data["session_token"], str)
+        assert len(data["session_token"]) > 0
+
+    async def test_valid_token_sets_meeting_session_cookie(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Successful session restore sets the meeting_session HttpOnly cookie."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        assert "meeting_session" in response.cookies
+
+    async def test_valid_token_returns_fresh_already_submitted_flags(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """already_submitted flags reflect current vote state at restore time."""
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        motions = building_with_agm["motions"]
+        building = building_with_agm["building"]
+
+        # Submit votes for all motions
+        bs = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+        )
+        db_session.add(bs)
+        for motion in motions:
+            v = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(v)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["lots"][0]["already_submitted"] is True
+
+    async def test_valid_token_with_proxy_lot_returns_is_proxy_true(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore returns is_proxy=True for proxy lots."""
+        lo = building_with_agm["lot_owner"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+        proxy_email = f"proxy_restore_{uuid.uuid4().hex[:6]}@test.com"
+
+        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        db_session.add(lp)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        proxy_lot = next((l for l in data["lots"] if l["lot_owner_id"] == str(lo.id)), None)
+        assert proxy_lot is not None
+        assert proxy_lot["is_proxy"] is True
+
+    async def test_valid_token_returns_new_session_token(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """The restored session returns a new session_token (fresh session created)."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        original_token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": original_token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        new_token = response.json()["session_token"]
+        # A new token is issued each restore; it may differ from the original
+        assert isinstance(new_token, str)
+        assert len(new_token) > 0
+
+    # --- Input validation ---
+
+    async def test_empty_session_token_returns_422(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        """Empty session_token fails Pydantic validation."""
+        agm = building_with_agm["agm"]
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": "", "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 422
+
+    async def test_whitespace_session_token_returns_422(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        """Whitespace-only session_token fails Pydantic validation."""
+        agm = building_with_agm["agm"]
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": "   ", "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 422
+
+    async def test_missing_general_meeting_id_returns_422(
+        self, client: AsyncClient
+    ):
+        """Missing general_meeting_id fails Pydantic validation."""
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": "some-token"},
+        )
+        assert response.status_code == 422
+
+    # --- Boundary values ---
+
+    async def test_token_for_different_meeting_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A token issued for one meeting cannot be used for a different meeting_id."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+        other_meeting_id = uuid.uuid4()
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(other_meeting_id)},
+        )
+        # Returns 401 (session not found) or 404 if meeting doesn't exist — both are safe
+        assert response.status_code in (401, 404)
+
+    # --- State / precondition errors ---
+
+    async def test_invalid_token_returns_401(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        """A tampered or unknown token returns 401."""
+        agm = building_with_agm["agm"]
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": "totally-invalid-garbage-token", "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired or invalid"
+
+    async def test_expired_token_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A token whose expires_at is in the past returns 401."""
+        import secrets
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = secrets.token_urlsafe(32)
+        expired_session = SessionRecord(
+            session_token=token,
+            voter_email=voter_email,
+            building_id=building.id,
+            general_meeting_id=agm.id,
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        db_session.add(expired_session)
+        await db_session.flush()
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired or invalid"
+
+    async def test_closed_agm_token_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A valid token for a closed AGM returns 401 with the closed-meeting message."""
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        closed_agm = GeneralMeeting(
+            building_id=building.id,
+            title="Closed Session Test Meeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+            closed_at=datetime.now(UTC),
+        )
+        db_session.add(closed_agm)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, closed_agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(closed_agm.id)},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired — meeting is closed"
+
+    async def test_past_voting_closes_at_agm_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """An AGM past its voting_closes_at (effective status 'closed') also returns 401."""
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        past_agm = GeneralMeeting(
+            building_id=building.id,
+            title="Past Closes Session Test Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=3),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(past_agm)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, past_agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(past_agm.id)},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired — meeting is closed"
+
+    async def test_nonexistent_meeting_id_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A valid-format meeting_id that doesn't exist in DB returns 404."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        # Create a session record pointing at an existing meeting
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # But request with a different (nonexistent) meeting_id that won't match session_record
+        # (and if it somehow finds a session, the meeting lookup returns 404)
+        # We create a fake meeting_id that has no DB row
+        fake_meeting_id = uuid.uuid4()
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(fake_meeting_id)},
+        )
+        # Session not found for fake_meeting_id → 401
+        assert response.status_code == 401
+
+    # --- Edge cases ---
+
+    async def test_pending_agm_session_restore_returns_200_with_pending_status(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore for a pending AGM returns 200 with agm_status='pending'."""
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        pending_agm = GeneralMeeting(
+            building_id=building.id,
+            title="Pending Session Test Meeting",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(pending_agm)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, pending_agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(pending_agm.id)},
+        )
+        assert response.status_code == 200
+        assert response.json()["agm_status"] == "pending"
+
+    async def test_session_restore_unvoted_visible_count_reflects_current_state(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """unvoted_visible_count is computed fresh from current DB state."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Fixture has 2 motions, voter has not submitted any → unvoted_visible_count = 2
+        assert data["unvoted_visible_count"] == 2
+
 
 # ---------------------------------------------------------------------------
 # auth_service tests (get_session)

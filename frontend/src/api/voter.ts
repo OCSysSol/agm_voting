@@ -44,6 +44,12 @@ export interface AuthVerifyResponse {
   building_name: string;
   meeting_title: string;
   unvoted_visible_count: number;
+  session_token: string;
+}
+
+export interface SessionRestoreRequest {
+  session_token: string;
+  general_meeting_id: string;
 }
 
 export interface MotionOut {
@@ -160,4 +166,11 @@ export function submitBallot(meetingId: string, request: SubmitBallotRequest): P
 
 export function fetchMyBallot(meetingId: string): Promise<MyBallotResponse> {
   return apiFetch<MyBallotResponse>(`/api/general-meeting/${meetingId}/my-ballot`);
+}
+
+export function restoreSession(req: SessionRestoreRequest): Promise<AuthVerifyResponse> {
+  return apiFetch<AuthVerifyResponse>("/api/auth/session", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
 }
