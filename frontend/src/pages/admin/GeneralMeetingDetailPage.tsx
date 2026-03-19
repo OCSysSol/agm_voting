@@ -446,7 +446,8 @@ export default function GeneralMeetingDetailPage() {
                         <div style={{ display: "flex", gap: 6 }}>
                           <button
                             type="button"
-                            className="btn btn--primary btn--sm"
+                            className="btn btn--secondary"
+                            style={{ padding: "5px 14px", fontSize: "0.8rem" }}
                             disabled={isEditDeleteDisabled}
                             title={editDeleteTitle}
                             onClick={() => {
