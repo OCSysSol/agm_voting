@@ -25,6 +25,7 @@ import {
   seedLotOwner,
   createOpenMeeting,
   createPendingMeeting,
+  seedPendingMeeting,
   closeMeeting,
   clearBallots,
   goToAuthPage,
@@ -234,14 +235,30 @@ test.describe("WF8: Edge cases", () => {
   }) => {
     test.setTimeout(120000);
 
-    // Create a fresh pending meeting
+    // Seed the open meeting FIRST so the WF8 building passes the
+    // GET /api/buildings filter (which requires meeting_at <= now).
+    // createOpenMeeting closes any existing open/pending meetings before
+    // creating its own, so it must run before the pending meeting is created.
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     const api = await playwrightRequest.newContext({
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const pendingMeetingId = await createPendingMeeting(
+    await createOpenMeeting(api, buildingId, `WF8 Open Meeting WF8.6-${RUN_SUFFIX}`, [
+      {
+        title: MOTION_TITLE,
+        description: "A test motion for WF8.6.",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
+
+    // Seed the pending meeting WITHOUT closing the open meeting above.
+    // Using seedPendingMeeting (no close-all step) keeps both meetings alive:
+    // the open meeting keeps the building visible in the voter dropdown, and
+    // the pending meeting is the one under test.
+    const pendingMeetingId = await seedPendingMeeting(
       api,
       buildingId,
       `WF8 Pending Meeting-${RUN_SUFFIX}`,
@@ -254,19 +271,6 @@ test.describe("WF8: Edge cases", () => {
         },
       ]
     );
-
-    // Ensure the WF8 building appears in the dropdown by seeding an open meeting.
-    // The filter on GET /api/buildings only returns buildings with at least one
-    // open meeting; previous tests may have closed all open meetings for this
-    // building, so we seed a new one here to guarantee the building is selectable.
-    await createOpenMeeting(api, buildingId, `WF8 Open Meeting WF8.6-${RUN_SUFFIX}`, [
-      {
-        title: MOTION_TITLE,
-        description: "A test motion for WF8.6.",
-        orderIndex: 1,
-        motionType: "general",
-      },
-    ]);
 
     // Keep api alive for OTP retrieval after pending meeting navigation
     // On home page, select WF8 building — pending meeting shows disabled button
