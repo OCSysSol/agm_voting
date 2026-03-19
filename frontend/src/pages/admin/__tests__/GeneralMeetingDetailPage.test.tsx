@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -545,13 +545,14 @@ describe("Add Motion form", () => {
     });
   });
 
-  it("clicking Add Motion shows the inline form", async () => {
+  it("clicking Add Motion opens a modal dialog", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title *")).toBeInTheDocument();
     expect(screen.getByLabelText("Description")).toBeInTheDocument();
     expect(screen.getByLabelText("Motion Type")).toBeInTheDocument();
@@ -617,18 +618,49 @@ describe("Add Motion form", () => {
 
   // --- Edge cases ---
 
-  it("Cancel button hides the form without calling the API", async () => {
+  it("Cancel button closes the modal without calling the API", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Add Motion" }));
-    expect(screen.getByRole("button", { name: "Save Motion" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
-    // Add Motion button is back
+    expect(screen.queryByRole("dialog", { name: "Add Motion" })).not.toBeInTheDocument();
+    // Add Motion button is still present
     expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+  });
+
+  it("Escape key closes the Add Motion modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Add Motion" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("clicking the backdrop closes the Add Motion modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    const dialog = screen.getByRole("dialog", { name: "Add Motion" });
+    expect(dialog).toBeInTheDocument();
+    // The backdrop is the previous sibling div of the dialog panel
+    const backdrop = dialog.previousElementSibling as HTMLElement;
+    fireEvent.click(backdrop);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Add Motion" })).not.toBeInTheDocument();
+    });
   });
 
   it("Save button is disabled while mutation is pending", async () => {

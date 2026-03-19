@@ -49,7 +49,7 @@ export default function GeneralMeetingDetailPage() {
   const [pendingVisibilityMotionId, setPendingVisibilityMotionId] = useState<string | null>(null);
 
   // Add motion state
-  const [showAddMotionForm, setShowAddMotionForm] = useState(false);
+  const [showAddMotionModal, setShowAddMotionModal] = useState(false);
   const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
     title: "",
     description: "",
@@ -72,7 +72,7 @@ export default function GeneralMeetingDetailPage() {
   const addMotionMutation = useMutation({
     mutationFn: (data: AddMotionRequest) => addMotionToMeeting(meetingId!, data),
     onSuccess: () => {
-      setShowAddMotionForm(false);
+      setShowAddMotionModal(false);
       setAddMotionError(null);
       setAddMotionForm({ title: "", description: "", motion_type: "general" });
       void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
@@ -145,6 +145,16 @@ export default function GeneralMeetingDetailPage() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [editingMotion, updateMotionMutation.isPending]);
+
+  // Escape key handler for add motion modal
+  useEffect(() => {
+    if (!showAddMotionModal) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setShowAddMotionModal(false); setAddMotionError(null); }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [showAddMotionModal]);
 
   function handleDelete() {
     if (window.confirm("Delete this meeting? This cannot be undone.")) {
@@ -275,85 +285,13 @@ export default function GeneralMeetingDetailPage() {
       <div style={{ marginBottom: 24 }}>
         {meeting.status !== "closed" && (
           <div style={{ marginBottom: 12 }}>
-            {!showAddMotionForm ? (
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => { setShowAddMotionForm(true); setAddMotionError(null); }}
-              >
-                Add Motion
-              </button>
-            ) : (
-              <div className="admin-card" style={{ marginBottom: 16 }}>
-                <h3 className="admin-card__title">Add Motion</h3>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!addMotionForm.title.trim()) {
-                      setAddMotionError("Title is required");
-                      return;
-                    }
-                    addMotionMutation.mutate({
-                      title: addMotionForm.title,
-                      description: addMotionForm.description || null,
-                      motion_type: addMotionForm.motion_type,
-                    });
-                  }}
-                >
-                  <div className="field">
-                    <label className="field__label" htmlFor="add-motion-title">Title *</label>
-                    <input
-                      id="add-motion-title"
-                      className="field__input"
-                      value={addMotionForm.title}
-                      onChange={(e) => setAddMotionForm((f) => ({ ...f, title: e.target.value }))}
-                    />
-                  </div>
-                  <div className="field">
-                    <label className="field__label" htmlFor="add-motion-description">Description</label>
-                    <textarea
-                      id="add-motion-description"
-                      className="field__input"
-                      value={addMotionForm.description}
-                      onChange={(e) => setAddMotionForm((f) => ({ ...f, description: e.target.value }))}
-                    />
-                  </div>
-                  <div className="field">
-                    <label className="field__label" htmlFor="add-motion-type">Motion Type</label>
-                    <select
-                      id="add-motion-type"
-                      className="field__select"
-                      value={addMotionForm.motion_type}
-                      onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_type: e.target.value as MotionType }))}
-                    >
-                      <option value="general">General</option>
-                      <option value="special">Special</option>
-                    </select>
-                  </div>
-                  {addMotionError && (
-                    <span role="alert" className="field__error">
-                      {addMotionError}
-                    </span>
-                  )}
-                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                    <button
-                      type="submit"
-                      className="btn btn--primary"
-                      disabled={addMotionMutation.isPending}
-                    >
-                      {addMotionMutation.isPending ? "Saving…" : "Save Motion"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--secondary"
-                      onClick={() => { setShowAddMotionForm(false); setAddMotionError(null); }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+            >
+              Add Motion
+            </button>
           </div>
         )}
         {meeting.motions.length === 0 ? (
@@ -493,6 +431,103 @@ export default function GeneralMeetingDetailPage() {
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+
+      {/* Add Motion Modal */}
+      {showAddMotionModal && (
+        <>
+          {/* Backdrop */}
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200 }}
+            onClick={() => { setShowAddMotionModal(false); setAddMotionError(null); }}
+          />
+          {/* Panel */}
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add Motion"
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "min(480px, 90vw)",
+              zIndex: 201,
+              background: "white",
+              borderRadius: "var(--r-lg)",
+              padding: "1.5rem",
+              boxShadow: "var(--shadow-lg)",
+            }}
+          >
+            <h3 className="admin-card__title">Add Motion</h3>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!addMotionForm.title.trim()) {
+                  setAddMotionError("Title is required");
+                  return;
+                }
+                addMotionMutation.mutate({
+                  title: addMotionForm.title,
+                  description: addMotionForm.description || null,
+                  motion_type: addMotionForm.motion_type,
+                });
+              }}
+            >
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-title">Title *</label>
+                <input
+                  id="add-motion-title"
+                  className="field__input"
+                  value={addMotionForm.title}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-description">Description</label>
+                <textarea
+                  id="add-motion-description"
+                  className="field__input"
+                  value={addMotionForm.description}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-type">Motion Type</label>
+                <select
+                  id="add-motion-type"
+                  className="field__select"
+                  value={addMotionForm.motion_type}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_type: e.target.value as MotionType }))}
+                >
+                  <option value="general">General</option>
+                  <option value="special">Special</option>
+                </select>
+              </div>
+              {addMotionError && (
+                <span role="alert" className="field__error">
+                  {addMotionError}
+                </span>
+              )}
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={addMotionMutation.isPending}
+                >
+                  {addMotionMutation.isPending ? "Saving…" : "Save Motion"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => { setShowAddMotionModal(false); setAddMotionError(null); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
 
       {/* Edit Motion Modal */}
       {editingMotion && (
