@@ -644,11 +644,11 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     // → mixed state → voter lands on voting page
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Vote on both motions
+    // Vote on both motions — use name filters to avoid matching hidden mobile drawer duplicates
     const motionCards = page.locator(".motion-card");
     await expect(motionCards).toHaveCount(2, { timeout: 15000 });
-    await motionCards.first().getByRole("button", { name: "For" }).click();
-    await motionCards.last().getByRole("button", { name: "For" }).click();
+    await motionCards.filter({ hasText: wf102Motion1 }).getByRole("button", { name: "For" }).click();
+    await motionCards.filter({ hasText: wf102Motion2 }).getByRole("button", { name: "For" }).click();
 
     // Trigger mixed warning
     await page.getByRole("button", { name: "Submit ballot" }).click();
