@@ -681,7 +681,14 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     await goToAuthPage(page, wf102Building);
     await authenticateVoter(page, wf102Email, () => getTestOtp(api, wf102Email, wf102MeetingId));
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
-    await page.waitForLoadState("networkidle");
+
+    // Wait for motion cards to load BEFORE unchecking Lot D.
+    // The VotingPage has a [motions, allLots] effect that re-seeds selectedIds whenever
+    // motions load for the first time. If the uncheck happens before that effect runs,
+    // the effect re-adds Lot D (it has no submitted ballot) and both lots get submitted.
+    // Waiting for the motion card to be visible first ensures the re-seed has already run.
+    const motionCardStep1 = page.locator(".motion-card").first();
+    await expect(motionCardStep1).toBeVisible({ timeout: 15000 });
 
     // Deselect Lot D so only Lot C is submitted
     const lotDCheckbox = page.getByLabel(`Select Lot ${wf102LotD}`).last();
@@ -689,8 +696,6 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     await lotDCheckbox.uncheck();
 
     // Vote on motion 1 for Lot C only and submit
-    const motionCardStep1 = page.locator(".motion-card").first();
-    await expect(motionCardStep1).toBeVisible({ timeout: 15000 });
     await motionCardStep1.getByRole("button", { name: "For" }).click();
 
     await page.getByRole("button", { name: "Submit ballot" }).click();
