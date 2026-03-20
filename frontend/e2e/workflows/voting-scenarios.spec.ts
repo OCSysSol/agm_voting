@@ -436,14 +436,20 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
+    // Wait for motion cards to load BEFORE unchecking LOT_B.
+    // The VotingPage has a [motions, allLots] effect that re-seeds selectedIds whenever
+    // motions load for the first time. If motions load AFTER the user unchecks a lot,
+    // the effect re-adds it (because it's not yet submitted). Waiting for motions to
+    // appear first ensures the re-seed effect has already run so the subsequent uncheck
+    // sticks without being overridden.
+    const motionCards = page.locator(".motion-card");
+    await expect(motionCards).toHaveCount(2, { timeout: 15000 });
+
     // Both lots visible; uncheck LOT_B (scoped to sidebar to avoid duplicate in mobile drawer)
     const sidebar = page.locator(".voting-layout__sidebar");
     await expect(sidebar.getByText("You are voting for 2 lots.")).toBeVisible();
     await page.getByRole("checkbox", { name: `Select Lot ${LOT_B}` }).uncheck();
     await expect(sidebar.getByText("You are voting for 1 lot.")).toBeVisible();
-
-    const motionCards = page.locator(".motion-card");
-    await expect(motionCards).toHaveCount(2);
 
     await motionCards.filter({ hasText: MOTION1_TITLE }).getByRole("button", { name: "For" }).click();
     await motionCards.filter({ hasText: MOTION2_TITLE }).getByRole("button", { name: "Against" }).click();
@@ -452,9 +458,10 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
     await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
 
-    // Confirmation: only WF5-A submitted — WF5-B heading not shown yet
-    const lotBHeading = page.getByText(`Lot ${LOT_B}`, { exact: true });
-    await expect(lotBHeading).not.toBeVisible();
+    // Confirmation: only WF5-A submitted — WF5-B is a remaining lot, not yet submitted.
+    // The "Vote for remaining lots" button is shown when remaining_lot_owner_ids is non-empty,
+    // confirming that WF5-B still needs to be voted on in a future session.
+    await expect(page.getByRole("button", { name: "Vote for remaining lots" })).toBeVisible({ timeout: 10000 });
   });
 
   // WF5.3: Session 2 — re-authenticate, WF5-A disabled, vote WF5-B

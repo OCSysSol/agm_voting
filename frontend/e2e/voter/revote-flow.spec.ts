@@ -725,7 +725,17 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     // Vote on both motions — use name filters to avoid matching hidden mobile drawer duplicates
     const motionCards = page.locator(".motion-card");
     await expect(motionCards).toHaveCount(2, { timeout: 15000 });
-    await motionCards.filter({ hasText: wf102Motion1 }).getByRole("button", { name: "For" }).click();
+
+    // Lot C previously voted "yes" on Motion 1 — the UI pre-seeds choices[M1] = "yes" from
+    // already_voted data. Clicking "For" when it is already selected would deselect it, so we
+    // only click "For" on Motion 1 if it is not already in the pressed state.
+    const m1ForBtn = motionCards.filter({ hasText: wf102Motion1 }).getByRole("button", { name: "For" });
+    await expect(m1ForBtn).toBeVisible({ timeout: 10000 });
+    const m1Pressed = await m1ForBtn.getAttribute("aria-pressed");
+    if (m1Pressed !== "true") {
+      await m1ForBtn.click();
+    }
+    // Vote "For" on Motion 2 (neither lot has voted on it)
     await motionCards.filter({ hasText: wf102Motion2 }).getByRole("button", { name: "For" }).click();
 
     // Trigger mixed warning
