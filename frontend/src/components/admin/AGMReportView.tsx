@@ -81,7 +81,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
             )}
           </div>
           {motion.description && (
-            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem" }}>
+            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem", padding: "0 20px" }}>
               {motion.description}
             </p>
           )}
