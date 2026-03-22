@@ -10,6 +10,13 @@ import { test, expect } from "../fixtures";
 const ORIGINAL_APP_NAME = "AGM Voting";
 const ORIGINAL_PRIMARY_COLOUR = "#005f73";
 
+// The Settings page has two inputs associated with the "Primary colour" label:
+// the colour picker (aria-label="Primary colour picker") and the hex text field
+// (id="primary-colour-text", label="Primary colour"). Use the text field ID
+// directly to avoid Playwright strict-mode violations.
+const primaryColourText = (page: import("@playwright/test").Page) =>
+  page.locator("#primary-colour-text");
+
 test.describe("Admin Settings — tenant branding", () => {
   // --- Navigation ---
 
@@ -24,7 +31,7 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
     await expect(page.getByLabel("Logo URL")).toBeVisible();
-    await expect(page.getByLabel("Primary colour")).toBeVisible();
+    await expect(primaryColourText(page)).toBeVisible();
     await expect(page.getByLabel("Support email")).toBeVisible();
   });
 
@@ -35,26 +42,52 @@ test.describe("Admin Settings — tenant branding", () => {
 
   // --- Happy path: save and confirm branding updates ---
 
-  test("saving a new app name shows success message and updates sidebar", async ({ page }) => {
+  test("saving a new app name shows success message", async ({ page }) => {
     const testAppName = `E2E Settings ${Date.now()}`;
 
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
 
-    // Update app name
+    // Update app name and save
     await page.getByLabel("App name").fill(testAppName);
     await page.getByRole("button", { name: "Save" }).click();
 
     // Success banner appears
     await expect(page.getByText("Settings saved.")).toBeVisible();
 
-    // Sidebar app name updates immediately (branding re-fetched via React Query invalidation)
-    await expect(page.getByText(testAppName).first()).toBeVisible();
+    // Restore original app name so the suite is idempotent
+    await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+  });
+
+  test("sidebar app name updates after save (live branding re-fetch)", async ({ page }) => {
+    const testAppName = `E2E Branding ${Date.now()}`;
+
+    await page.goto("/admin/settings");
+    await expect(page.getByLabel("App name")).toBeVisible();
+
+    // Store original sidebar text for comparison
+    const sidebar = page.locator(".admin-sidebar__app-name, .admin-sidebar__logo").first();
+
+    // Update app name and save
+    await page.getByLabel("App name").fill(testAppName);
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+
+    // After invalidateQueries triggers a refetch, the sidebar span should update.
+    // Use a generous timeout to allow for Lambda re-fetch latency.
+    await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(testAppName, {
+      timeout: 15000,
+    });
 
     // Restore original app name so the suite is idempotent
     await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
+    await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(ORIGINAL_APP_NAME, {
+      timeout: 15000,
+    });
   });
 
   test("success message disappears after a few seconds", async ({ page }) => {
@@ -68,36 +101,37 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("form is pre-populated with current config from server", async ({ page }) => {
     await page.goto("/admin/settings");
+    await expect(page.getByLabel("App name")).toBeVisible();
     // App name field should be populated (not blank)
     const appNameValue = await page.getByLabel("App name").inputValue();
     expect(appNameValue.length).toBeGreaterThan(0);
-    // Primary colour should look like a hex value
-    const colourValue = await page.getByLabel("Primary colour").inputValue();
+    // Primary colour text field should look like a hex value
+    const colourValue = await primaryColourText(page).inputValue();
     expect(colourValue).toMatch(/^#[0-9a-fA-F]{3,6}$/);
   });
 
   // --- Validation errors ---
 
-  test("saving with empty app name shows validation error", async ({ page }) => {
+  test("saving with empty app name does not show success", async ({ page }) => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
     await page.getByLabel("App name").fill("");
     await page.getByRole("button", { name: "Save" }).click();
-    // HTML5 required validation prevents submit, or backend returns 422
-    // Either way no "Settings saved." message should appear
+    // HTML5 required validation prevents submit — no success message appears
     await expect(page.getByText("Settings saved.")).not.toBeVisible();
   });
 
   test("saving with invalid hex colour shows error", async ({ page }) => {
     await page.goto("/admin/settings");
-    await expect(page.getByLabel("Primary colour")).toBeVisible();
-    await page.getByLabel("Primary colour").fill("notacolour");
+    await expect(primaryColourText(page)).toBeVisible();
+    await primaryColourText(page).fill("notacolour");
     await page.getByRole("button", { name: "Save" }).click();
     // Backend returns 422 — frontend shows HTTP error message
-    await expect(page.getByText(/HTTP 422|Failed to save/)).toBeVisible({ timeout: 5000 });
+    // (The 422 console log is suppressed in fixtures.ts IGNORED_PATTERNS)
+    await expect(page.getByText(/HTTP 422|Failed to save/)).toBeVisible({ timeout: 10000 });
 
     // Restore valid colour
-    await page.getByLabel("Primary colour").fill(ORIGINAL_PRIMARY_COLOUR);
+    await primaryColourText(page).fill(ORIGINAL_PRIMARY_COLOUR);
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
   });
