@@ -43,6 +43,14 @@ describe("BrandingContext", () => {
     resetConfigFixture();
     document.documentElement.style.removeProperty("--color-primary");
     document.title = "";
+    // Reset favicon link to a known state before each test
+    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = "/favicon.ico";
   });
 
   afterEach(() => {
@@ -196,6 +204,54 @@ describe("BrandingContext", () => {
     expect(DEFAULT_CONFIG.logo_url).toBe("");
     expect(DEFAULT_CONFIG.primary_colour).toBe("#005f73");
     expect(DEFAULT_CONFIG.support_email).toBe("");
+  });
+
+  // --- Favicon dynamic update ---
+
+  it("sets link[rel=icon] href to logo_url when logo_url is set", async () => {
+    server.use(
+      http.get(`${BASE}/api/config`, () =>
+        HttpResponse.json({ app_name: "Test", logo_url: "https://cdn.example.com/logo.png", primary_colour: "#000000", support_email: "" })
+      )
+    );
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("is-loading").textContent).toBe("ready")
+    );
+    const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    expect(link?.href).toContain("https://cdn.example.com/logo.png");
+  });
+
+  it("sets link[rel=icon] href to /favicon.ico when logo_url is empty", async () => {
+    server.use(
+      http.get(`${BASE}/api/config`, () =>
+        HttpResponse.json({ app_name: "Test", logo_url: "", primary_colour: "#000000", support_email: "" })
+      )
+    );
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("is-loading").textContent).toBe("ready")
+    );
+    const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    expect(link?.href).toContain("/favicon.ico");
+  });
+
+  it("does not update favicon when no link[rel=icon] element exists", async () => {
+    // Remove the link element entirely
+    const existingLink = document.querySelector("link[rel='icon']");
+    existingLink?.remove();
+
+    server.use(
+      http.get(`${BASE}/api/config`, () =>
+        HttpResponse.json({ app_name: "Test", logo_url: "https://cdn.example.com/logo.png", primary_colour: "#000000", support_email: "" })
+      )
+    );
+    // Should not throw even without a link element
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("is-loading").textContent).toBe("ready")
+    );
+    // No assertion needed — test passes if no error thrown
   });
 
   // --- configFixture is mutated correctly by MSW handler ---

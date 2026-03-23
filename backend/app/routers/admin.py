@@ -44,9 +44,10 @@ from app.schemas.admin import (
     ResendReportOut,
     SetProxyRequest,
 )
-from app.schemas.config import TenantConfigOut, TenantConfigUpdate
+from app.schemas.config import LogoUploadOut, TenantConfigOut, TenantConfigUpdate
 from app.services import admin_service
 from app.services import config_service
+from app.services import blob_service
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -64,6 +65,46 @@ _EXCEL_CONTENT_TYPES = {
 }
 
 _EXCEL_EXTENSIONS = {".xlsx", ".xls"}
+
+_IMAGE_CONTENT_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/svg+xml",
+}
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+
+_MAX_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _detect_image_format(file: UploadFile) -> str:
+    """Return the MIME type for an image upload. Raise 415 if not a recognised image.
+
+    Extension takes precedence over content-type.
+    """
+    content_type = (file.content_type or "").lower().split(";")[0].strip()
+    filename = (file.filename or "").lower()
+    ext = os.path.splitext(filename)[1]
+
+    if ext in _IMAGE_EXTENSIONS:
+        # Map extension to a canonical MIME type
+        ext_to_mime = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+        }
+        return ext_to_mime[ext]
+    if content_type in _IMAGE_CONTENT_TYPES:
+        return content_type
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="File must be an image (PNG, JPEG, WebP, GIF, or SVG)",
+    )
 
 
 def _detect_file_format(file: UploadFile) -> str:
@@ -525,6 +566,35 @@ async def reset_general_meeting_ballots(
 # ---------------------------------------------------------------------------
 # Tenant configuration
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/config/logo",
+    response_model=LogoUploadOut,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_logo(
+    file: UploadFile = File(...),
+) -> LogoUploadOut:
+    """Upload a logo image to Vercel Blob and return its public URL.
+
+    The caller is responsible for then saving the URL via PUT /api/admin/config.
+
+    Returns 400 if the file exceeds 5 MB.
+    Returns 415 if the file is not a recognised image type.
+    Returns 500 if BLOB_READ_WRITE_TOKEN is not configured.
+    Returns 502 if the Vercel Blob upload fails.
+    """
+    mime_type = _detect_image_format(file)
+    content = await file.read()
+    if len(content) > _MAX_LOGO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File exceeds maximum size of 5 MB",
+        )
+    filename = file.filename or "logo"
+    url = await blob_service.upload_to_blob(filename, content, mime_type)
+    return LogoUploadOut(url=url)
 
 
 @router.get("/config", response_model=TenantConfigOut)

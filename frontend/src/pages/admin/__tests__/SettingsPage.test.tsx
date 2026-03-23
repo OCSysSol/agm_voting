@@ -8,6 +8,7 @@ import { server } from "../../../../tests/msw/server";
 import SettingsPage from "../SettingsPage";
 import { resetConfigFixture } from "../../../../tests/msw/handlers";
 import * as configApi from "../../../api/config";
+import { vi } from "vitest";
 
 const BASE = "http://localhost:8000";
 
@@ -223,6 +224,112 @@ describe("SettingsPage", () => {
     fireEvent.change(picker, { target: { value: "#123456" } });
     expect(screen.getByLabelText("Primary colour")).toHaveValue("#123456");
   });
-});
 
-import { vi } from "vitest";
+  // --- Logo file upload ---
+
+  it("renders the Upload logo image file input", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+  });
+
+  it("uploading a valid file populates the logo URL field with the returned URL", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const blobUrl = "https://public.blob.vercel-storage.com/logo-test.png";
+    const file = new File(["fake-png"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Logo URL")).toHaveValue(blobUrl)
+    );
+  });
+
+  it("shows Uploading message during upload then hides it on success", async () => {
+    const user = userEvent.setup();
+    // Delay the upload response so we can observe the Uploading state
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    // "Uploading…" appears while in flight
+    expect(screen.getByText("Uploading…")).toBeInTheDocument();
+
+    // After the response, "Uploading…" disappears
+    await waitFor(() =>
+      expect(screen.queryByText("Uploading…")).not.toBeInTheDocument()
+    );
+  });
+
+  it("disables file input during upload", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    expect(screen.getByLabelText("Upload logo image")).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Upload logo image")).not.toBeDisabled()
+    );
+  });
+
+  it("shows upload error when server returns an error", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/logo", () =>
+        HttpResponse.json({ detail: "Logo upload failed" }, { status: 502 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText(/HTTP 502/)).toBeInTheDocument()
+    );
+  });
+
+  it("shows fallback upload error for non-Error thrown value", async () => {
+    vi.spyOn(configApi, "uploadLogo").mockRejectedValueOnce("plain string error");
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Failed to upload logo.")).toBeInTheDocument()
+    );
+  });
+
+  it("no-ops when file input changes with no file selected", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    // Fire change event with an empty file list
+    fireEvent.change(screen.getByLabelText("Upload logo image"), { target: { files: [] } });
+
+    // No uploading state, no error
+    expect(screen.queryByText("Uploading…")).not.toBeInTheDocument();
+  });
+});

@@ -23,6 +23,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from app.models.tenant_config import TenantConfig
 from app.services import config_service
 from app.schemas.config import TenantConfigUpdate
@@ -387,3 +389,199 @@ class TestConfigService:
         config = await config_service.update_config(data, db_session)
         assert config.id == 1
         assert config.app_name == "Upserted"
+
+
+# ===========================================================================
+# POST /api/admin/config/logo — logo upload endpoint
+# ===========================================================================
+
+
+def _make_mock_blob_success(url: str = "https://public.blob.vercel-storage.com/logo-abc.png"):
+    return AsyncMock(return_value=url)
+
+
+class TestAdminUploadLogo:
+    # --- Happy path ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_returns_url_on_valid_png_upload(self, app):
+        blob_url = "https://public.blob.vercel-storage.com/logo-test.png"
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success(blob_url)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", b"\x89PNG\r\nfake", "image/png")},
+                )
+        assert resp.status_code == 200
+        assert resp.json() == {"url": blob_url}
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_jpeg_by_extension(self, app):
+        blob_url = "https://public.blob.vercel-storage.com/logo-test.jpg"
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success(blob_url)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("photo.jpg", b"fake-jpeg", "image/jpeg")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_webp_by_extension(self, app):
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.webp", b"fake-webp", "image/webp")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_svg_by_extension(self, app):
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("icon.svg", b"<svg/>", "image/svg+xml")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_gif_by_extension(self, app):
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("anim.gif", b"GIF89a", "image/gif")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepted_by_content_type_when_no_extension(self, app):
+        """When filename has no extension, content-type is used for detection."""
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo", b"fake-png", "image/png")},
+                )
+        assert resp.status_code == 200
+
+    # --- Input validation ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_file_over_5mb(self, app):
+        big_content = b"x" * (5 * 1024 * 1024 + 1)
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", big_content, "image/png")},
+                )
+        assert resp.status_code == 400
+        assert "5 MB" in resp.json()["detail"]
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_txt_file(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/logo",
+                files={"file": ("notes.txt", b"hello", "text/plain")},
+            )
+        assert resp.status_code == 415
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_pdf_file(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/logo",
+                files={"file": ("doc.pdf", b"%PDF", "application/pdf")},
+            )
+        assert resp.status_code == 415
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_csv_file(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/logo",
+                files={"file": ("data.csv", b"a,b,c", "text/csv")},
+            )
+        assert resp.status_code == 415
+
+    # --- Boundary values ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_file_exactly_at_5mb_limit(self, app):
+        exactly_5mb = b"x" * (5 * 1024 * 1024)
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", exactly_5mb, "image/png")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_empty_file(self, app):
+        """An empty file is technically valid at the endpoint level (blob service handles it)."""
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", b"", "image/png")},
+                )
+        assert resp.status_code == 200
+
+    # --- State / precondition errors ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_propagates_502_from_blob_service(self, app):
+        from fastapi import HTTPException as FHE
+        async def raise_502(*args, **kwargs):
+            raise FHE(status_code=502, detail="Logo upload failed")
+
+        with patch("app.routers.admin.blob_service.upload_to_blob", raise_502):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", b"bytes", "image/png")},
+                )
+        assert resp.status_code == 502
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_propagates_500_from_blob_service_when_token_missing(self, app):
+        from fastapi import HTTPException as FHE
+        async def raise_500(*args, **kwargs):
+            raise FHE(status_code=500, detail="Blob storage not configured")
+
+        with patch("app.routers.admin.blob_service.upload_to_blob", raise_500):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", b"bytes", "image/png")},
+                )
+        assert resp.status_code == 500
+
+    # --- Edge cases ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_accepts_jpeg_with_jpg_extension(self, app):
+        """Both .jpg and .jpeg extensions must map to image/jpeg."""
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("photo.jpeg", b"fake-jpeg", "application/octet-stream")},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_extension_takes_precedence_over_content_type(self, app):
+        """A .png file sent with wrong content-type must still be accepted."""
+        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/admin/config/logo",
+                    files={"file": ("logo.png", b"fake-png", "application/octet-stream")},
+                )
+        assert resp.status_code == 200

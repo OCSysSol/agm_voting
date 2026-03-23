@@ -21,3 +21,12 @@ export async function updateAdminConfig(data: TenantConfig): Promise<TenantConfi
     body: JSON.stringify(data),
   });
 }
+
+export async function uploadLogo(file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{ url: string }>("/api/admin/config/logo", {
+    method: "POST",
+    body: formData,
+  });
+}
