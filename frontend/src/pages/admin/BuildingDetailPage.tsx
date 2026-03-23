@@ -9,6 +9,58 @@ import LotOwnerCSVUpload from "../../components/admin/LotOwnerCSVUpload";
 import ProxyNominationsUpload from "../../components/admin/ProxyNominationsUpload";
 import FinancialPositionUpload from "../../components/admin/FinancialPositionUpload";
 
+interface ArchiveConfirmModalProps {
+  buildingName: string;
+  archiving: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ArchiveConfirmModal({ buildingName, archiving, onConfirm, onCancel }: ArchiveConfirmModalProps) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Archive Building"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Archive "{buildingName}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          Archived buildings will no longer appear in the voter portal. Lot owners who belong only
+          to this building will also be archived.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={archiving}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={archiving}>
+            {archiving ? "Archiving…" : "Archive"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface BuildingEditModalProps {
   building: Building;
   onSuccess: () => void;
@@ -120,6 +172,7 @@ export default function BuildingDetailPage() {
   const [showForm, setShowForm] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -171,12 +224,8 @@ export default function BuildingDetailPage() {
     setShowEditModal(false);
   }
 
-  async function handleArchive() {
+  async function handleArchiveConfirm() {
     if (!buildingId) return;
-    const confirmed = window.confirm(
-      `Archive "${building?.name ?? "this building"}"?\n\nArchived buildings will no longer appear in the voter portal. Lot owners who belong only to this building will also be archived.`
-    );
-    if (!confirmed) return;
     setArchiveError(null);
     setArchiving(true);
     try {
@@ -187,6 +236,7 @@ export default function BuildingDetailPage() {
       setArchiveError(e instanceof Error ? e.message : "Failed to archive building.");
     } finally {
       setArchiving(false);
+      setShowArchiveModal(false);
     }
   }
 
@@ -252,10 +302,10 @@ export default function BuildingDetailPage() {
           {!building?.is_archived && (
             <button
               className="btn btn--secondary"
-              onClick={() => { void handleArchive(); }}
+              onClick={() => setShowArchiveModal(true)}
               disabled={archiving}
             >
-              {archiving ? "Archiving…" : "Archive Building"}
+              Archive Building
             </button>
           )}
           {building?.is_archived && (
@@ -313,6 +363,15 @@ export default function BuildingDetailPage() {
           building={building}
           onSuccess={handleEditBuildingSuccess}
           onCancel={() => setShowEditModal(false)}
+        />
+      )}
+
+      {showArchiveModal && (
+        <ArchiveConfirmModal
+          buildingName={building?.name ?? "this building"}
+          archiving={archiving}
+          onConfirm={() => { void handleArchiveConfirm(); }}
+          onCancel={() => setShowArchiveModal(false)}
         />
       )}
     </div>

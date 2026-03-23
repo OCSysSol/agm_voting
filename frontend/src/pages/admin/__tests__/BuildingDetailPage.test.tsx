@@ -188,8 +188,30 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("archives building and navigates away on confirm", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  it("opens archive confirm modal when Archive Building clicked", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("dialog", { name: "Archive Building" })).toBeInTheDocument();
+    expect(screen.getByText(/Archived buildings will no longer appear/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("shows building name in archive modal heading", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("heading", { level: 2, name: /Alpha Tower/ })).toBeInTheDocument();
+  });
+
+  it("closes archive modal on Cancel without archiving", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage("b1");
@@ -197,25 +219,27 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("dialog", { name: "Archive Building" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Archive Building" })).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("archives building and navigates away when Archive confirmed", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
     });
   });
 
-  it("does not archive when confirm is cancelled", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(false);
-    mockNavigate.mockClear();
-    const user = userEvent.setup();
-    renderPage("b1");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Archive Building" }));
-    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
-  });
-
   it("shows archive error when API fails", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     server.use(
       http.post("http://localhost:8000/api/admin/buildings/:buildingId/archive", () => {
         return HttpResponse.json({ detail: "Already archived" }, { status: 409 });
@@ -227,6 +251,7 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => {
       expect(screen.getByText(/Already archived/i)).toBeInTheDocument();
     });
