@@ -628,6 +628,10 @@ export const adminHandlers = [
     return HttpResponse.json(configFixture);
   }),
 
+  http.post(`${BASE}/api/admin/config/logo`, () => {
+    return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo-test.png" });
+  }),
+
   http.put(`${BASE}/api/admin/config`, async ({ request }) => {
     const body = await request.json() as Partial<TenantConfig>;
     if (!body?.app_name || !body.app_name.trim()) {

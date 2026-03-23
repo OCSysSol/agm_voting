@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict, field_validator
 _HEX_COLOUR_RE = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
+class LogoUploadOut(BaseModel):
+    url: str
+
+
 class TenantConfigOut(BaseModel):
     app_name: str
     logo_url: str

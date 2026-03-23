@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAdminConfig, updateAdminConfig } from "../../api/config";
+import { getAdminConfig, updateAdminConfig, uploadLogo } from "../../api/config";
 import type { TenantConfig } from "../../api/config";
 
 export default function SettingsPage() {
@@ -15,6 +15,8 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
   useEffect(() => {
     getAdminConfig()
@@ -31,6 +33,22 @@ export default function SettingsPage() {
         setIsLoading(false);
       });
   }, []);
+
+  async function handleLogoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError("");
+    setIsUploading(true);
+    try {
+      const result = await uploadLogo(file);
+      setLogoUrl(result.url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to upload logo.";
+      setUploadError(message);
+    } finally {
+      setIsUploading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -97,6 +115,20 @@ export default function SettingsPage() {
                 onChange={(e) => setLogoUrl(e.target.value)}
                 placeholder="https://example.com/logo.png"
               />
+            </div>
+
+            <div className="field">
+              <label className="field__label" htmlFor="logo-file">Upload logo image</label>
+              <input
+                id="logo-file"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                onChange={(e) => { void handleLogoFileChange(e); }}
+                disabled={isUploading}
+                data-testid="logo-file-input"
+              />
+              {isUploading && <p className="state-message">Uploading…</p>}
+              {uploadError && <span className="field__error">{uploadError}</span>}
             </div>
 
             <div className="field">

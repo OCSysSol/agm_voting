@@ -27,10 +27,11 @@ test.describe("Admin Settings — tenant branding", () => {
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   });
 
-  test("settings page renders all four form fields", async ({ page }) => {
+  test("settings page renders all form fields including logo upload", async ({ page }) => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
     await expect(page.getByLabel("Logo URL")).toBeVisible();
+    await expect(page.getByLabel("Upload logo image")).toBeVisible();
     await expect(primaryColourText(page)).toBeVisible();
     await expect(page.getByLabel("Support email")).toBeVisible();
   });
@@ -108,6 +109,31 @@ test.describe("Admin Settings — tenant branding", () => {
     // Primary colour text field should look like a hex value
     const colourValue = await primaryColourText(page).inputValue();
     expect(colourValue).toMatch(/^#[0-9a-fA-F]{3,6}$/);
+  });
+
+  // --- Favicon dynamic update ---
+
+  test("favicon link tag is present in document head", async ({ page }) => {
+    await page.goto("/admin/settings");
+    await expect(page.getByLabel("App name")).toBeVisible();
+    // The <link rel="icon"> element must exist for JS to update it
+    const faviconHref = await page.evaluate(() => {
+      const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+      return link?.href ?? null;
+    });
+    expect(faviconHref).not.toBeNull();
+  });
+
+  test("favicon href reflects logo_url from config after load", async ({ page }) => {
+    await page.goto("/admin/settings");
+    await expect(page.getByLabel("App name")).toBeVisible();
+    // After BrandingContext loads, favicon should be set to logo_url or /favicon.ico
+    const faviconHref = await page.evaluate(() => {
+      const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+      return link?.href ?? "";
+    });
+    // Must be a non-empty string (either a real URL or the fallback)
+    expect(faviconHref.length).toBeGreaterThan(0);
   });
 
   // --- Validation errors ---

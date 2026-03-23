@@ -23,6 +23,14 @@ test.describe("API health", () => {
     expect(body.status).toBe("ok");
   });
 
+  test("static logo.png is no longer served (asset removed)", async ({ request }) => {
+    const res = await request.get("/logo.png");
+    // The file has been deleted — the server should return 404 or redirect to index.html
+    // Either way it must NOT return a PNG binary (status 200 with image content)
+    const isImageContent = res.ok() && (res.headers()["content-type"] ?? "").startsWith("image/");
+    expect(isImageContent).toBe(false);
+  });
+
   test("public buildings endpoint returns an array", async ({ request }) => {
     const res = await request.get("/api/buildings");
     expect(res.ok()).toBeTruthy();

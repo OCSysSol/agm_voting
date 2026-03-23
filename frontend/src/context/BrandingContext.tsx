@@ -41,6 +41,10 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     if (data) {
       document.documentElement.style.setProperty("--color-primary", data.primary_colour);
       document.title = data.app_name;
+      const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+      if (link) {
+        link.href = data.logo_url || "/favicon.ico";
+      }
     }
   }, [data]);
 
