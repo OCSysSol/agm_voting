@@ -1232,7 +1232,16 @@ button, input, select, textarea {
   margin-bottom: 6px;
 }
 
+.admin-sidebar__app-name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold-light, #f0d080);
+  margin-bottom: 4px;
+}
+
 .admin-sidebar__role {
+  display: block;
   font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;

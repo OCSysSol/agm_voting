@@ -38,13 +38,16 @@ export default function SettingsPage() {
     setSaveSuccess(false);
     setIsSaving(true);
     try {
-      await updateAdminConfig({
+      const updated: TenantConfig = {
         app_name: appName,
         logo_url: logoUrl,
         primary_colour: primaryColour,
         support_email: supportEmail,
-      });
-      // Invalidate the public-config query so BrandingProvider re-fetches
+      };
+      await updateAdminConfig(updated);
+      // Update the cache immediately so branding re-renders without a page refresh,
+      // then invalidate to trigger a background re-fetch confirming server state.
+      queryClient.setQueryData(["public-config"], updated);
       await queryClient.invalidateQueries({ queryKey: ["public-config"] });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);

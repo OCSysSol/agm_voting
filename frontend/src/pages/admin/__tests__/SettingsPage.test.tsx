@@ -78,6 +78,31 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
   });
 
+  it("updates public-config query cache immediately on save without waiting for refetch", async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByLabelText("App name")).toBeInTheDocument());
+
+    await user.clear(screen.getByLabelText("App name"));
+    await user.type(screen.getByLabelText("App name"), "Instant Brand");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
+
+    // The cache should be updated immediately with the saved values
+    const cached = qc.getQueryData<{ app_name: string }>(["public-config"]);
+    expect(cached?.app_name).toBe("Instant Brand");
+  });
+
   it("disables Save button while saving", async () => {
     const user = userEvent.setup();
     // Slow the response so we can observe the disabled state
