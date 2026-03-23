@@ -48,6 +48,13 @@ export const ADMIN_BUILDINGS: Building[] = [
     is_archived: false,
     created_at: "2024-02-01T00:00:00Z",
   },
+  {
+    id: "b3",
+    name: "Gamma House",
+    manager_email: "gamma@example.com",
+    is_archived: true,
+    created_at: "2022-01-01T00:00:00Z",
+  },
 ];
 
 export const ADMIN_LOT_OWNERS: LotOwner[] = [

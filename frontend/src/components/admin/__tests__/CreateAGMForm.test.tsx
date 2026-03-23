@@ -62,6 +62,14 @@ describe("CreateGeneralMeetingForm", () => {
     });
   });
 
+  it("does not show archived buildings in the dropdown", async () => {
+    renderComponent();
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("option", { name: "Gamma House" })).not.toBeInTheDocument();
+  });
+
   it("shows error when building not selected", async () => {
     const user = userEvent.setup();
     renderComponent();

@@ -15,6 +15,8 @@ export default function CreateGeneralMeetingForm() {
     queryFn: listBuildings,
   });
 
+  const activeBuildings = buildings.filter((b) => !b.is_archived);
+
   const [buildingId, setBuildingId] = useState("");
   const [title, setTitle] = useState("");
   const [meetingAt, setMeetingAt] = useState("");
@@ -73,7 +75,7 @@ export default function CreateGeneralMeetingForm() {
           onChange={(e) => setBuildingId(e.target.value)}
         >
           <option value="">-- Select a building --</option>
-          {buildings.map((b) => (
+          {activeBuildings.map((b) => (
             <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
