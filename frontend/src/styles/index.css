@@ -1203,7 +1203,7 @@ button, input, select, textarea {
 
 .admin-sidebar {
   width: 220px;
-  background: var(--navy);
+  background: var(--color-primary);
   color: var(--white);
   padding: 0;
   flex-shrink: 0;
@@ -1306,7 +1306,7 @@ button, input, select, textarea {
     gap: 8px;
     margin-bottom: 20px;
     padding: 8px 14px;
-    background: var(--navy);
+    background: var(--color-primary);
     color: white;
     border: none;
     border-radius: var(--r-md);
@@ -1328,7 +1328,7 @@ button, input, select, textarea {
     height: 100%;
     width: 85vw;
     max-width: 280px;
-    background: var(--navy);
+    background: var(--color-primary);
     z-index: 201;
     overflow-y: auto;
     transform: translateX(-100%);
