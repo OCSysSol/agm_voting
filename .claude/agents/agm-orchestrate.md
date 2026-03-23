@@ -27,6 +27,7 @@ Determine:
 - Is a design phase needed? (skip for trivial frontend-only changes or if implementing an existing complete PRD)
 - Does the feature require schema migrations? (flag for testing agent)
 - Can the feature be split into parallel vertical slices?
+- Is this a **styling-only change**? (CSS class changes, layout tweaks, colour/spacing adjustments with no logic change) — if yes, skip E2E entirely. Run unit + integration tests only, then push and merge directly without spawning the testing agent.
 
 ### Step a: Create branch and worktree
 Spawn a sub-agent to:
