@@ -1546,6 +1546,65 @@ button, input, select, textarea {
   margin: 0;
 }
 
+/* === TOGGLE SWITCH === */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.toggle-switch__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.toggle-switch__track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border);
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle-switch__track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: 0 1px 3px rgba(12, 27, 46, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch__input:checked + .toggle-switch__track {
+  background: var(--navy);
+}
+
+.toggle-switch__input:checked + .toggle-switch__track::after {
+  transform: translateX(16px);
+}
+
+.toggle-switch__input:focus-visible + .toggle-switch__track {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+}
+
 /* === ADMIN CARD (wraps tables / upload sections) === */
 .admin-card {
   background: var(--white);
