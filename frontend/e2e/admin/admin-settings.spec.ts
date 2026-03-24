@@ -162,3 +162,23 @@ test.describe("Admin Settings — tenant branding", () => {
     await expect(page.getByText("Settings saved.")).toBeVisible();
   });
 });
+
+test.describe("Admin Settings — favicon upload", () => {
+  test("favicon URL field and upload button are present on the settings page", async ({ page }) => {
+    await page.goto("/admin/settings");
+    await expect(page.getByLabel("Favicon URL")).toBeVisible();
+    await expect(page.getByLabel("Upload favicon image")).toBeVisible();
+  });
+
+  test("favicon URL field accepts text input", async ({ page }) => {
+    await page.goto("/admin/settings");
+    await expect(page.getByLabel("Favicon URL")).toBeVisible();
+    const input = page.getByLabel("Favicon URL");
+    await input.fill("https://example.com/fav.ico");
+    await expect(input).toHaveValue("https://example.com/fav.ico");
+    // Restore
+    await input.fill("");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+  });
+});
