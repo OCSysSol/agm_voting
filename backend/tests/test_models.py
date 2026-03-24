@@ -858,6 +858,10 @@ class TestVote:
         db_session.add(b)
         await db_session.flush()
 
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -866,17 +870,18 @@ class TestVote:
         db_session.add(motion)
         await db_session.flush()
 
-        return b, agm, motion
+        return b, lo, agm, motion
 
     # --- Happy path ---
 
     async def test_create_draft_vote(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Draft")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Draft")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="voter@example.com",
+            lot_owner_id=lo.id,
         )
         db_session.add(vote)
         await db_session.flush()
@@ -886,12 +891,13 @@ class TestVote:
         assert vote.choice is None
 
     async def test_create_vote_with_yes_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Yes")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Yes")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="yes@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
         )
         db_session.add(vote)
@@ -899,12 +905,13 @@ class TestVote:
         assert vote.choice == VoteChoice.yes
 
     async def test_create_vote_with_no_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " No")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " No")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="no@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.no,
         )
         db_session.add(vote)
@@ -912,12 +919,13 @@ class TestVote:
         assert vote.choice == VoteChoice.no
 
     async def test_create_vote_with_abstained_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Abstain")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Abstain")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="abs@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.abstained,
         )
         db_session.add(vote)
@@ -925,12 +933,13 @@ class TestVote:
         assert vote.choice == VoteChoice.abstained
 
     async def test_draft_to_submitted_status_transition(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Transition")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Transition")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="transition@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
         )
         db_session.add(vote)
@@ -945,7 +954,7 @@ class TestVote:
 
     async def test_unique_constraint_agm_motion_lot_owner(self, db_session: AsyncSession):
         """Same (agm_id, motion_id, lot_owner_id) raises IntegrityError."""
-        b, agm, motion = await self._setup_vote_context(db_session, " Dup")
+        b, lo, agm, motion = await self._setup_vote_context(db_session, " Dup")
 
         lo = make_lot_owner(b, lot_number="Dup1")
         db_session.add(lo)
@@ -965,6 +974,10 @@ class TestVote:
         db_session.add(b)
         await db_session.flush()
 
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -974,26 +987,23 @@ class TestVote:
         db_session.add_all([m1, m2])
         await db_session.flush()
 
-        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email="multi@example.com", choice=VoteChoice.yes)
-        v2 = Vote(general_meeting_id=agm.id, motion_id=m2.id, voter_email="multi@example.com", choice=VoteChoice.no)
+        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email="multi@example.com", lot_owner_id=lo.id, choice=VoteChoice.yes)
+        v2 = Vote(general_meeting_id=agm.id, motion_id=m2.id, voter_email="multi@example.com", lot_owner_id=lo.id, choice=VoteChoice.no)
         db_session.add_all([v1, v2])
         await db_session.flush()  # Should NOT raise
 
     async def test_vote_timestamps_set(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Timestamps")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Timestamps")
 
-        vote = Vote(general_meeting_id=agm.id, motion_id=motion.id, voter_email="ts@example.com")
+        vote = Vote(general_meeting_id=agm.id, motion_id=motion.id, voter_email="ts@example.com", lot_owner_id=lo.id)
         db_session.add(vote)
         await db_session.flush()
         assert vote.created_at is not None
         assert vote.updated_at is not None
 
     async def test_vote_with_lot_owner_id(self, db_session: AsyncSession):
-        b, agm, motion = await self._setup_vote_context(db_session, " LotOwner")
-
-        lo = make_lot_owner(b)
-        db_session.add(lo)
-        await db_session.flush()
+        # _setup_vote_context already creates a LotOwner; use it directly
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " LotOwner")
 
         vote = Vote(
             general_meeting_id=agm.id,

@@ -2224,11 +2224,17 @@ class TestCloseAGM:
         db_session.add(motion)
         await db_session.flush()
 
-        # Add draft and submitted votes
+        # Add another lot owner for the submitted voter
+        lo2 = LotOwner(building_id=b.id, lot_number="DD2", unit_entitlement=10)
+        db_session.add(lo2)
+        await db_session.flush()
+
+        # Add draft and submitted votes (both require lot_owner_id after migration)
         draft_vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="draft@test.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
             status=VoteStatus.draft,
         )
@@ -2236,6 +2242,7 @@ class TestCloseAGM:
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="submitted@test.com",
+            lot_owner_id=lo2.id,
             choice=VoteChoice.no,
             status=VoteStatus.submitted,
         )
@@ -2690,6 +2697,10 @@ class TestResetAGMBallots:
         db_session.add(agm)
         await db_session.flush()
 
+        lo_draft = LotOwner(building_id=b.id, lot_number="DPL1", unit_entitlement=10)
+        db_session.add(lo_draft)
+        await db_session.flush()
+
         motion = Motion(general_meeting_id=agm.id, title="Draft Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
@@ -2698,6 +2709,7 @@ class TestResetAGMBallots:
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="drafter@test.com",
+            lot_owner_id=lo_draft.id,
             choice=VoteChoice.no,
             status=VoteStatus.draft,
         )

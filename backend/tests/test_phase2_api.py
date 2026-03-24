@@ -1580,11 +1580,12 @@ class TestSaveDraft:
         )
         assert response.status_code == 200
 
-    async def test_save_draft_without_lot_owner_id(
+    async def test_save_draft_with_lot_owner_id(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Draft can be saved without lot_owner_id (legacy/fallback path)."""
+        """Draft is saved when lot_owner_id is provided."""
         agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
@@ -1593,7 +1594,7 @@ class TestSaveDraft:
 
         response = await client.put(
             f"/api/general-meeting/{agm.id}/draft",
-            json={"motion_id": str(motions[0].id), "choice": "yes"},
+            json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1782,25 +1783,33 @@ class TestSaveDraft:
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         """
-        Bug fix: save_draft must not find and corrupt an already-submitted vote.
+        save_draft must not corrupt an already-submitted vote for a different lot.
 
         Scenario (multi-lot voter):
-        1. Voter has two lots (lo = lot_owner from fixture, lo2 = a second lot).
-        2. Voter submits lot_owner (lo) ballot — submitted Vote row exists with lot_owner_id=lo.id.
-        3. Voter now saves a draft for lot2, WITHOUT a lot_owner_id (NULL/shared-draft path).
-        4. The OLD (unfixed) filter: (agm, motion, voter_email) — no status check — would find
-           the submitted Vote for lo and set its status back to draft, corrupting it.
-        5. The FIXED filter adds Vote.status == VoteStatus.draft, so no submitted vote is found
-           and a new draft row (NULL lot_owner_id) is created instead.
+        1. Voter has two lots (lo = lot from fixture, lo2 = second lot).
+        2. lot_owner lo has a submitted Vote for motion[0].
+        3. Voter saves a draft for lo2 (same motion, same voter_email, different lot_owner_id).
+        4. The save_draft filter (agm, motion, voter_email, status==draft, lot_owner_id==lo2.id)
+           must NOT find or touch the submitted vote for lo.
+        5. A new draft Vote for lo2 is created without affecting lo's submitted vote.
         """
         from sqlalchemy import select as sa_select
         from app.services.voting_service import save_draft as _save_draft
+        from app.models.lot_owner import LotOwner as _LotOwner
+        from app.models.lot_owner_email import LotOwnerEmail as _LOEmail
 
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
+
+        # Create a second lot for the same voter
+        lo2 = _LotOwner(building_id=building.id, lot_number="DRAFT-LO2", unit_entitlement=50)
+        db_session.add(lo2)
+        await db_session.flush()
+        db_session.add(_LOEmail(lot_owner_id=lo2.id, email=voter_email))
+        await db_session.flush()
 
         # Pre-create a submitted Vote for lot_owner lo (lot_owner_id is set)
         submitted_vote = Vote(
@@ -1814,31 +1823,15 @@ class TestSaveDraft:
         db_session.add(submitted_vote)
         await db_session.flush()
 
-        # Sanity check: submitted vote is in place
-        result = await db_session.execute(
-            sa_select(Vote).where(
-                Vote.general_meeting_id == agm.id,
-                Vote.motion_id == motions[0].id,
-                Vote.voter_email == voter_email,
-                Vote.lot_owner_id == lo.id,
-            )
-        )
-        votes = list(result.scalars().all())
-        assert len(votes) == 1
-        assert votes[0].status == VoteStatus.submitted
-        assert votes[0].choice == VoteChoice.yes
-
-        # Now call save_draft WITHOUT lot_owner_id (the shared/NULL-lot draft path).
-        # The old filter (agm, motion, voter_email) with no status check would find the
-        # submitted vote for `lo` and overwrite its choice + downgrade to draft.
-        # The fixed filter adds status==draft, so it finds nothing and creates a new row.
+        # Now save a draft for lo2 with the same motion and voter_email.
+        # The status==draft filter ensures the submitted vote for lo is never touched.
         await _save_draft(
             db=db_session,
             general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             choice=VoteChoice.no,
-            lot_owner_id=None,  # shared-draft (no specific lot)
+            lot_owner_id=lo2.id,
         )
         await db_session.flush()
 
@@ -1856,18 +1849,18 @@ class TestSaveDraft:
         assert submitted_votes[0].status == VoteStatus.submitted, "Submitted vote must not be downgraded to draft"
         assert submitted_votes[0].choice == VoteChoice.yes, "Submitted vote choice must not be overwritten"
 
-        # A new draft row with lot_owner_id=NULL must exist
+        # A new draft row for lo2 must exist
         result_draft = await db_session.execute(
             sa_select(Vote).where(
                 Vote.general_meeting_id == agm.id,
                 Vote.motion_id == motions[0].id,
                 Vote.voter_email == voter_email,
-                Vote.lot_owner_id.is_(None),
+                Vote.lot_owner_id == lo2.id,
                 Vote.status == VoteStatus.draft,
             )
         )
         draft_votes = list(result_draft.scalars().all())
-        assert len(draft_votes) == 1, "A new NULL-lot draft must have been created"
+        assert len(draft_votes) == 1, "A new draft for lo2 must have been created"
         assert draft_votes[0].choice == VoteChoice.no
 
     async def test_no_session_returns_401(
