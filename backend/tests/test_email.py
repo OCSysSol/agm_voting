@@ -140,11 +140,13 @@ async def _create_vote(
     motion: Motion,
     email: str,
     choice: VoteChoice = VoteChoice.yes,
+    lot_owner_id=None,
 ) -> Vote:
     v = Vote(
         general_meeting_id=agm.id,
         motion_id=motion.id,
         voter_email=email,
+        lot_owner_id=lot_owner_id,
         choice=choice,
         status=VoteStatus.submitted,
     )
@@ -459,7 +461,7 @@ class TestSendReport:
         lo = await _create_lot_owner(db_session, building, "voter@example.com", 100)
         await _create_lot_weight(db_session, agm, lo)
         await _create_ballot(db_session, agm, lo, "voter@example.com")
-        await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes)
+        await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes, lot_owner_id=lo.id)
         await db_session.commit()
 
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
