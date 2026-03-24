@@ -13,7 +13,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ["react", "react-dom", "react-router-dom"],
-          xlsx: ["xlsx"],
+          // xlsx is NOT listed here — it is pulled in only via dynamic imports
+          // inside parseMotionsExcel.ts, so it will only be downloaded by admins.
         },
       },
     },

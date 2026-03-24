@@ -531,7 +531,7 @@ button, input, select, textarea {
 .motion-card__number {
   font-family: 'Overpass Mono', monospace;
   font-size: 0.7rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -705,7 +705,7 @@ button, input, select, textarea {
 .progress-bar__count {
   font-family: 'Overpass Mono', monospace;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--navy);
 }
 
@@ -796,7 +796,7 @@ button, input, select, textarea {
 .agm-header__timer {
   font-family: 'Overpass Mono', monospace;
   font-size: 1.75rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--white);
   letter-spacing: 0.04em;
   line-height: 1;
@@ -1698,7 +1698,7 @@ button, input, select, textarea {
 .admin-stats__value {
   font-family: 'Overpass Mono', monospace;
   font-size: 1.625rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--navy);
   line-height: 1;
 }
