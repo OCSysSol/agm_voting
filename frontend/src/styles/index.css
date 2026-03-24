@@ -1199,6 +1199,7 @@ button, input, select, textarea {
   display: flex;
   min-height: 100vh;
   background: var(--linen);
+  align-items: flex-start;
 }
 
 .admin-sidebar {
@@ -1209,6 +1210,10 @@ button, input, select, textarea {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .admin-sidebar__header {
