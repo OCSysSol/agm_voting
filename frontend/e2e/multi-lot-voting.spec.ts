@@ -52,7 +52,7 @@ test.describe("Multi-lot voter journey", () => {
     });
 
     // ── Building ────────────────────────────────────────────────────────────
-    const buildingsRes = await api.get("/api/admin/buildings");
+    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
     const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
     let building = buildings.find((b) => b.name === BUILDING_NAME);
     if (!building) {
@@ -113,7 +113,7 @@ test.describe("Multi-lot voter journey", () => {
     }
 
     // ── Close any existing open/pending AGMs for this building ───────────────
-    const agmsRes = await api.get("/api/admin/general-meetings");
+    const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
     const agms = (await agmsRes.json()) as {
       id: string;
       status: string;

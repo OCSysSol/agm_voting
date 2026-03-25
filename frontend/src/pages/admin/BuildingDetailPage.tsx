@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listBuildings, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
+import { getBuilding, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
 import type { Building, LotOwner } from "../../types";
 import LotOwnerTable from "../../components/admin/LotOwnerTable";
 import LotOwnerForm from "../../components/admin/LotOwnerForm";
@@ -238,12 +238,11 @@ export default function BuildingDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  const { data: buildings = [] } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings"],
-    queryFn: listBuildings,
+  const { data: building } = useQuery<Building>({
+    queryKey: ["admin", "buildings", buildingId],
+    queryFn: () => getBuilding(buildingId!),
+    enabled: !!buildingId,
   });
-
-  const building = buildings.find((b) => b.id === buildingId);
 
   const {
     data: lotOwners = [],
@@ -281,7 +280,7 @@ export default function BuildingDetailPage() {
   }
 
   function handleEditBuildingSuccess() {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
     setShowEditModal(false);
   }
 
@@ -291,7 +290,7 @@ export default function BuildingDetailPage() {
     setArchiving(true);
     try {
       await archiveBuilding(buildingId);
-      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
       navigate("/admin/buildings");
     } catch (e) {
       setArchiveError(e instanceof Error ? e.message : "Failed to archive building.");
@@ -312,7 +311,7 @@ export default function BuildingDetailPage() {
     setShowDeleteModal(false);
     try {
       await deleteBuilding(buildingId);
-      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
       navigate("/admin/buildings");
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Failed to delete building.");

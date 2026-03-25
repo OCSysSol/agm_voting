@@ -563,7 +563,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     expect(hideRes.ok(), `hide motion 2: ${hideRes.status()} ${await hideRes.text()}`).toBe(true);
 
     // Step 4: fetch lot owners to find Lot A's ID
-    const buildingsRes = await api.get("/api/admin/buildings");
+    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
     const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
     const wf10Building = buildings.find((b) => b.name === WF10_BUILDING);
     expect(wf10Building, `WF10 building not found`).toBeTruthy();

@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test.describe("Admin General Meetings", () => {
   test("open General Meeting shows Close Voting button", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const openMeeting = meetings.find((a) => a.status === "open");
 
@@ -31,7 +31,7 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("Close Voting shows confirmation dialog", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const openMeeting = meetings.find((a) => a.status === "open");
 
@@ -48,7 +48,7 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("closed General Meeting does not show Close Voting button", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const closedMeeting = meetings.find((a) => a.status === "closed");
 
@@ -63,7 +63,7 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("General Meeting detail page shows Results Report section", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string }[];
     const meeting = meetings[0];
 

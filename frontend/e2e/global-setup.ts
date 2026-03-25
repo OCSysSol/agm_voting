@@ -199,7 +199,9 @@ export default async function globalSetup(_config: FullConfig) {
   };
 
   // Fetch the building list once — shared by both seeding tasks below.
-  const buildingsRes = await retryGet("/api/admin/buildings");
+  // Use limit=1000 to ensure all buildings are returned even on shared preview
+  // DBs where accumulated test runs may exceed the default limit of 100.
+  const buildingsRes = await retryGet("/api/admin/buildings?limit=1000");
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
 
   // ── Task A: voting-test building ────────────────────────────────────────────
@@ -265,7 +267,7 @@ export default async function globalSetup(_config: FullConfig) {
     // close any existing open E2E AGMs first (so the lot owner has no submitted
     // ballot on the new AGM), then create a new one. The just-closed AGM
     // satisfies the "AGM closed state" test which looks for any closed AGM.
-    const agmsRes = await retryGet("/api/admin/general-meetings");
+    const agmsRes = await retryGet("/api/admin/general-meetings?limit=1000");
     const agms = (await agmsRes.json()) as {
       id: string;
       title: string;
@@ -338,7 +340,7 @@ export default async function globalSetup(_config: FullConfig) {
     }
 
     // Close any existing open AGMs for the admin-test building, then create a fresh one
-    const allAgmsRes = await retryGet("/api/admin/general-meetings");
+    const allAgmsRes = await retryGet("/api/admin/general-meetings?limit=1000");
     const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
     // Include "pending" in the filter — same reason as the voter-test AGM above.
     const openAdminAgms = allAgms.filter(

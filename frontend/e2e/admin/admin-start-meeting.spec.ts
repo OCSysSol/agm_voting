@@ -65,7 +65,7 @@ test.describe("Admin Start Meeting button", () => {
         }
 
         // Try to find an existing building first
-        const listRes = await api.get("/api/admin/buildings");
+        const listRes = await api.get("/api/admin/buildings?limit=1000");
         if (listRes.ok()) {
           const buildings = (await listRes.json()) as { id: string; name: string }[];
           const existing = buildings.find((b) => b.name === name);
@@ -108,7 +108,7 @@ test.describe("Admin Start Meeting button", () => {
     // Helper: close all active (open/pending) AGMs for a building.
     // Silently ignores Lambda errors — create will 409 if anything is still active.
     async function closeActiveAgms(buildingId: string): Promise<void> {
-      const listRes = await api.get("/api/admin/general-meetings");
+      const listRes = await api.get("/api/admin/general-meetings?limit=1000");
       if (!listRes.ok()) return;
       const agms = (await listRes.json()) as { id: string; status: string; building_id: string }[];
       const active = agms.filter(

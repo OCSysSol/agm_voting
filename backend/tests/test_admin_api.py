@@ -363,6 +363,34 @@ class TestListBuildings:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/buildings/{building_id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestGetBuilding:
+    # --- Happy path ---
+
+    async def test_returns_building_by_id(
+        self, client: AsyncClient, building: Building
+    ):
+        response = await client.get(f"/api/admin/buildings/{building.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(building.id)
+        assert data["name"] == building.name
+        assert data["manager_email"] == building.manager_email
+        assert "is_archived" in data
+        assert "created_at" in data
+
+    # --- State / precondition errors ---
+
+    async def test_returns_404_for_unknown_id(self, client: AsyncClient):
+        response = await client.get(f"/api/admin/buildings/{uuid.uuid4()}")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}/lot-owners
 # ---------------------------------------------------------------------------
 
@@ -3666,6 +3694,67 @@ class TestAdminAuth:
         ) as c:
             response = await c.get("/api/admin/auth/me")
         assert response.status_code == 401
+
+    def test_verify_admin_password_bcrypt_path_verify_called(self):
+        """_verify_admin_password delegates to _pwd_context.verify for bcrypt-prefixed hashes."""
+        from unittest.mock import patch
+        from app.routers.admin_auth import _verify_admin_password
+
+        # Use a bcrypt-prefixed stored value to trigger the bcrypt branch (line 30).
+        # Patch _pwd_context.verify so we don't need a real bcrypt hash computation.
+        with patch("app.routers.admin_auth._pwd_context") as mock_ctx:
+            mock_ctx.verify.return_value = True
+            result = _verify_admin_password("mypass", "$2b$12$fakehash")
+        mock_ctx.verify.assert_called_once_with("mypass", "$2b$12$fakehash")
+        assert result is True
+
+    async def test_hash_password_endpoint_returns_bcrypt_hash(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns a bcrypt hash in non-production."""
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        # Patch _pwd_context.hash to avoid real bcrypt computation in test env
+        with patch("app.routers.admin_auth._pwd_context") as mock_ctx:
+            mock_ctx.hash.return_value = "$2b$12$mockedhashvalue"
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/hash-password",
+                    json={"password": "mypassword"},
+                )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["hash"] == "$2b$12$mockedhashvalue"
+
+    async def test_hash_password_endpoint_returns_404_in_production(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production."""
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        with patch.object(__import__("app.config", fromlist=["settings"]).settings, "environment", "production"):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/hash-password",
+                    json={"password": "mypassword"},
+                )
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -327,6 +327,14 @@ export const adminHandlers = [
     return HttpResponse.json(ADMIN_BUILDINGS);
   }),
 
+  http.get(`${BASE}/api/admin/buildings/:buildingId`, ({ params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    return HttpResponse.json(building);
+  }),
+
   http.post(`${BASE}/api/admin/buildings`, async ({ request }) => {
     const body = await request.json() as { name?: string; manager_email?: string };
     const newBuilding: Building = {

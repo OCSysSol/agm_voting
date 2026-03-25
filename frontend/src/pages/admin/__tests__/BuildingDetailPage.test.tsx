@@ -156,7 +156,12 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("shows Building label when building not found in cache", async () => {
+  it("shows Building label when building is not found", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+      })
+    );
     renderPage("b-unknown");
     await waitFor(() => {
       expect(screen.getByText("Building")).toBeInTheDocument();
@@ -335,16 +340,14 @@ describe("BuildingDetailPage", () => {
 
   it("does not show Archive Building button for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     renderPage("b1");
@@ -484,16 +487,14 @@ describe("BuildingDetailPage", () => {
 
   it("shows Delete Building button only for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     renderPage("b1");
@@ -513,16 +514,14 @@ describe("BuildingDetailPage", () => {
 
   it("opens delete confirm modal when Delete Building clicked", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -537,16 +536,14 @@ describe("BuildingDetailPage", () => {
 
   it("shows building name in delete modal heading", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -561,16 +558,14 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on Cancel without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -588,16 +583,14 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on Escape without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -617,16 +610,14 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on backdrop click without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -647,16 +638,14 @@ describe("BuildingDetailPage", () => {
   it("navigates to buildings list on successful delete", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       }),
       http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
         return new HttpResponse(null, { status: 204 });
@@ -677,16 +666,14 @@ describe("BuildingDetailPage", () => {
 
   it("shows delete error when API returns error", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       }),
       http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json(
@@ -710,16 +697,14 @@ describe("BuildingDetailPage", () => {
 
   it("Delete Building button uses btn--danger class", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     renderPage("b1");

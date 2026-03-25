@@ -238,6 +238,10 @@ export async function listBuildings(): Promise<Building[]> {
   return apiFetch<Building[]>("/api/admin/buildings");
 }
 
+export async function getBuilding(buildingId: string): Promise<Building> {
+  return apiFetch<Building>(`/api/admin/buildings/${buildingId}`);
+}
+
 export async function createBuilding(data: BuildingCreateRequest): Promise<Building> {
   return apiFetch<Building>("/api/admin/buildings", {
     method: "POST",

@@ -70,7 +70,7 @@ export async function seedBuilding(
   name: string,
   managerEmail: string
 ): Promise<string> {
-  const buildingsRes = await api.get("/api/admin/buildings");
+  const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
   let building = buildings.find((b) => b.name === name);
   if (!building) {
@@ -187,7 +187,7 @@ export async function createOpenMeeting(
   motions: MotionSeed[]
 ): Promise<string> {
   // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings");
+  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
@@ -244,7 +244,7 @@ export async function createPendingMeeting(
   motions: MotionSeed[]
 ): Promise<string> {
   // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings");
+  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
