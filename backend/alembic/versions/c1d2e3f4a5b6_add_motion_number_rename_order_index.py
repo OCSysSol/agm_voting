@@ -21,13 +21,14 @@ def upgrade() -> None:
     # 1. Rename order_index -> display_order
     op.alter_column("motions", "order_index", new_column_name="display_order")
 
-    # 2. Shift display_order from 0-based to 1-based
+    # 2. Drop old unique constraint BEFORE any data operations so the +1 shift
+    #    and resequencing below cannot violate it mid-update.
+    op.drop_constraint("uq_motions_general_meeting_order", "motions", type_="unique")
+
+    # 3. Shift display_order from 0-based to 1-based
     op.execute("UPDATE motions SET display_order = display_order + 1")
 
-    # 3. Resequence display_order to eliminate any duplicate values within a meeting.
-    #    Existing data may have duplicate order_index values; assigning sequential 1-based
-    #    numbers (ordered by display_order then id as tiebreaker) ensures the unique
-    #    constraint added in step 4 can be created without a UniqueViolationError.
+    # 4. Resequence display_order to eliminate any duplicate values within a meeting.
     op.execute("""
         UPDATE motions m
         SET display_order = sub.new_order
@@ -41,9 +42,6 @@ def upgrade() -> None:
         ) sub
         WHERE m.id = sub.id
     """)
-
-    # 4. Drop old unique constraint
-    op.drop_constraint("uq_motions_general_meeting_order", "motions", type_="unique")
 
     # 5. Add new unique constraint on (general_meeting_id, display_order)
     op.create_unique_constraint(
