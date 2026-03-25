@@ -128,6 +128,21 @@ Do NOT delete/archive real production data. Known real buildings: "The Vale", "S
 
 Agents live in `.claude/agents/`. The orchestrator (`agm-orchestrate`) coordinates all work — design → implement → test → cleanup. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
 
+### Worktree-first rule
+
+**Before any design, implementation, or test work begins on a new feature or fix, create a git worktree for the branch.** All agent work — reading source files, writing design docs, writing code, running tests — must happen inside that worktree. Never read source files from the main repo root (`/Users/stevensun/personal/agm_survey`) when targeting a feature branch, because the main repo may be on a different branch (e.g. `preview`) with different code.
+
+```bash
+# Create worktree from the correct base branch (usually master or preview)
+git worktree add .claude/worktree/<branch-slug> -b <branch-name> <base-branch>
+# Example:
+git worktree add .claude/worktree/my-feature -b feat/my-feature master
+```
+
+Worktree path pattern: `/Users/stevensun/personal/agm_survey/.claude/worktree/<branch-slug>`
+
+The design doc and PRD edits for the feature must be written into the worktree (not the main repo root), so they are committed on the feature branch and included in the PR.
+
 ---
 
 ## Vercel Environments
