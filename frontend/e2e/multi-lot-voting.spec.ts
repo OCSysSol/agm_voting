@@ -142,13 +142,13 @@ test.describe("Multi-lot voter journey", () => {
           {
             title: "Motion 1 — Annual Budget",
             description: "Do you approve the annual budget?",
-            order_index: 1,
+            display_order: 1,
             motion_type: "general",
           },
           {
             title: "Motion 2 — Special Resolution",
             description: "Do you approve the special resolution?",
-            order_index: 2,
+            display_order: 2,
             motion_type: "special",
           },
         ],

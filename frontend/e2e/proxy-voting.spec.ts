@@ -185,7 +185,7 @@ test.describe("Proxy voter journey", () => {
             {
               title: "Mixed Proxy Test Motion — Bylaw",
               description: "Do you approve the bylaw change?",
-              order_index: 1,
+              display_order: 1,
               motion_type: "general",
             },
           ],

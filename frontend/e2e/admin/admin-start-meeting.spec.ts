@@ -142,7 +142,7 @@ test.describe("Admin Start Meeting button", () => {
               {
                 title: "Start Test Motion",
                 description: "A motion for the start-meeting test.",
-                order_index: 1,
+                display_order: 1,
                 motion_type: "general",
               },
             ],

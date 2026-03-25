@@ -104,13 +104,13 @@ test.describe("Public AGM summary page", () => {
           {
             title: GENERAL_MOTION_TITLE,
             description: "Do you approve the annual budget?",
-            order_index: 1,
+            display_order: 1,
             motion_type: "general",
           },
           {
             title: SPECIAL_MOTION_TITLE,
             description: "Do you approve the bylaw amendment?",
-            order_index: 2,
+            display_order: 2,
             motion_type: "special",
           },
         ],
