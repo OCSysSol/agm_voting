@@ -58,6 +58,12 @@ jobs:
           cd backend
           uv run bandit -r app/ -c pyproject.toml --exit-zero-on-skipped -ll
 
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Security scan (semgrep — backend rules)
+        run: semgrep --config .semgrep/rules.yml backend/app/ --error
+
   frontend:
     name: Frontend tests + security lint
     runs-on: ubuntu-latest
@@ -81,11 +87,13 @@ jobs:
       - name: Security lint (eslint-plugin-security)
         run: cd frontend && npm run lint:security
 
-  semgrep:
-    name: Semgrep security scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: semgrep/semgrep-action@v1
+      - name: Set up Python (for semgrep)
+        uses: actions/setup-python@v5
         with:
-          config: .semgrep/rules.yml
+          python-version: '3.12'
+
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Security scan (semgrep — frontend rules)
+        run: semgrep --config .semgrep/rules.yml frontend/src/ --error
