@@ -51,6 +51,36 @@ describe("VotingPage", () => {
     });
   });
 
+  it("uses display_order (not array index) as motion position label when first visible motion has display_order 2", async () => {
+    // Simulates a hidden motion 1 excluded from the list: the first element has display_order 2.
+    // Without the fix, position={index + 1} would render "Motion 1" as the position label;
+    // with the fix it correctly renders "Motion 2".
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_2,
+            title: "Approve the levy",
+            description: null,
+            display_order: 2,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+          },
+        ])
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      // The position label (rendered in a <p> by MotionCard) must be "Motion 2" (from
+      // display_order), not "Motion 1" (from array index 0 + 1).
+      expect(screen.getByText("Motion 2")).toBeInTheDocument();
+      expect(screen.queryByText("Motion 1")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders AGM title and building name", async () => {
     renderPage();
     await waitFor(() => {

@@ -688,11 +688,11 @@ export function VotingPage() {
                         : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
                     </div>
                   )}
-                  {motions.map((motion, index) => (
+                  {motions.map((motion) => (
                     <MotionCard
                       key={motion.id}
                       motion={motion}
-                      position={index + 1}
+                      position={motion.display_order}
                       choice={choices[motion.id] ?? null}
                       onChoiceChange={handleChoiceChange}
                       disabled={isClosed}
