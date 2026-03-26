@@ -170,19 +170,21 @@ export default function GeneralMeetingDetailPage() {
 
   // Add motion state
   const [showAddMotionModal, setShowAddMotionModal] = useState(false);
-  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
+  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string }>({
     title: "",
     description: "",
     motion_type: "general",
+    motion_number: "",
   });
   const [addMotionError, setAddMotionError] = useState<string | null>(null);
 
   // Edit motion state
   const [editingMotion, setEditingMotion] = useState<MotionDetail | null>(null);
-  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
+  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string }>({
     title: "",
     description: "",
     motion_type: "general",
+    motion_number: "",
   });
   const [editMotionError, setEditMotionError] = useState<string | null>(null);
 
@@ -194,7 +196,7 @@ export default function GeneralMeetingDetailPage() {
     onSuccess: () => {
       setShowAddMotionModal(false);
       setAddMotionError(null);
-      setAddMotionForm({ title: "", description: "", motion_type: "general" });
+      setAddMotionForm({ title: "", description: "", motion_type: "general", motion_number: "" });
       void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
     },
     onError: (error: Error) => {
@@ -325,6 +327,7 @@ export default function GeneralMeetingDetailPage() {
         title: editForm.title || undefined,
         description: editForm.description || undefined,
         motion_type: editForm.motion_type,
+        motion_number: editForm.motion_number.trim() || null,
       },
     });
   }
@@ -495,6 +498,7 @@ export default function GeneralMeetingDetailPage() {
               title: motion.title,
               description: motion.description ?? "",
               motion_type: motion.motion_type,
+              motion_number: motion.motion_number ?? "",
             });
             setEditMotionError(null);
           }}
@@ -558,6 +562,7 @@ export default function GeneralMeetingDetailPage() {
                   title: addMotionForm.title,
                   description: addMotionForm.description || null,
                   motion_type: addMotionForm.motion_type,
+                  motion_number: addMotionForm.motion_number.trim() || null,
                 });
               }}
             >
@@ -577,6 +582,16 @@ export default function GeneralMeetingDetailPage() {
                   className="field__input"
                   value={addMotionForm.description}
                   onChange={(e) => setAddMotionForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-number">Motion number (optional)</label>
+                <input
+                  id="add-motion-number"
+                  className="field__input"
+                  type="text"
+                  value={addMotionForm.motion_number}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
               </div>
               <div className="field">
@@ -665,6 +680,16 @@ export default function GeneralMeetingDetailPage() {
                   className="field__input"
                   value={editForm.description}
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="modal-edit-motion-number">Motion number (optional)</label>
+                <input
+                  id="modal-edit-motion-number"
+                  className="field__input"
+                  type="text"
+                  value={editForm.motion_number}
+                  onChange={(e) => setEditForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
               </div>
               <div className="field">

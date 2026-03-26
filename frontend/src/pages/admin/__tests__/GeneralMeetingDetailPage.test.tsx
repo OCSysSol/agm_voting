@@ -750,6 +750,7 @@ describe("Add Motion form", () => {
     expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title *")).toBeInTheDocument();
     expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(screen.getByLabelText("Motion number (optional)")).toBeInTheDocument();
     expect(screen.getByLabelText("Motion Type")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Motion" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
@@ -767,6 +768,37 @@ describe("Add Motion form", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
     });
+  });
+
+  it("submitting add motion with motion_number sends it in the payload", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({
+          id: "motion-new",
+          title: capturedBody.title,
+          description: capturedBody.description ?? null,
+          display_order: 3,
+          motion_number: capturedBody.motion_number ?? null,
+          motion_type: capturedBody.motion_type ?? "general",
+          is_visible: false,
+        }, { status: 201 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await user.type(screen.getByLabelText("Title *"), "Test Motion");
+    await user.type(screen.getByLabelText("Motion number (optional)"), "S-1");
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", "S-1");
   });
 
   // --- Input validation ---
@@ -930,6 +962,66 @@ describe("Edit motion modal", () => {
     expect(dialog.querySelector("#modal-edit-description")).toHaveValue(
       ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0].description ?? ""
     );
+  });
+
+  it("modal pre-fills motion_number from the motion being edited", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Motion number (optional)")).toHaveValue("M-42");
+  });
+
+  it("submitting edit sends updated motion_number value", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
+        return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const input = screen.getByLabelText("Motion number (optional)");
+    await user.clear(input);
+    await user.type(input, "M-99");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", "M-99");
+  });
+
+  it("whitespace-only motion_number sends null", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
+        return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const input = screen.getByLabelText("Motion number (optional)");
+    await user.clear(input);
+    await user.type(input, "   ");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", null);
   });
 
   it("Save Changes button calls PATCH and closes modal on success", async () => {

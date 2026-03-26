@@ -505,12 +505,14 @@ export interface AddMotionRequest {
   title: string;
   description: string | null;
   motion_type: MotionType;
+  motion_number?: string | null;
 }
 
 export interface UpdateMotionRequest {
   title?: string;
   description?: string | null;
   motion_type?: MotionType;
+  motion_number?: string | null;
 }
 
 export async function addMotionToMeeting(
