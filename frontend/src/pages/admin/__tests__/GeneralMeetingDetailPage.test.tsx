@@ -1406,17 +1406,30 @@ describe("Delete motion", () => {
     expect(screen.getByRole("button", { name: "Delete" })).not.toBeDisabled();
   });
 
-  it("confirming delete calls DELETE endpoint", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("clicking Delete opens confirmation modal with correct message", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("dialog", { name: "Delete Motion" })).toBeInTheDocument();
+    expect(screen.getByText("Delete this motion?")).toBeInTheDocument();
+    expect(screen.getByText("This cannot be undone.")).toBeInTheDocument();
+  });
+
+  it("confirming delete in modal calls DELETE endpoint and closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
     await waitFor(() => {
-      // After successful delete, query is invalidated and meeting reloads
-      expect(window.confirm).toHaveBeenCalledWith("Delete this motion? This cannot be undone.");
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      // After successful delete, modal is closed and query is invalidated
+      expect(screen.queryByRole("dialog", { name: "Delete Motion" })).not.toBeInTheDocument();
     });
   });
 
@@ -1498,7 +1511,6 @@ describe("Delete motion", () => {
         return HttpResponse.json({ detail: "not found" }, { status: 404 });
       })
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -1516,6 +1528,8 @@ describe("Delete motion", () => {
       expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
@@ -1533,7 +1547,6 @@ describe("Delete motion", () => {
         return new HttpResponse(null, { status: 204 });
       })
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -1541,11 +1554,15 @@ describe("Delete motion", () => {
     });
     // First click: causes error
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    let dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
     // Second click: succeeds and clears error
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
@@ -1553,17 +1570,73 @@ describe("Delete motion", () => {
 
   // --- Edge cases ---
 
-  it("dismissing confirm dialog makes no API call", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("clicking Cancel in confirmation modal does NOT call the delete mutation", async () => {
+    const deleteSpy = vi.fn();
+    server.use(
+      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+        deleteSpy();
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    // No alert shown (no API error), form still shows delete button enabled
+    const dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    expect(dialog).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Delete Motion" })).not.toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
+    // No alert shown, delete button still available
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("pressing Escape in confirmation modal closes it without calling delete", async () => {
+    const deleteSpy = vi.fn();
+    server.use(
+      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+        deleteSpy();
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("dialog", { name: "Delete Motion" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Motion" })).not.toBeInTheDocument();
+    });
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("clicking backdrop in confirmation modal closes it without calling delete", async () => {
+    const deleteSpy = vi.fn();
+    server.use(
+      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+        deleteSpy();
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Motion" });
+    expect(dialog).toBeInTheDocument();
+    await user.click(dialog);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Motion" })).not.toBeInTheDocument();
+    });
+    expect(deleteSpy).not.toHaveBeenCalled();
   });
 });
 

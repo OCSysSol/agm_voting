@@ -27,6 +27,64 @@ interface DeleteMeetingConfirmModalProps {
   onCancel: () => void;
 }
 
+interface DeleteMotionConfirmModalProps {
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteMotionConfirmModal({ onConfirm, onCancel }: DeleteMotionConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Motion"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete this motion?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This cannot be undone.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeleteMeetingConfirmModal({ meetingTitle, deleting, onConfirm, onCancel }: DeleteMeetingConfirmModalProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -191,6 +249,9 @@ export default function GeneralMeetingDetailPage() {
 
   // Delete motion error state (per motion)
   const [deleteMotionErrors, setDeleteMotionErrors] = useState<Record<string, string>>({});
+
+  // Delete motion confirmation state
+  const [pendingDeleteMotionId, setPendingDeleteMotionId] = useState<string | null>(null);
 
   const addMotionMutation = useMutation({
     mutationFn: (data: AddMotionRequest) => addMotionToMeeting(meetingId!, data),
@@ -521,9 +582,7 @@ export default function GeneralMeetingDetailPage() {
             setEditMotionError(null);
           }}
           onDelete={(motionId) => {
-            if (window.confirm("Delete this motion? This cannot be undone.")) {
-              deleteMotionMutation.mutate(motionId);
-            }
+            setPendingDeleteMotionId(motionId);
           }}
           deleteMotionErrors={deleteMotionErrors}
         />
@@ -532,6 +591,17 @@ export default function GeneralMeetingDetailPage() {
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+
+      {/* Delete Motion Modal */}
+      {pendingDeleteMotionId && (
+        <DeleteMotionConfirmModal
+          onConfirm={() => {
+            deleteMotionMutation.mutate(pendingDeleteMotionId);
+            setPendingDeleteMotionId(null);
+          }}
+          onCancel={() => setPendingDeleteMotionId(null)}
+        />
+      )}
 
       {/* Delete Meeting Modal */}
       {showDeleteMeetingModal && meeting && (
