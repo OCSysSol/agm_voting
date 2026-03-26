@@ -6634,6 +6634,45 @@ class TestMotionManagement:
         assert response.status_code == 201
         assert response.json()["motion_number"] is None
 
+    # --- State / precondition errors (duplicate motion_number) ---
+
+    async def test_add_motion_duplicate_motion_number_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding a second motion with the same non-null motion_number returns 409."""
+        agm = await self._create_meeting(db_session, "DupMotionNum")
+        # First motion succeeds
+        r1 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "First Numbered", "motion_number": "SR-1"},
+        )
+        assert r1.status_code == 201
+        # Second motion with same motion_number returns 409
+        r2 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Second Numbered", "motion_number": "SR-1"},
+        )
+        assert r2.status_code == 409
+        assert "already exists" in r2.json()["detail"].lower()
+
+    async def test_add_motion_duplicate_motion_number_null_allowed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding two motions both with motion_number=null succeeds; nulls are not unique-constrained."""
+        agm = await self._create_meeting(db_session, "NullMotionNum")
+        r1 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "First Null Number"},
+        )
+        assert r1.status_code == 201
+        assert r1.json()["motion_number"] is None
+        r2 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Second Null Number"},
+        )
+        assert r2.status_code == 201
+        assert r2.json()["motion_number"] is None
+
     # --- Input validation (add) ---
 
     async def test_add_motion_missing_title_returns_422(

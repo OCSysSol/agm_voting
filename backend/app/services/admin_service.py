@@ -13,6 +13,7 @@ import openpyxl
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -1387,7 +1388,16 @@ async def add_motion_to_meeting(
         is_visible=False,
     )
     db.add(motion)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_motions_general_meeting_motion_number" in str(exc.orig):
+            raise HTTPException(
+                status_code=409,
+                detail="A motion with this number already exists in this meeting",
+            ) from exc
+        raise  # pragma: no cover — re-raise unexpected integrity errors
     await db.commit()
     await db.refresh(motion)
 
