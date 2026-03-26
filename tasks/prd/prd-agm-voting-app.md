@@ -169,16 +169,19 @@ A web application for body corporates to run voting during Annual General Meetin
 **Acceptance Criteria:**
 
 - [ ] The AGM creation form includes an optional "Motion number" text field for each motion; the field accepts any non-empty string up to 100 characters (e.g. "5", "5a", "Special Resolution 1")
-- [ ] Leaving the motion number field blank is valid; blank values are stored as `NULL` in the database
-- [ ] Whitespace-only input (e.g. spaces only) is treated as blank and stored as `NULL`
-- [ ] On the voter-facing voting page, each motion card displays the `motion_number` as its label if set; if `motion_number` is `NULL` or blank, the card shows the positional label "Motion {N}" (1-based position in the displayed list)
-- [ ] On the public meeting summary page, each motion is listed with its `motion_number` as the label if set; otherwise the positional label is used
+- [ ] Leaving the motion number field blank is valid; if omitted at creation or add-motion time, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3") so every motion always has a non-null number
+- [ ] Whitespace-only input (e.g. spaces only) is treated as blank and stored as `NULL`; the UI placeholder communicates "Auto (e.g. 3)"
+- [ ] On the voter-facing voting page, each motion card label is always rendered as `"MOTION {motion_number}"` — the "MOTION" prefix is always present; `motion_number` is always set (never null) for motions created after the auto-assign feature landed
+- [ ] On the public meeting summary page, each motion is listed with its `motion_number` as the label if set; otherwise `display_order` is used as fallback
 - [ ] In the admin AGM detail page motion table, a "Motion #" column shows the custom motion number (blank if not set)
 - [ ] The AGM results report (admin) uses `motion_number` as the motion label if set; otherwise the positional label
-- [ ] Motion numbers are not required to be unique per AGM — duplicate labels are allowed (e.g. two sub-motions both labelled "5a")
+- [ ] Motion numbers are unique per AGM — adding a motion with a duplicate non-null `motion_number` returns 409; the partial unique index (`WHERE motion_number IS NOT NULL`) enforces this at the database level
 - [ ] Motion number has no effect on display order; changing a motion's number does not change its position in the list
 - [ ] `motion_number` is included in all motion-related API responses: `GET /api/general-meeting/{id}/motions`, `GET /api/general-meeting/{id}/my-ballot`, `GET /api/general-meeting/{id}/summary`, `GET /api/admin/general-meetings/{id}`
-- [ ] When editing a hidden motion via the Edit Motion modal on the admin General Meeting detail page, the admin can change or clear the motion number; the new value is persisted and reflected in the motion table after saving
+- [ ] When editing a hidden motion via the Edit Motion modal on the admin General Meeting detail page, the admin can change or clear the motion number; the new value is persisted and reflected in the motion table after saving; `PATCH /api/admin/motions/{id}` accepts and persists `motion_number`
+- [ ] `motion_number` is stable across reorders — `PUT /api/admin/general-meetings/{id}/motions/reorder` only updates `display_order`; it never modifies `motion_number`
+- [ ] On the voter-facing voting page, motion position is determined by `display_order`, not array index — a voter who sees motions with `display_order` 2 and 3 (motion 1 hidden) sees headings "MOTION 2" and "MOTION 3", not "MOTION 1" and "MOTION 2"
+- [ ] The confirmation/SubmitDialog shows the same "MOTION {motion_number}" label alongside each motion title in the unanswered-motions list
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
@@ -192,7 +195,7 @@ A web application for body corporates to run voting during Annual General Meetin
 **Acceptance Criteria:**
 
 - [ ] On the admin AGM detail page (open or pending meetings only), each row in the motion table has a drag handle that allows the admin to drag and drop it to a new position
-- [ ] On the same page, each motion row has four order-control buttons: "Move to top", "Move up", "Move down", "Move to bottom"; "Move to top" and "Move up" are disabled for the first motion; "Move down" and "Move to bottom" are disabled for the last motion
+- [ ] On the same page, each motion row has two order-control buttons in the Actions column: "Move to top" (⤒) and "Move to bottom" (⤓); "Move to top" is disabled for the first motion; "Move to bottom" is disabled for the last motion
 - [ ] Reordering takes effect immediately in the UI (optimistic update); the new order is persisted via `PUT /api/admin/general-meetings/{id}/motions/reorder` with the complete ordered list of motion IDs
 - [ ] If the reorder API call fails, the UI reverts to the pre-drag order and shows an error message
 - [ ] Reordering is not available when the meeting is closed — drag handles and move buttons are absent on the closed meeting detail page
@@ -213,15 +216,33 @@ A web application for body corporates to run voting during Annual General Meetin
 
 **Acceptance Criteria:**
 
-- [ ] The admin AGM detail page shows a single "Motions" table that combines: drag handle, motion number, title/description, type badge, visibility toggle, and action buttons (Edit/Delete)
+- [ ] The admin AGM detail page shows a single "Motions" table that combines: drag handle, motion number, title/description, type badge, visibility toggle, and action buttons (Edit/Delete, plus reorder buttons ⤒ ⤓)
 - [ ] The separate "Motion Reorder" panel and "Motion Visibility" heading are removed — all motion management happens in one table
-- [ ] Drag handles and move buttons (top/up/down/bottom) appear in the leftmost column when the meeting is open or pending
+- [ ] Drag handles and move-to-top/bottom buttons appear in the Actions column when the meeting is open or pending
 - [ ] Drag handles and move buttons are absent when the meeting is closed
 - [ ] Visibility toggles behave identically to the previous standalone table: disabled when closed, disabled when motion has received votes, inline error on failure
 - [ ] Hidden motions appear with muted styling on data cells (#, title, type) but full opacity on the visibility toggle and action buttons
 - [ ] Edit and Delete buttons remain disabled when a motion is visible (must hide first), same as before
 - [ ] "Add Motion", "Show All", and "Hide All" buttons appear above the table (not closed meetings)
 - [ ] All existing reorder and visibility behaviour is preserved — this is a UI consolidation, not a behaviour change
+- [ ] Deleting a motion shows a confirmation modal dialog (not a browser `confirm()` popup); the modal has "Delete" and "Cancel" buttons and shows the motion title
+- [ ] Visibility toggle applies an optimistic UI update immediately on click — the toggle state changes before the API response arrives; on error the toggle reverts
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MN-04: Admin login page uses tenant branding logo
+
+**Description:** As a meeting host, I want the admin login page to display the configured tenant logo rather than a hardcoded static image, so the login screen is consistent with the rest of the branded app.
+
+**Acceptance Criteria:**
+
+- [ ] The admin login page (`/admin/login`) reads the logo URL from `useBranding()` / `BrandingContext` (the same source used by the admin sidebar and voter shell)
+- [ ] When `logo_url` is a non-empty string, the login card displays `<img src={logo_url}>` — the configured tenant logo
+- [ ] When `logo_url` is empty string or not set, no broken image is displayed; the login card renders without an image
+- [ ] The hardcoded `/logo.png` and `/logo.webp` references are removed from the login page
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
@@ -543,7 +564,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-13: Motion selections are held entirely in client-side React state — no draft auto-save to the backend occurs. Selections are transmitted to the backend only when the lot owner clicks Submit and confirms the submission dialog. Voters who never submit are recorded as absent when the AGM is closed. (The backend `PUT /api/general-meeting/{id}/draft` endpoint is retained for backward compatibility but the frontend no longer calls it.) Vote choices are passed **inline** in the `POST /api/general-meeting/{id}/submit` request body as a `votes` list of `{motion_id, choice}` objects. The backend does not read draft Vote rows to determine submitted choices; it uses only the inline votes provided. Any draft Vote rows for the submitting lots are deleted before the submitted Vote rows are inserted, preventing unique-constraint conflicts.
 - FR-14: At AGM creation, the system records an immutable weight snapshot (`agm_lot_weights`) containing the `unit_entitlement` of every lot owner in the building at that moment. All tally calculations and the results report use this snapshot exclusively. Subsequent changes to lot owner data (CSV/Excel import, manual edit, PropertyIQ sync) do not alter existing snapshots. The lot owner import uses upsert semantics (matched by `lot_number`) rather than delete-all-then-insert, ensuring that database IDs — and therefore the foreign-key references from `agm_lot_weights` — are preserved for unchanged lots.
 - FR-15: The server exposes the current server UTC time via an API endpoint. The voting page fetches this on load, computes the offset from client time, and uses the corrected time for the countdown timer and 5-minute warning to eliminate client clock skew.
-- FR-16: Each motion has an optional `motion_number` (VARCHAR, nullable). This is a free-text display label (e.g. "5", "5a", "Special Resolution 1") shown to voters instead of a sequential counter. `motion_number` is stored as set by the admin and has no effect on display order. It is not required to be unique per AGM. A NULL or blank value causes the voter-facing UI to fall back to a positional label ("Motion 1", "Motion 2", ...) based on the motion's `display_order` position.
+- FR-16: Each motion has a `motion_number` (VARCHAR). When explicitly provided by the admin, it is a free-text display label (e.g. "5", "5a", "Special Resolution 1"). When omitted on creation or add-motion, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3"), ensuring every motion always has a non-null number. Whitespace-only input is treated as blank and stored as `NULL`. `motion_number` is unique per AGM (partial unique index `WHERE motion_number IS NOT NULL`) — a duplicate non-null value returns 409. `motion_number` has no effect on display order; reordering motions never modifies `motion_number`. On the voter-facing voting page, every motion card always renders `"MOTION {motion_number}"` as its label. On the confirmation/SubmitDialog, the same `"MOTION {motion_number}"` label is used. A NULL `motion_number` (legacy motions predating the auto-assign feature) causes the UI to fall back to a positional label based on `display_order`.
 - FR-17: Motions have a `display_order` (INTEGER, 1-based, unique per meeting) that determines the sequence in which they are rendered on the voting page, public summary, and admin detail pages. The admin can reorder motions via `PUT /api/admin/general-meetings/{id}/motions/reorder` which accepts the complete ordered list of motion IDs and atomically renormalises `display_order` values to 1, 2, 3, ... Reordering is only permitted on open or pending meetings. Changing `display_order` never modifies `motion_number`, and changing `motion_number` never modifies `display_order`.
 
 ---

@@ -35,8 +35,28 @@ The `motion_number` column already exists and is nullable. The change is purely 
 
 ## Boundary cases
 
-- `motion_number` omitted → auto-assign `str(display_order)`, e.g. `"0"` for first motion
+- `motion_number` omitted → auto-assign `str(display_order)`, e.g. `"1"` for first motion (display_order is 1-based)
 - `motion_number` is empty string `""` → treat as whitespace → store as `None` (existing behaviour)
 - `motion_number` is whitespace only `"   "` → store as `None` (existing behaviour)
 - `motion_number` explicitly provided, e.g. `"SR-1"` → use that value (override)
 - Duplicate auto-assigned number is impossible in practice because `display_order` increments monotonically per meeting; however, if an admin adds two motions very quickly it could still trigger a 409 on `uq_motions_general_meeting_motion_number` — existing 409 handling covers this
+
+---
+
+## Alembic Migration: Backfill Existing Null Rows (PR #124)
+
+A follow-up Alembic migration was added to backfill `motion_number` for all existing motions that still have `motion_number = NULL` (created before the auto-assign feature). The migration runs:
+
+```sql
+UPDATE motions
+SET motion_number = display_order::text
+WHERE motion_number IS NULL;
+```
+
+This is a data-only migration — no schema structure changes. After it runs, every motion in the database has a non-null `motion_number`, making the auto-assign invariant retroactively true for all historical data.
+
+**Schema migration required: YES** — this PR adds an Alembic migration file. An isolated Neon DB branch is required for deployment per CLAUDE.md conventions.
+
+### `requirements.txt` fix (same PR)
+
+`greenlet` was added as an explicit dependency in `backend/requirements.txt`. The AWS Lambda runtime does not include `greenlet` by default. SQLAlchemy's asyncio mode depends on `greenlet` for coroutine context switching; its absence caused `FUNCTION_INVOCATION_FAILED` errors on the Lambda cold start after the reorder feature added more async DB operations. Pinning `greenlet` in requirements ensures it is bundled in the deployment package.
