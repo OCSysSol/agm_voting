@@ -233,9 +233,4 @@ npm run test:coverage
 
 # Frontend: E2E tests (requires dev server or PLAYWRIGHT_BASE_URL set)
 npm run e2e
-
-# Security scan (run before pushing)
-cd backend && uv run bandit -r app/ -c pyproject.toml -ll
-semgrep --config .semgrep/rules.yml backend/app/ frontend/src/
-cd frontend && npm run lint:security
 ```
