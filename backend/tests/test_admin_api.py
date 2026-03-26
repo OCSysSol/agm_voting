@@ -4033,12 +4033,17 @@ class TestDeleteBuilding:
 # Admin auth endpoints
 # ---------------------------------------------------------------------------
 
+# Pre-computed bcrypt hash of "admin" (rounds=4 for test speed).
+# Generated with: bcrypt.hashpw(b"admin", bcrypt.gensalt(rounds=4)).decode()
+_TEST_ADMIN_BCRYPT_HASH = "$2b$04$ampOYzsHO0u05htm9anlVOhhjSy5nY/jytIFxs3LaP79G2QIfFZSq"
+
 
 class TestAdminAuth:
     # --- Happy path ---
 
     async def test_login_valid_credentials_returns_ok(self, db_session: AsyncSession):
-        """Valid username + password → {"ok": true}."""
+        """Valid username + bcrypt-hashed password → {"ok": true}."""
+        from unittest.mock import patch
         from app.main import create_app
 
         app_instance = create_app()
@@ -4048,17 +4053,24 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            response = await c.post(
-                "/api/admin/auth/login",
-                json={"username": "admin", "password": "admin"},
-            )
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
         assert response.status_code == 200
         assert response.json()["ok"] is True
 
     async def test_login_invalid_credentials_returns_401(self, db_session: AsyncSession):
+        """Wrong username/password → 401 and failure recorded."""
+        from unittest.mock import patch
         from app.main import create_app
 
         app_instance = create_app()
@@ -4068,16 +4080,23 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            response = await c.post(
-                "/api/admin/auth/login",
-                json={"username": "wrong", "password": "bad"},
-            )
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "wrong", "password": "bad"},
+                )
         assert response.status_code == 401
 
     async def test_logout_clears_session(self, db_session: AsyncSession):
+        """Login then logout → second request to /me returns 401."""
+        from unittest.mock import patch
         from app.main import create_app
 
         app_instance = create_app()
@@ -4087,18 +4106,24 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            await c.post(
-                "/api/admin/auth/login",
-                json={"username": "admin", "password": "admin"},
-            )
-            response = await c.post("/api/admin/auth/logout")
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                response = await c.post("/api/admin/auth/logout")
         assert response.status_code == 200
         assert response.json()["ok"] is True
 
     async def test_me_authenticated_returns_true(self, db_session: AsyncSession):
+        from unittest.mock import patch
         from app.main import create_app
 
         app_instance = create_app()
@@ -4108,14 +4133,19 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            await c.post(
-                "/api/admin/auth/login",
-                json={"username": "admin", "password": "admin"},
-            )
-            response = await c.get("/api/admin/auth/me")
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                response = await c.get("/api/admin/auth/me")
         assert response.status_code == 200
         assert response.json()["authenticated"] is True
 
@@ -4136,17 +4166,234 @@ class TestAdminAuth:
         assert response.status_code == 401
 
     def test_verify_admin_password_bcrypt_path_verify_called(self):
-        """_verify_admin_password delegates to _pwd_context.verify for bcrypt-prefixed hashes."""
+        """_verify_admin_password delegates to bcrypt.checkpw for $2b$-prefixed hashes."""
         from unittest.mock import patch
         from app.routers.admin_auth import _verify_admin_password
 
-        # Use a bcrypt-prefixed stored value to trigger the bcrypt branch (line 30).
-        # Patch _pwd_context.verify so we don't need a real bcrypt hash computation.
-        with patch("app.routers.admin_auth._pwd_context") as mock_ctx:
-            mock_ctx.verify.return_value = True
+        with patch("app.routers.admin_auth._bcrypt_lib") as mock_bcrypt:
+            mock_bcrypt.checkpw.return_value = True
             result = _verify_admin_password("mypass", "$2b$12$fakehash")
-        mock_ctx.verify.assert_called_once_with("mypass", "$2b$12$fakehash")
+        mock_bcrypt.checkpw.assert_called_once_with(b"mypass", b"$2b$12$fakehash")
         assert result is True
+
+    def test_verify_admin_password_with_2a_prefix(self):
+        """_verify_admin_password also accepts $2a$ bcrypt prefix."""
+        from unittest.mock import patch
+        from app.routers.admin_auth import _verify_admin_password
+
+        with patch("app.routers.admin_auth._bcrypt_lib") as mock_bcrypt:
+            mock_bcrypt.checkpw.return_value = False
+            result = _verify_admin_password("wrong", "$2a$12$fakehash")
+        mock_bcrypt.checkpw.assert_called_once_with(b"wrong", b"$2a$12$fakehash")
+        assert result is False
+
+    def test_verify_admin_password_plaintext_raises_value_error(self):
+        """_verify_admin_password raises ValueError when stored value is not a bcrypt hash."""
+        from app.routers.admin_auth import _verify_admin_password
+        import pytest
+
+        with pytest.raises(ValueError, match="ADMIN_PASSWORD must be a bcrypt hash"):
+            _verify_admin_password("admin", "admin")
+
+    async def test_login_plaintext_password_returns_500(self, db_session: AsyncSession):
+        """If ADMIN_PASSWORD is not a bcrypt hash, login returns 500 with a clear error."""
+        from app.main import create_app
+
+        # Use default settings which has admin_password="admin" (plaintext)
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.post(
+                "/api/admin/auth/login",
+                json={"username": "admin", "password": "admin"},
+            )
+        assert response.status_code == 500
+        assert "bcrypt hash" in response.json()["detail"]
+
+    # --- Rate limiting ---
+
+    async def test_five_failed_attempts_triggers_429(self, db_session: AsyncSession):
+        """After 5 failed login attempts from the same IP, the 6th returns 429."""
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                # 5 failed attempts
+                for _ in range(5):
+                    r = await c.post(
+                        "/api/admin/auth/login",
+                        json={"username": "admin", "password": "wrongpassword"},
+                    )
+                    assert r.status_code == 401
+
+                # 6th attempt — now rate limited
+                r = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "wrongpassword"},
+                )
+        assert r.status_code == 429
+        assert "Too many failed login attempts" in r.json()["detail"]
+
+    async def test_successful_login_resets_failure_counter(self, db_session: AsyncSession):
+        """A successful login clears the failed-attempt record, allowing future logins."""
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                # 4 failed attempts (below threshold)
+                for _ in range(4):
+                    await c.post(
+                        "/api/admin/auth/login",
+                        json={"username": "admin", "password": "wrongpassword"},
+                    )
+
+                # Successful login resets counter
+                r_ok = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                assert r_ok.status_code == 200
+
+                # Another failed attempt — counter was reset, so still only 1 failure
+                r_fail = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "wrongpassword"},
+                )
+                assert r_fail.status_code == 401
+
+    async def test_rate_limit_window_expiry_allows_retry(self, db_session: AsyncSession):
+        """After the 15-min window expires, the failure counter resets automatically.
+
+        Seeds an expired AdminLoginAttempt record (first_attempt_at > 15 min ago).
+        The login handler detects the expired window, deletes the record, and proceeds
+        normally — exercising lines 75-77 of admin_auth.py.
+        """
+        from unittest.mock import patch
+        from datetime import UTC, datetime, timedelta
+        from app.main import create_app
+        from app.models.admin_login_attempt import AdminLoginAttempt
+        from sqlalchemy import delete as sa_delete
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        # The httpx ASGITransport test client appears as 127.0.0.1.
+        # Delete any pre-existing records for this IP left by prior tests in the
+        # shared session, then seed a fresh expired record.
+        await db_session.execute(
+            sa_delete(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "127.0.0.1")
+        )
+        await db_session.flush()
+
+        # Seed an expired rate-limit record (first_attempt_at > 15 min ago)
+        old_record = AdminLoginAttempt(
+            ip_address="127.0.0.1",
+            failed_count=5,
+            first_attempt_at=datetime.now(UTC) - timedelta(minutes=20),
+            last_attempt_at=datetime.now(UTC) - timedelta(minutes=20),
+        )
+        db_session.add(old_record)
+        await db_session.flush()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                # Should succeed because the window has expired (lines 75-77 are exercised)
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+        assert response.status_code == 200
+
+    # --- Boundary values ---
+
+    async def test_exactly_five_failures_not_blocked(self, db_session: AsyncSession):
+        """Exactly 5 failed attempts (at threshold) still returns 401, not 429.
+
+        The 6th attempt triggers 429. The 5th failure itself is the last allowed attempt.
+        """
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            _TEST_ADMIN_BCRYPT_HASH,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                # 4 failed attempts — not yet at threshold
+                for _ in range(4):
+                    await c.post(
+                        "/api/admin/auth/login",
+                        json={"username": "admin", "password": "wrongpassword"},
+                    )
+
+                # 5th attempt — still allowed (returns 401)
+                r5 = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "wrongpassword"},
+                )
+                assert r5.status_code == 401
+
+                # 6th attempt — now blocked (returns 429)
+                r6 = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "wrongpassword"},
+                )
+        assert r6.status_code == 429
 
     async def test_hash_password_endpoint_returns_bcrypt_hash(self, db_session: AsyncSession):
         """POST /api/admin/auth/hash-password returns a bcrypt hash in non-production."""
@@ -4160,9 +4407,10 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        # Patch _pwd_context.hash to avoid real bcrypt computation in test env
-        with patch("app.routers.admin_auth._pwd_context") as mock_ctx:
-            mock_ctx.hash.return_value = "$2b$12$mockedhashvalue"
+        # Patch _bcrypt_lib to avoid real bcrypt computation in test env
+        with patch("app.routers.admin_auth._bcrypt_lib") as mock_bcrypt:
+            mock_bcrypt.hashpw.return_value = b"$2b$12$mockedhashvalue"
+            mock_bcrypt.gensalt.return_value = b"fakesalt"
             async with AsyncClient(
                 transport=ASGITransport(app=app_instance), base_url="http://test"
             ) as c:
