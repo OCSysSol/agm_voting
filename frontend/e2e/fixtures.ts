@@ -42,6 +42,12 @@ const IGNORED_PATTERNS = [
   // noise and not an application error.
   /vercel\.live/i,
   /Content Security Policy directive.*default-src/i,
+  // Image/asset loads from Vercel Blob storage can return 403 when the asset URL
+  // has not been publicly shared or the access token is missing. This is a
+  // configuration concern, not an application error — suppress the browser noise.
+  /net::ERR_FAILED.*\.(png|svg|ico|jpg|webp)/i,
+  /blob\.vercel-storage\.com/i,
+  /net::ERR_FAILED.*403/i,
 ];
 
 /**
