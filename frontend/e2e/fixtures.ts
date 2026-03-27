@@ -37,6 +37,11 @@ const IGNORED_PATTERNS = [
   // E2E test — the browser logs this when the backend rejects an invalid colour value,
   // which is the correct validation behaviour being tested.
   /status of 422/i,
+  // Vercel injects a live-preview toolbar that tries to frame https://vercel.live/
+  // The app's CSP blocks it (default-src 'self'). This is Vercel infrastructure
+  // noise and not an application error.
+  /vercel\.live/i,
+  /Content Security Policy directive.*default-src/i,
 ];
 
 /**

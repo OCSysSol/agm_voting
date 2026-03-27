@@ -248,7 +248,7 @@ async def list_buildings(
     offset: int = 0,
     name: str | None = None,
 ) -> list[Building]:
-    q = select(Building).order_by(Building.created_at)
+    q = select(Building).order_by(Building.created_at.desc())
     if name is not None:
         q = q.where(func.lower(Building.name).contains(name.lower()))
     result = await db.execute(q.offset(offset).limit(limit))
