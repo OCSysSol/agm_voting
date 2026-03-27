@@ -382,6 +382,120 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
   });
 
+  // --- RR2-06: URL params for page ---
+
+  it("navigates to page 2 via pagination and back to page 1 via Previous", async () => {
+    const meetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `m${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(meetings.slice(offset, offset + limit));
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    });
+    // Navigate to page 2
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 21")).toBeInTheDocument();
+    });
+    // Navigate back to page 1 via Previous button
+    await user.click(screen.getAllByRole("button", { name: "Previous page" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Meeting 21")).not.toBeInTheDocument();
+  });
+
+  it("defaults to page 1 when page URL param is not a valid number", async () => {
+    renderPage("?page=abc");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "General Meetings" })).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Failed to load General Meetings.")).not.toBeInTheDocument();
+  });
+
+  it("reads page=2 from URL and loads page 2", async () => {
+    const meetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `m${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(meetings.slice(offset, offset + limit));
+      })
+    );
+    renderPage("?page=2");
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 21")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Meeting 1")).not.toBeInTheDocument();
+  });
+
+  it("filter change resets page to 1 in URL", async () => {
+    const meetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `m${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(meetings.slice(offset, offset + limit));
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("?page=2");
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 21")).toBeInTheDocument();
+    });
+    // Changing filter should reset to page 1
+    await user.selectOptions(screen.getByLabelText("Status"), "open");
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Meeting 21")).not.toBeInTheDocument();
+  });
+
   // --- Pagination and prefetch ---
 
   it("prefetches next page when total count exceeds one page", async () => {
@@ -416,7 +530,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("Meeting 1")).toBeInTheDocument();
     });
     // Pagination shows 2 pages
-    expect(screen.getAllByRole("button", { name: "2" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Go to page 2" })[0]).toBeInTheDocument();
   });
 
   // --- RR2-03: filter toggle resets pagination to page 1 ---

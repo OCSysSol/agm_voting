@@ -88,6 +88,28 @@ describe("AuthForm — step 1 (email)", () => {
     expect(screen.getByText("Failed to send code. Please try again.")).toBeInTheDocument();
   });
 
+  // --- US-ACC-08: Required field markers ---
+  it("shows '* Required field' legend in step 1 form", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
+  it("email input has aria-required=true", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.getByLabelText("Email address")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("email input has required attribute", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.getByLabelText("Email address")).toHaveAttribute("required");
+  });
+
+  it("email label has required CSS modifier class", () => {
+    render(<AuthForm {...step1Props()} />);
+    const label = document.querySelector('label[for="email"]') as HTMLLabelElement;
+    expect(label.classList.contains("field__label--required")).toBe(true);
+  });
+
   // --- No code field on step 1 ---
   it("does not render 'Lot number' field on step 1", () => {
     render(<AuthForm {...step1Props()} />);
@@ -226,6 +248,28 @@ describe("AuthForm — step 2 (code)", () => {
   it("OTP input has inputMode='numeric'", () => {
     render(<AuthForm {...step2Props()} />);
     expect(screen.getByLabelText("Verification code")).toHaveAttribute("inputmode", "numeric");
+  });
+
+  // --- US-ACC-08: Required field markers ---
+  it("shows '* Required field' legend in step 2 form", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
+  it("verification code input has aria-required=true", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByLabelText("Verification code")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("verification code input has required attribute", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByLabelText("Verification code")).toHaveAttribute("required");
+  });
+
+  it("verification code label shows asterisk marker", () => {
+    render(<AuthForm {...step2Props()} />);
+    const label = document.querySelector('label[for="otp-code"]') as HTMLLabelElement;
+    expect(label.classList.contains("field__label--required")).toBe(true);
   });
 
   // --- autoComplete ---

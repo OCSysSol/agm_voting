@@ -16,13 +16,13 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage() {
+function renderPage(initialSearch = "") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[`/admin/buildings${initialSearch}`]}>
         <BuildingsPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -359,8 +359,8 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
 
-    // Navigate to page 2 (Active Building 21 is on page 2) — two "2" buttons exist (top + bottom)
-    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
+    // Navigate to page 2 (Active Building 21 is on page 2)
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
     await waitFor(() => {
       expect(screen.getByText("Active Building 21")).toBeInTheDocument();
     });
@@ -374,6 +374,168 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
     expect(screen.queryByText("Active Building 21")).not.toBeInTheDocument();
+  });
+
+  // --- RR2-06: URL params for page ---
+
+  it("renders page 1 by default (no page param in URL)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    });
+    // No error — page defaults to 1
+    expect(screen.queryByText("Failed to load buildings.")).not.toBeInTheDocument();
+  });
+
+  it("navigates to page 2 via pagination and updates URL param", async () => {
+    const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
+      id: `active-${i + 1}`,
+      name: `Active Building ${i + 1}`,
+      manager_email: `a${i + 1}@test.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(activeBuildings.slice(offset, offset + limit));
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+    // Click page 2 — should remove page=1 from URL (or set page=2)
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
+    // Navigate back to page 1 via Previous button — should delete page param
+    await user.click(screen.getAllByRole("button", { name: "Previous page" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+  });
+
+  it("defaults to page 1 when page URL param is not a valid number", async () => {
+    renderPage("?page=abc");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    });
+    // No error — invalid page defaults to 1
+    expect(screen.queryByText("Failed to load buildings.")).not.toBeInTheDocument();
+  });
+
+  it("reads page=2 from URL and loads page 2", async () => {
+    const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
+      id: `active-${i + 1}`,
+      name: `Active Building ${i + 1}`,
+      manager_email: `a${i + 1}@test.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(activeBuildings.slice(offset, offset + limit));
+      })
+    );
+    renderPage("?page=2");
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
+  });
+
+  // --- US-ACC-02: Focus trap in New Building modal ---
+
+  it("pressing Escape key closes the New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+  });
+
+  it("Tab key wraps focus from last to first element in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const createBtn = screen.getByRole("button", { name: "Create Building" });
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    // Tab past last focusable (Cancel) should wrap to first
+    cancelBtn.focus();
+    await user.tab();
+    // First focusable is Building Name input
+    expect(screen.getByLabelText("Building Name")).toHaveFocus();
+    // Tab past Create Building (last before Cancel) wraps
+    createBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("Shift+Tab from first element wraps to last in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const nameInput = screen.getByLabelText("Building Name");
+    nameInput.focus();
+    await user.tab({ shift: true });
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("modal shows Required field legend", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
+  // --- US-ACC-08: Required field markers ---
+
+  it("building name input in modal has aria-required=true", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByLabelText("Building Name")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("manager email input in modal has aria-required=true", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByLabelText("Manager Email")).toHaveAttribute("aria-required", "true");
   });
 
   // --- Error state ---

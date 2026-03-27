@@ -183,6 +183,13 @@ button, input, select, textarea {
   margin-bottom: 6px;
 }
 
+/* US-ACC-08: Required field visual marker via CSS — does not affect accessible name */
+.field__label--required::after {
+  content: " *";
+  color: var(--red);
+  aria-hidden: true; /* CSS pseudo-elements are already hidden from accessibility tree */
+}
+
 .field__input {
   width: 100%;
   padding: 11px 14px;
@@ -2187,4 +2194,23 @@ button, input, select, textarea {
   font-size: 0.875rem;
   color: var(--text-secondary);
   text-align: center;
+}
+
+/* === ACCESSIBILITY === */
+
+/* US-ACC-07: Skip-to-main-content link — hidden off-screen, visible on focus */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--navy);
+  color: var(--gold-light);
+  border-radius: var(--r-md);
+  font-weight: bold;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 8px;
 }

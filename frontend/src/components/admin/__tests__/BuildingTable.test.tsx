@@ -104,7 +104,7 @@ describe("BuildingTable", () => {
     );
 
     // Navigate to page 2 via the first (top) page-2 button
-    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
     // Confirm we're on page 2 (Building 21 is visible, Building 1 is not)
     expect(screen.getByText("Building 21")).toBeInTheDocument();
     expect(screen.queryByText("Building 1")).not.toBeInTheDocument();
@@ -120,7 +120,7 @@ describe("BuildingTable", () => {
     // Page should have reset to 1 — Building 1 is now visible
     expect(screen.getByText("Building 1")).toBeInTheDocument();
     // Pagination controls should be gone (only 1 page)
-    expect(screen.queryByRole("button", { name: "2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to page 2" })).not.toBeInTheDocument();
   });
 
   // --- Pagination top + bottom ---

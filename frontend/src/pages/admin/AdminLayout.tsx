@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { adminLogout } from "../../api/admin";
@@ -56,6 +56,19 @@ export default function AdminLayout() {
   const queryClient = useQueryClient();
   const [isNavOpen, setIsNavOpen] = useState(false);
   const { config } = useBranding();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // US-ACC-06: Close mobile nav drawer on Escape key press and return focus to menu button
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && isNavOpen) {
+        setIsNavOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isNavOpen]);
 
   async function handleLogout() {
     try {
@@ -68,6 +81,7 @@ export default function AdminLayout() {
 
   return (
     <div className="admin-layout">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
           {config.logo_url ? (
@@ -128,8 +142,9 @@ export default function AdminLayout() {
         </div>
       </div>
 
-      <main className="admin-main">
+      <main className="admin-main" id="main-content">
         <button
+          ref={menuButtonRef}
           className="admin-nav-open-btn"
           onClick={() => setIsNavOpen(true)}
           aria-label="Open navigation"

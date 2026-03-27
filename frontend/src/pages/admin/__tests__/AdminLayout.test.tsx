@@ -123,6 +123,44 @@ describe("AdminLayout", () => {
     expect(drawer).toHaveAttribute("aria-hidden", "true");
   });
 
+  // --- US-ACC-06: Escape key closes drawer ---
+
+  it("pressing Escape key closes the drawer when open", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "false");
+    await user.keyboard("{Escape}");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("pressing Escape when drawer is closed has no effect", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    // Drawer starts closed
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+    // Pressing Escape should not error or change state
+    await user.keyboard("{Escape}");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // --- US-ACC-07: Skip link ---
+
+  it("renders skip-to-main-content link as first focusable element", () => {
+    renderLayout();
+    const skip = document.querySelector(".skip-link") as HTMLElement;
+    expect(skip).toBeTruthy();
+    expect(skip.getAttribute("href")).toBe("#main-content");
+    expect(skip.textContent).toBe("Skip to main content");
+  });
+
+  it("main content area has id=main-content", () => {
+    renderLayout();
+    expect(document.getElementById("main-content")).toBeInTheDocument();
+  });
+
   // --- Settings nav link ---
 
   it("renders Settings nav link", () => {
