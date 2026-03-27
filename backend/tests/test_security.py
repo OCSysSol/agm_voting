@@ -135,7 +135,7 @@ class TestSecurityHeaders:
         assert "script-src 'self'" in csp
         assert "'unsafe-inline'" in csp
         assert "https://vercel.live" in csp
-        assert "connect-src 'self' https://vercel.live" in csp
+        assert "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live" in csp
 
     async def test_csp_allows_google_fonts(self, client: AsyncClient):
         """CSP permits Google Fonts for font-src and style-src."""
