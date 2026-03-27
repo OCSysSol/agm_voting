@@ -38,21 +38,21 @@ Spawn a sub-agent to create a worktree from the correct base branch. The base is
 ```bash
 cd /Users/stevensun/personal/agm_survey
 git fetch origin
-git worktree add .claude/worktree/<slug> -b <branch-name> <base-branch>
+git worktree add .worktree/<slug> -b <branch-name> <base-branch>
 # Example (feature from master):
-git worktree add .claude/worktree/my-feature -b feat/my-feature master
+git worktree add .worktree/my-feature -b feat/my-feature master
 # Example (fix from preview):
-git worktree add .claude/worktree/my-fix -b fix/my-fix preview
+git worktree add .worktree/my-fix -b fix/my-fix preview
 ```
 
-Worktree lives at: `/Users/stevensun/personal/agm_survey/.claude/worktree/<slug>`
+Worktree lives at: `/Users/stevensun/personal/agm_survey/.worktree/<slug>`
 
 **All subsequent agents — design, implement, test — must work exclusively inside this worktree.** The main repo root (`/Users/stevensun/personal/agm_survey`) may be on a completely different branch (e.g. `preview` is 136+ commits ahead of `master`). Reading files from the wrong location produces an incorrect design and broken code.
 
 ### Step b: Spawn the design agent
 Use `subagent_type: "agm-design"`. Provide:
 - The task description
-- The worktree path (e.g. `/Users/stevensun/personal/agm_survey/.claude/worktree/<slug>`)
+- The worktree path (e.g. `/Users/stevensun/personal/agm_survey/.worktree/<slug>`)
 - The PRD file path **inside the worktree** (if implementing an existing PRD)
 - Explicit instruction: **read all source files from the worktree path, not the main repo root**
 
