@@ -49,6 +49,27 @@ describe("CountdownTimer", () => {
     expect(screen.getByRole("timer")).not.toHaveTextContent(/closing soon/);
   });
 
+  // --- US-ACC-04: non-colour cue on warning ---
+
+  it("shows '!' prefix (non-colour cue) when in warning state (under 5 minutes)", () => {
+    // 4 minutes from now (within 300s warning window)
+    const closesAt = new Date(Date.now() + 4 * 60 * 1000).toISOString();
+    const serverTime = makeServerTime(Date.now());
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const timer = screen.getByRole("timer");
+    // The '!' prefix span is aria-hidden but its text content appears in the timer node
+    expect(timer).toHaveTextContent(/!/);
+  });
+
+  it("does not show '!' prefix when not in warning state", () => {
+    // 10 minutes from now — no warning
+    const closesAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const serverTime = makeServerTime(Date.now());
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const timer = screen.getByRole("timer");
+    expect(timer).not.toHaveTextContent(/!/);
+  });
+
   it("counts down over time", () => {
     const now = Date.now();
     const closesAt = new Date(now + 5000).toISOString();

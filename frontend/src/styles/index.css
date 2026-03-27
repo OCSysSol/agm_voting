@@ -410,6 +410,11 @@ button, input, select, textarea {
   transform: scale(0.93) translateY(2px);
 }
 
+.vote-btn:focus-visible {
+  outline: 3px solid var(--navy);
+  outline-offset: 2px;
+}
+
 .vote-btn:disabled {
   opacity: 0.38;
   cursor: not-allowed;
@@ -526,6 +531,16 @@ button, input, select, textarea {
 .motion-card--highlight {
   border-color: var(--amber);
   background: var(--amber-bg);
+  border-left: 4px solid var(--amber);
+}
+
+.motion-card--read-only {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.motion-card--read-only .vote-btn {
+  cursor: not-allowed;
 }
 
 .motion-card__number {
@@ -595,6 +610,19 @@ button, input, select, textarea {
   background: #F0EFEE;
   color: var(--text-primary);
   border: 1px solid var(--border);
+}
+
+.motion-card__unanswered-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid var(--amber);
 }
 
 .motion-type-badge--hidden {
@@ -1967,6 +1995,15 @@ button, input, select, textarea {
 .lot-selection__lot-number {
   font-weight: 600;
   font-size: 0.9375rem;
+}
+
+.lot-selection__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 44px; /* WCAG 2.5.8: minimum touch target size */
+  padding: 4px 0;
 }
 
 .lot-selection__checkbox {

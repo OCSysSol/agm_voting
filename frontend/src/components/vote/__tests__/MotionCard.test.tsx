@@ -337,4 +337,119 @@ describe("MotionCard", () => {
     );
     expect(screen.getByText("Motion 5")).toBeInTheDocument();
   });
+
+  // --- US-ACC-04: non-colour cues ---
+
+  it("shows '✓ Already voted' badge (non-colour cue) when readOnly is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice="yes"
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        readOnly={true}
+      />
+    );
+    const badge = screen.getByLabelText("Already voted");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("✓ Already voted");
+  });
+
+  it("does not show 'Already voted' badge when readOnly is false", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        readOnly={false}
+      />
+    );
+    expect(screen.queryByLabelText("Already voted")).not.toBeInTheDocument();
+  });
+
+  // --- US-CQM-06: read-only modifier class ---
+
+  it("applies motion-card--read-only class when readOnly is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice="yes"
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        readOnly={true}
+      />
+    );
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).toHaveClass("motion-card--read-only");
+  });
+
+  it("does not apply motion-card--read-only class when readOnly is false", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        readOnly={false}
+      />
+    );
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).not.toHaveClass("motion-card--read-only");
+  });
+
+  // --- US-ACC-04: highlight has non-colour text indicator ---
+
+  it("shows '! Unanswered' badge (non-colour text cue) when highlight is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={true}
+      />
+    );
+    const badge = screen.getByLabelText("Unanswered");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("! Unanswered");
+  });
+
+  it("does not show 'Unanswered' badge when highlight is false", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.queryByLabelText("Unanswered")).not.toBeInTheDocument();
+  });
+
+  it("applies motion-card--highlight class when highlight is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={true}
+      />
+    );
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).toHaveClass("motion-card--highlight");
+  });
 });

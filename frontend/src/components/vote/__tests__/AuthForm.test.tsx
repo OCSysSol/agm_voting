@@ -197,6 +197,37 @@ describe("AuthForm — step 2 (code)", () => {
     expect(screen.queryByDisplayValue("ABCD1234")).not.toBeInTheDocument();
   });
 
+  // --- US-ACC-05: OTP helper text ---
+  it("shows helper text with email address above OTP input on step 2", () => {
+    render(<AuthForm {...step2Props("voter@example.com")} />);
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("Verification code sent to voter@example.com");
+    expect(hint).toHaveTextContent("Check your email");
+  });
+
+  it("OTP helper text has role='status' and aria-live='polite'", () => {
+    render(<AuthForm {...step2Props("voter@example.com")} />);
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("Verification code sent to voter@example.com");
+    expect(hint).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("OTP helper text reflects the actual otpEmail prop", () => {
+    render(<AuthForm {...step2Props("owner@strata.com.au")} />);
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("owner@strata.com.au");
+  });
+
+  it("OTP helper text is not shown on step 1", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("OTP input has inputMode='numeric'", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByLabelText("Verification code")).toHaveAttribute("inputmode", "numeric");
+  });
+
   // --- autoComplete ---
   it("code input has autoComplete='one-time-code'", () => {
     render(<AuthForm {...step2Props()} />);

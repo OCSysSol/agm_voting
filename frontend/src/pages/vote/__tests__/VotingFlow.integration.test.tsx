@@ -144,9 +144,9 @@ describe("Voting Flow Integration", () => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
 
-    // Lot A (lo1) is now disabled with "Already submitted" badge — use aria-label to target specifically
-    const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
-    const lo2Checkboxes = screen.getAllByLabelText("Select Lot 2");
+    // Lot A (lo1) is now disabled with "Already submitted" badge — use label text to target specifically
+    const lo1Checkboxes = screen.getAllByLabelText("Lot 1");
+    const lo2Checkboxes = screen.getAllByLabelText("Lot 2");
     lo1Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
     lo2Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
 

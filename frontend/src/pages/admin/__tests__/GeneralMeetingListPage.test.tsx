@@ -418,4 +418,136 @@ describe("GeneralMeetingListPage", () => {
     // Pagination shows 2 pages
     expect(screen.getAllByRole("button", { name: "2" })[0]).toBeInTheDocument();
   });
+
+  // --- RR2-03: filter toggle resets pagination to page 1 ---
+
+  it("RR2-03: changing building filter resets page to 1", async () => {
+    // 21 meetings under b1 (2 pages), 1 meeting under b2 (1 page)
+    const b1Meetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `m${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Alpha Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    const b2Meeting = {
+      id: "b2m1",
+      building_id: "b2",
+      building_name: "Beta Court",
+      title: "Beta Meeting 1",
+      status: "closed",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    };
+
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const bid = url.searchParams.get("building_id");
+        if (bid === "b1") return HttpResponse.json({ count: 21 });
+        if (bid === "b2") return HttpResponse.json({ count: 1 });
+        return HttpResponse.json({ count: 22 });
+      }),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const bid = url.searchParams.get("building_id");
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        const all = bid === "b2" ? [b2Meeting] : bid === "b1" ? b1Meetings : [...b1Meetings, b2Meeting];
+        return HttpResponse.json(all.slice(offset, offset + limit));
+      })
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Wait for page 1 of all meetings to load
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Meeting 1")).toBeInTheDocument();
+    });
+
+    // Navigate to page 2 (b1 has 21 meetings → 2 pages)
+    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Meeting 21")).toBeInTheDocument();
+    });
+
+    // Change building filter — page should reset to 1
+    await user.selectOptions(screen.getByLabelText("Building"), "b2");
+
+    // Should be back on page 1 showing Beta Meeting 1
+    await waitFor(() => {
+      expect(screen.getByText("Beta Meeting 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Alpha Meeting 21")).not.toBeInTheDocument();
+  });
+
+  it("RR2-03: changing status filter resets page to 1", async () => {
+    // 21 open meetings (2 pages), 1 closed meeting (1 page)
+    const openMeetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `open${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Open Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    const closedMeeting = {
+      id: "closed1",
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: "Closed Meeting 1",
+      status: "closed",
+      meeting_at: "2023-06-01T10:00:00Z",
+      voting_closes_at: "2023-06-01T12:00:00Z",
+      created_at: "2023-01-01T00:00:00Z",
+    };
+
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const status = url.searchParams.get("status");
+        if (status === "open") return HttpResponse.json({ count: 21 });
+        if (status === "closed") return HttpResponse.json({ count: 1 });
+        return HttpResponse.json({ count: 22 });
+      }),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const status = url.searchParams.get("status");
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        const all = status === "closed" ? [closedMeeting] : status === "open" ? openMeetings : [...openMeetings, closedMeeting];
+        return HttpResponse.json(all.slice(offset, offset + limit));
+      })
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Wait for page 1 to load
+    await waitFor(() => {
+      expect(screen.getByText("Open Meeting 1")).toBeInTheDocument();
+    });
+
+    // Navigate to page 2
+    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Open Meeting 21")).toBeInTheDocument();
+    });
+
+    // Change status filter — page should reset to 1
+    await user.selectOptions(screen.getByLabelText("Status"), "closed");
+
+    // Should be back on page 1 showing Closed Meeting 1
+    await waitFor(() => {
+      expect(screen.getByText("Closed Meeting 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Open Meeting 21")).not.toBeInTheDocument();
+  });
 });

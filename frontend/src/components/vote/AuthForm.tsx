@@ -115,13 +115,20 @@ export function AuthForm({
 
         {step === "code" && (
           <form onSubmit={handleVerify} noValidate>
+            <p
+              className="auth-card__hint"
+              role="status"
+              aria-live="polite"
+            >
+              Verification code sent to {otpEmail}. Check your email — it may take a minute to arrive.
+            </p>
             <div className="field">
               <label className="field__label" htmlFor="otp-code">Verification code</label>
               <input
                 id="otp-code"
                 className="field__input"
                 type="text"
-                inputMode="text"
+                inputMode="numeric"
                 maxLength={20}
                 autoComplete="one-time-code"
                 value={code}
