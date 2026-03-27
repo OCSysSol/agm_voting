@@ -110,8 +110,13 @@ async def create_session(
     building_id: uuid.UUID,
     general_meeting_id: uuid.UUID,
 ) -> str:
-    """Helper to create a session token directly in DB."""
+    """Helper to create a session token directly in DB.
+
+    Returns a signed token (same format as create_session service) so that
+    restore_session and get_session can verify the signature.
+    """
     import secrets
+    from app.services.auth_service import _sign_token
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
     session = SessionRecord(
@@ -123,7 +128,7 @@ async def create_session(
     )
     db_session.add(session)
     await db_session.flush()
-    return token
+    return _sign_token(token)
 
 
 async def make_otp(
@@ -413,7 +418,29 @@ class TestAuthVerify:
             },
         )
         assert response.status_code == 200
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
+
+    async def test_sets_agm_session_cookie_attributes(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """agm_session cookie must be HttpOnly and SameSite=strict."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        cookie_header = response.headers.get("set-cookie", "")
+        assert "agm_session=" in cookie_header
+        assert "HttpOnly" in cookie_header
+        assert "SameSite=strict" in cookie_header or "samesite=strict" in cookie_header.lower()
 
     async def test_lots_contain_lot_info(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -880,10 +907,10 @@ class TestSessionRestore:
         assert isinstance(data["session_token"], str)
         assert len(data["session_token"]) > 0
 
-    async def test_valid_token_sets_meeting_session_cookie(
+    async def test_valid_token_sets_agm_session_cookie(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Successful session restore sets the meeting_session HttpOnly cookie."""
+        """Successful session restore sets the agm_session HttpOnly cookie."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
@@ -895,7 +922,58 @@ class TestSessionRestore:
             json={"session_token": token, "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 200
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
+
+    async def test_restore_session_via_cookie(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore works when token is passed via agm_session cookie (no body token)."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id)},
+            cookies={"agm_session": token},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["voter_email"] == voter_email
+
+    async def test_restore_session_cookie_takes_priority_over_body_token(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Cookie token takes priority over session_token in request body."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        cookie_token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Pass a non-existent token in the body; the cookie should win
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id), "session_token": "invalid-body-token"},
+            cookies={"agm_session": cookie_token},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["voter_email"] == voter_email
+
+    async def test_restore_session_no_cookie_no_body_token_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Returns 401 when neither cookie nor body token is provided."""
+        agm = building_with_agm["agm"]
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 401
 
     async def test_valid_token_returns_fresh_already_submitted_flags(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -1092,27 +1170,30 @@ class TestSessionRestore:
     async def test_invalid_token_returns_401(
         self, client: AsyncClient, building_with_agm: dict
     ):
-        """A tampered or unknown token returns 401."""
+        """A tampered or unsigned token returns 401 at signature verification."""
         agm = building_with_agm["agm"]
         response = await client.post(
             "/api/auth/session",
             json={"session_token": "totally-invalid-garbage-token", "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 401
-        assert response.json()["detail"] == "Session expired or invalid"
+        # Unsigned/tampered tokens are rejected by _unsign_token before the DB lookup
+        assert response.json()["detail"] == "Session expired. Please authenticate again."
 
     async def test_expired_token_returns_401(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """A token whose expires_at is in the past returns 401."""
+        """A signed token whose DB session expires_at is in the past returns 401."""
         import secrets
+        from app.services.auth_service import _sign_token
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
 
-        token = secrets.token_urlsafe(32)
+        raw_token = secrets.token_urlsafe(32)
+        # Store an expired session in the DB with the raw token
         expired_session = SessionRecord(
-            session_token=token,
+            session_token=raw_token,
             voter_email=voter_email,
             building_id=building.id,
             general_meeting_id=agm.id,
@@ -1121,9 +1202,12 @@ class TestSessionRestore:
         db_session.add(expired_session)
         await db_session.flush()
 
+        # Sign the raw token so it passes signature verification, but the DB record is expired
+        signed_token = _sign_token(raw_token)
+
         response = await client.post(
             "/api/auth/session",
-            json={"session_token": token, "general_meeting_id": str(agm.id)},
+            json={"session_token": signed_token, "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 401
         assert response.json()["detail"] == "Session expired or invalid"
@@ -1252,6 +1336,37 @@ class TestSessionRestore:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/auth/logout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestAuthLogout:
+    # --- Happy path ---
+
+    async def test_logout_returns_200_ok(self, client: AsyncClient):
+        """POST /api/auth/logout returns 200 {"ok": true}."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    async def test_logout_clears_agm_session_cookie(self, client: AsyncClient):
+        """Logout response instructs the browser to delete the agm_session cookie."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        # FastAPI's delete_cookie sets max-age=0 or expires in the past
+        set_cookie = response.headers.get("set-cookie", "")
+        # Cookie name must appear in the Set-Cookie header
+        assert "agm_session" in set_cookie
+
+    async def test_logout_idempotent_no_cookie(self, client: AsyncClient):
+        """Calling logout without a cookie still returns 200 — idempotent."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # auth_service tests (get_session)
 # ---------------------------------------------------------------------------
 
@@ -1272,6 +1387,22 @@ class TestAuthService:
         response = await client.get(
             f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_get_session_with_agm_session_cookie(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session can be validated via agm_session cookie."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            cookies={"agm_session": token},
         )
         assert response.status_code == 200
 
@@ -1305,14 +1436,16 @@ class TestAuthService:
     async def test_expired_session_returns_401(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
+        """A signed token pointing to an expired DB session returns 401."""
+        import secrets
+        from app.services.auth_service import _sign_token
         agm = building_with_agm["agm"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
 
-        import secrets
-        token = secrets.token_urlsafe(32)
+        raw_token = secrets.token_urlsafe(32)
         expired_session = SessionRecord(
-            session_token=token,
+            session_token=raw_token,
             voter_email=voter_email,
             building_id=building.id,
             general_meeting_id=agm.id,
@@ -1321,11 +1454,80 @@ class TestAuthService:
         db_session.add(expired_session)
         await db_session.flush()
 
+        # Use a signed token so it passes _unsign_token; the DB record is expired
+        signed_token = _sign_token(raw_token)
+
         response = await client.get(
             f"/api/general-meeting/{agm.id}/motions",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {signed_token}"},
         )
         assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Token signing (Fix 6)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenSigning:
+    # --- Happy path ---
+
+    def test_sign_and_unsign_roundtrip(self):
+        """_sign_token and _unsign_token are inverses of each other."""
+        from app.services.auth_service import _sign_token, _unsign_token
+
+        raw = "raw_test_token_abc123"
+        signed = _sign_token(raw)
+        assert signed != raw
+        assert _unsign_token(signed) == raw
+
+    def test_signed_token_is_string(self):
+        from app.services.auth_service import _sign_token
+
+        signed = _sign_token("some_token")
+        assert isinstance(signed, str)
+        assert len(signed) > 0
+
+    # --- State / precondition errors ---
+
+    def test_unsign_unsigned_token_raises_401(self):
+        """Passing a raw (unsigned) token to _unsign_token raises HTTPException 401."""
+        from fastapi import HTTPException
+        from app.services.auth_service import _unsign_token
+        import pytest
+
+        with pytest.raises(HTTPException) as exc_info:
+            _unsign_token("totally-unsigned-raw-token")
+        assert exc_info.value.status_code == 401
+        assert "Session expired" in exc_info.value.detail
+
+    def test_unsign_tampered_token_raises_401(self):
+        """Tampering with a signed token makes _unsign_token raise HTTPException 401."""
+        from fastapi import HTTPException
+        from app.services.auth_service import _sign_token, _unsign_token
+        import pytest
+
+        signed = _sign_token("mytoken")
+        tampered = signed[:-5] + "XXXXX"
+
+        with pytest.raises(HTTPException) as exc_info:
+            _unsign_token(tampered)
+        assert exc_info.value.status_code == 401
+
+    async def test_restore_session_with_unsigned_token_returns_401(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        """POST /api/auth/session with an unsigned token returns 401."""
+        agm = building_with_agm["agm"]
+        response = await client.post(
+            "/api/auth/session",
+            json={
+                "session_token": "unsigned_raw_token_xyz",
+                "general_meeting_id": str(agm.id),
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired. Please authenticate again."
 
 
 # ---------------------------------------------------------------------------
@@ -3033,6 +3235,71 @@ class TestMyBallotProxyLots:
         # Proxy lot should appear in remaining
         remaining = [str(lid) for lid in data["remaining_lot_owner_ids"]]
         assert str(lo_proxy.id) in remaining
+
+
+# ---------------------------------------------------------------------------
+# Hidden motions must not appear on the ballot confirmation page
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestMyBallotHiddenMotions:
+    """Hidden motions (is_visible=False) must be excluded from get_my_ballot."""
+
+    # --- Happy path ---
+
+    async def test_hidden_motion_excluded_from_ballot_response(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A hidden motion does not appear in any submitted lot's votes list."""
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        motions = building_with_agm["motions"]  # two visible motions from fixture
+
+        # Add a hidden motion to the same AGM
+        hidden_motion = Motion(
+            general_meeting_id=agm.id,
+            title="Hidden Motion",
+            display_order=99,
+            description="Should not appear",
+            is_visible=False,
+        )
+        db_session.add(hidden_motion)
+        await db_session.flush()
+
+        # Submit votes for the two visible motions only
+        for motion in motions:
+            vote = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(vote)
+        bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=voter_email)
+        db_session.add(bs)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/my-ballot",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["submitted_lots"]) == 1
+        votes = data["submitted_lots"][0]["votes"]
+
+        # Only the two visible motions should appear
+        returned_motion_ids = [v["motion_id"] for v in votes]
+        assert len(returned_motion_ids) == 2
+        assert str(hidden_motion.id) not in returned_motion_ids
 
 
 # ---------------------------------------------------------------------------

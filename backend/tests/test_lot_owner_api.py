@@ -112,13 +112,20 @@ async def make_session(
     general_meeting_id: uuid.UUID,
     expired: bool = False,
 ) -> str:
-    import secrets
+    """Create a session record in the DB and return a signed token.
 
-    token = secrets.token_urlsafe(32)
+    When expired=True, the DB record has an expired expires_at; the returned
+    token is still signed so it passes signature verification, exercising the
+    DB-level expiry path in get_session.
+    """
+    import secrets
+    from app.services.auth_service import _sign_token
+
+    raw_token = secrets.token_urlsafe(32)
     now = utcnow()
     expires_at = now - timedelta(hours=1) if expired else now + timedelta(hours=24)
     session = SessionRecord(
-        session_token=token,
+        session_token=raw_token,
         voter_email=voter_email,
         building_id=building_id,
         general_meeting_id=general_meeting_id,
@@ -126,7 +133,7 @@ async def make_session(
     )
     db.add(session)
     await db.flush()
-    return token
+    return _sign_token(raw_token)
 
 
 @pytest.fixture
@@ -468,7 +475,7 @@ class TestAuthVerify:
                 "code": code,
             })
 
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
 
     async def test_already_submitted_flag(self, transport, db_session: AsyncSession):
         """already_submitted=True only when lot has submitted votes for every visible motion."""
@@ -1329,7 +1336,7 @@ class TestListMotions:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
                 f"/api/general-meeting/{agm.id}/motions",
-                cookies={"meeting_session": token},
+                cookies={"agm_session": token},
             )
         assert response.status_code == 200
 
@@ -2085,7 +2092,7 @@ class TestFullJourney:
             auth_data = auth_resp.json()
             assert len(auth_data["lots"]) == 1
             lot_owner_id = auth_data["lots"][0]["lot_owner_id"]
-            token = auth_resp.cookies.get("meeting_session")
+            token = auth_resp.cookies.get("agm_session")
             assert token is not None
 
             # 2. Get motions

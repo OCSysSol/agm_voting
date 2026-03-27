@@ -84,14 +84,9 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
     await page.waitForLoadState("networkidle");
 
-    // Step 2: Collect the session token and lot owner IDs from the browser state.
-    // The auth handler writes these to localStorage / sessionStorage.
-    const sessionToken = await page.evaluate(
-      (id) => localStorage.getItem(`agm_session_${id}`),
-      crlMeetingId
-    );
-    expect(sessionToken).toBeTruthy();
-
+    // Step 2: Collect lot owner IDs from sessionStorage.
+    // The auth handler writes lot info to sessionStorage.
+    // The session token is stored in an HttpOnly cookie — not accessible via localStorage.
     const lotsRaw = await page.evaluate(
       (id) => sessionStorage.getItem(`meeting_lots_info_${id}`),
       crlMeetingId
@@ -134,21 +129,23 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
     // directly (not through the UI), we must manually update the cached lot info so
     // that VotingPage shows the correct "Already submitted" badge when we navigate back.
     await page.evaluate(
-      ([id, lotAId]) => {
+      ([id, lotAId, motionIdVal]) => {
         const key = `meeting_lots_info_${id}`;
         const raw = sessionStorage.getItem(key);
         if (!raw) return;
         try {
-          const lots = JSON.parse(raw) as Array<{ lot_owner_id: string; already_submitted: boolean }>;
+          const lots = JSON.parse(raw) as Array<{ lot_owner_id: string; already_submitted: boolean; voted_motion_ids: string[] }>;
           const updated = lots.map((l) =>
-            l.lot_owner_id === lotAId ? { ...l, already_submitted: true } : l
+            l.lot_owner_id === lotAId
+              ? { ...l, already_submitted: true, voted_motion_ids: [motionIdVal] }
+              : l
           );
           sessionStorage.setItem(key, JSON.stringify(updated));
         } catch {
           // ignore
         }
       },
-      [crlMeetingId, lotA!.lot_owner_id]
+      [crlMeetingId, lotA!.lot_owner_id, motionId]
     );
 
     // Step 5: Navigate to the confirmation page directly (session already active in the browser).

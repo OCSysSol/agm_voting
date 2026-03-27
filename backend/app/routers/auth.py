@@ -8,7 +8,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +33,7 @@ from app.schemas.auth import (
     OtpRequestResponse,
     SessionRestoreRequest,
 )
-from app.services.auth_service import create_session
+from app.services.auth_service import _unsign_token, create_session
 from app.services.email_service import send_otp_email
 
 logger = get_logger(__name__)
@@ -120,7 +120,11 @@ async def request_otp(
         )
         rl_record = rl_result.scalar_one_or_none()
         if rl_record is not None:
-            elapsed = (now_for_rate - rl_record.last_attempt_at.replace(tzinfo=UTC)).total_seconds()
+            # Use first_attempt_at for a fixed window: the window starts when the
+            # first request is made and cannot be reset by subsequent requests.
+            # Using last_attempt_at would let an attacker keep the window open
+            # indefinitely by making a request just before each window expires.
+            elapsed = (now_for_rate - rl_record.first_attempt_at.replace(tzinfo=UTC)).total_seconds()
             if elapsed < _OTP_RATE_LIMIT_WINDOW_SECONDS:
                 raise HTTPException(
                     status_code=429,
@@ -199,6 +203,16 @@ async def request_otp(
             await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
 
     return OtpRequestResponse(sent=True)
+
+
+@router.post("/auth/logout")
+async def logout(response: Response) -> dict:
+    """
+    Clear the voter session cookie.  The frontend calls this instead of
+    localStorage.removeItem() to end a session.
+    """
+    response.delete_cookie(key="agm_session", path="/api")
+    return {"ok": True}
 
 
 @router.post("/auth/verify", response_model=AuthVerifyResponse)
@@ -377,10 +391,13 @@ async def verify_auth(
     await db.commit()
 
     response.set_cookie(
-        key="meeting_session",
+        key="agm_session",
         value=token,
         httponly=True,
-        samesite="lax",
+        secure=True,
+        samesite="strict",
+        max_age=86400,
+        path="/api",
     )
 
     return AuthVerifyResponse(
@@ -400,21 +417,35 @@ async def verify_auth(
 async def restore_session(
     request: SessionRestoreRequest,
     response: Response,
+    agm_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AuthVerifyResponse:
     """
-    Restore a voter session from a previously issued session token (stored in localStorage).
+    Restore a voter session.  Accepts the session token via:
+      1. The agm_session HttpOnly cookie (preferred — set by POST /api/auth/verify)
+      2. The session_token field in the JSON request body (backward compatibility)
+
     Validates the token, checks that the AGM is still open, and returns the same
     AuthVerifyResponse shape as POST /api/auth/verify so the frontend can skip the OTP flow.
 
     Returns 401 if the token is invalid, expired, or the AGM is closed.
     """
+    # Resolve the token: cookie takes priority over request body
+    token_to_use = agm_session or request.session_token
+
+    if not token_to_use:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    # Unsign the token before DB lookup (token in cookie/body is signed;
+    # DB stores the raw token). _unsign_token raises HTTPException 401 on failure.
+    raw_token = _unsign_token(token_to_use)
+
     # 1. Look up session by token + meeting_id + expiry using get_session logic directly.
     #    get_session() requires Cookie/Header params so we call the DB directly here.
     now = datetime.now(UTC)
     session_result = await db.execute(
         select(SessionRecord).where(
-            SessionRecord.session_token == request.session_token,
+            SessionRecord.session_token == raw_token,
             SessionRecord.general_meeting_id == request.general_meeting_id,
             SessionRecord.expires_at > now,
         )
@@ -539,10 +570,13 @@ async def restore_session(
     await db.commit()
 
     response.set_cookie(
-        key="meeting_session",
+        key="agm_session",
         value=new_token,
         httponly=True,
-        samesite="lax",
+        secure=True,
+        samesite="strict",
+        max_age=86400,
+        path="/api",
     )
 
     return AuthVerifyResponse(
