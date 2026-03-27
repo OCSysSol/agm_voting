@@ -4,6 +4,7 @@ Authentication endpoints:
   POST /api/auth/verify       — validate the OTP and create a session
   GET  /api/test/latest-otp   — test-only: retrieve latest OTP for (email, meeting_id)
 """
+import hmac
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -253,7 +254,12 @@ async def verify_auth(
     )
     otp = otp_result.scalar_one_or_none()
 
-    if otp is None or otp.code != request.code:
+    if otp is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired verification code",
+        )
+    if not hmac.compare_digest(otp.code, request.code):
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired verification code",
@@ -394,7 +400,7 @@ async def verify_auth(
         key="agm_session",
         value=token,
         httponly=True,
-        secure=True,
+        secure=not settings.testing_mode,
         samesite="strict",
         max_age=86400,
         path="/api",
@@ -573,7 +579,7 @@ async def restore_session(
         key="agm_session",
         value=new_token,
         httponly=True,
-        secure=True,
+        secure=not settings.testing_mode,
         samesite="strict",
         max_age=86400,
         path="/api",

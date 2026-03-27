@@ -3500,3 +3500,583 @@ class TestPublicListAGMsEffectiveStatus:
         items = response.json()
         assert len(items) == 1
         assert items[0]["status"] == "open"
+
+
+# ---------------------------------------------------------------------------
+# US-IAS-01: Timing-safe OTP comparison (hmac.compare_digest)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestTimingSafeOtpComparison:
+    # --- Happy path ---
+
+    async def test_correct_otp_code_passes(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Correct OTP code succeeds — hmac.compare_digest returns True."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+        )
+        assert response.status_code == 200
+
+    # --- State / precondition errors ---
+
+    async def test_wrong_otp_code_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Wrong code returns 401 — hmac.compare_digest correctly rejects the mismatch."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": "BADCODE1"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    async def test_no_otp_row_returns_401_without_comparison(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """When no OTP row exists the endpoint returns 401 immediately (None guard before compare_digest)."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": "ANYCODE1"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    # --- Edge cases ---
+
+    async def test_hmac_compare_digest_imported_in_auth_module(self):
+        """hmac.compare_digest is available in the auth router module (import sanity check)."""
+        import hmac as _hmac
+        import app.routers.auth as auth_module
+        # The module must have imported hmac
+        assert hasattr(auth_module, "hmac")
+        assert auth_module.hmac.compare_digest is _hmac.compare_digest
+
+
+# ---------------------------------------------------------------------------
+# US-IAS-02: Timing-safe admin login (hmac.compare_digest + always-run bcrypt)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestTimingSafeAdminLogin:
+    # --- Happy path ---
+
+    async def test_wrong_username_returns_401(self, db_session: AsyncSession):
+        """Wrong username returns 401 — bcrypt still ran (timing-safe path)."""
+        import bcrypt
+        from unittest.mock import patch
+        from app.main import create_app
+        from app.database import get_db as _get_db
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[_get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"correct_password", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "real_admin",
+        ):
+            from httpx import ASGITransport, AsyncClient as _AsyncClient
+            async with _AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "wrong_user", "password": "correct_password"},
+                )
+        # Wrong username → 401 even though password is correct
+        assert response.status_code == 401
+
+    async def test_wrong_password_returns_401(self, db_session: AsyncSession):
+        """Wrong password returns 401."""
+        import bcrypt
+        from unittest.mock import patch
+        from app.main import create_app
+        from app.database import get_db as _get_db
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[_get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"correct_password", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ):
+            from httpx import ASGITransport, AsyncClient as _AsyncClient
+            async with _AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "wrong_password"},
+                )
+        assert response.status_code == 401
+
+    # --- Gap 2: bcrypt always called regardless of username ---
+
+    async def test_bcrypt_called_even_when_username_is_wrong(self, db_session: AsyncSession):
+        """_verify_admin_password is called even when the username is wrong.
+
+        Before the timing-safe fix, short-circuit evaluation meant bcrypt was
+        skipped when the username did not match.  This test patches
+        _verify_admin_password and asserts it was called for a wrong-username
+        request, proving bcrypt always runs.
+        """
+        import bcrypt
+        from unittest.mock import patch, MagicMock
+        from app.main import create_app
+        from app.database import get_db as _get_db
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[_get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"secret", bcrypt.gensalt()).decode()
+
+        mock_verify = MagicMock(return_value=False)
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "real_admin",
+        ), patch("app.routers.admin_auth._verify_admin_password", mock_verify):
+            from httpx import ASGITransport, AsyncClient as _AsyncClient
+            async with _AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "wrong_user", "password": "anything"},
+                )
+
+        # Wrong username → 401
+        assert response.status_code == 401
+        # bcrypt was called despite the wrong username
+        mock_verify.assert_called_once_with("anything", hashed)
+
+    # --- Edge cases ---
+
+    async def test_hmac_compare_digest_imported_in_admin_auth_module(self):
+        """hmac.compare_digest is available in the admin_auth router module."""
+        import hmac as _hmac
+        import app.routers.admin_auth as admin_auth_module
+        assert hasattr(admin_auth_module, "hmac")
+        assert admin_auth_module.hmac.compare_digest is _hmac.compare_digest
+
+
+# ---------------------------------------------------------------------------
+# US-IAS-03: Draft endpoint ownership verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestDraftOwnershipVerification:
+    # --- Happy path ---
+
+    async def test_save_draft_own_lot_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Voter can save a draft for their own lot."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.put(
+            f"/api/general-meeting/{agm.id}/draft",
+            json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_get_draft_own_lot_id_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Voter can get drafts filtered by their own lot_owner_id."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/drafts?lot_owner_id={lo.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_get_draft_proxy_lot_id_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Proxy voter can get drafts for a lot they are proxy for."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        building = building_with_agm["building"]
+        proxy_email = f"proxy_draft_{uuid.uuid4().hex[:6]}@test.com"
+
+        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        db_session.add(lp)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/drafts?lot_owner_id={lo.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    # --- State / precondition errors ---
+
+    async def test_save_draft_another_voters_lot_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Voter A cannot save a draft for Voter B's lot — returns 403."""
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+        voter_email = building_with_agm["voter_email"]
+        motions = building_with_agm["motions"]
+
+        # Create a second voter with their own lot
+        lo_b = LotOwner(building_id=building.id, lot_number="OWN-B", unit_entitlement=50)
+        db_session.add(lo_b)
+        await db_session.flush()
+        lo_b_email = LotOwnerEmail(lot_owner_id=lo_b.id, email="voter_b@test.com")
+        db_session.add(lo_b_email)
+        await db_session.flush()
+
+        # Voter A's session
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Voter A tries to save a draft for Voter B's lot
+        response = await client.put(
+            f"/api/general-meeting/{agm.id}/draft",
+            json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo_b.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert "not authorised" in response.json()["detail"].lower()
+
+    async def test_get_draft_another_voters_lot_id_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Voter A cannot get drafts for Voter B's lot_owner_id — returns 403."""
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+        voter_email = building_with_agm["voter_email"]
+
+        # Create Voter B with their own lot
+        lo_b = LotOwner(building_id=building.id, lot_number="GET-B", unit_entitlement=50)
+        db_session.add(lo_b)
+        await db_session.flush()
+        lo_b_email = LotOwnerEmail(lot_owner_id=lo_b.id, email="voter_b_get@test.com")
+        db_session.add(lo_b_email)
+        await db_session.flush()
+
+        # Voter A's session
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Voter A tries to get drafts filtered to Voter B's lot
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/drafts?lot_owner_id={lo_b.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert "not authorised" in response.json()["detail"].lower()
+
+    async def test_get_draft_no_lot_owner_id_filter_returns_all_own_drafts(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """GET /drafts without lot_owner_id filter returns all drafts for the voter (no ownership check needed)."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # No lot_owner_id query param — should succeed without ownership check
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/drafts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    # --- Gap 1: lot_owner_id=None bypass is intentional ---
+
+    async def test_save_draft_none_lot_owner_id_bypasses_ownership_check(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Sending lot_owner_id=None (omitted) intentionally skips the ownership check.
+
+        The save_draft service scopes deletes and updates to voter_email when lot_owner_id
+        is None.  Sending choice=None (deselect) issues a DELETE — safe without a
+        lot_owner_id because no new Vote row with a NULL lot_owner_id is created.
+        This test documents the intentional bypass and asserts the endpoint succeeds (200).
+        """
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        # Pre-create a draft vote so the delete path has something to remove
+        draft_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email=voter_email,
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.draft,
+        )
+        db_session.add(draft_vote)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # lot_owner_id intentionally omitted; choice=None triggers the DELETE path
+        # (not INSERT), so no NOT NULL violation occurs and the call succeeds
+        response = await client.put(
+            f"/api/general-meeting/{agm.id}/draft",
+            json={"motion_id": str(motions[0].id), "choice": None},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["saved"] is True
+
+    # --- Gap 3: cross-building isolation ---
+
+    async def test_save_draft_lot_from_different_building_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A lot_owner_id from a different building returns 403.
+
+        The ownership check verifies building_id as well as email match, so a lot
+        from an unrelated building is rejected even if the voter owns a lot in the
+        meeting's building.
+        """
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        # Create a second building with a lot owned by the same voter email
+        other_building = Building(
+            name=f"OtherBldg {uuid.uuid4().hex[:6]}", manager_email="xbldg@test.com"
+        )
+        db_session.add(other_building)
+        await db_session.flush()
+
+        lo_other = LotOwner(
+            building_id=other_building.id, lot_number="X1", unit_entitlement=100
+        )
+        db_session.add(lo_other)
+        await db_session.flush()
+
+        lo_other_email = LotOwnerEmail(lot_owner_id=lo_other.id, email=voter_email)
+        db_session.add(lo_other_email)
+        await db_session.flush()
+
+        # Session is scoped to the ORIGINAL building/meeting
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Attempt to save a draft using the lot from the OTHER building
+        response = await client.put(
+            f"/api/general-meeting/{agm.id}/draft",
+            json={
+                "motion_id": str(motions[0].id),
+                "choice": "yes",
+                "lot_owner_id": str(lo_other.id),
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        # The lot exists and the voter owns it, but it belongs to a different building
+        # than the meeting — the building_id mismatch must cause a 403
+        assert response.status_code == 403
+        assert "not authorised" in response.json()["detail"].lower()
+
+    async def test_get_draft_lot_from_different_building_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """GET /drafts with a lot_owner_id from a different building returns 403."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        # Create a lot in a different building owned by the same voter
+        other_building = Building(
+            name=f"GetXBldg {uuid.uuid4().hex[:6]}", manager_email="getxbldg@test.com"
+        )
+        db_session.add(other_building)
+        await db_session.flush()
+
+        lo_other = LotOwner(
+            building_id=other_building.id, lot_number="Y1", unit_entitlement=100
+        )
+        db_session.add(lo_other)
+        await db_session.flush()
+
+        lo_other_email = LotOwnerEmail(lot_owner_id=lo_other.id, email=voter_email)
+        db_session.add(lo_other_email)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/drafts?lot_owner_id={lo_other.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert "not authorised" in response.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# RR2-04: Cookie Secure flag conditional on testing_mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCookieSecureFlag:
+    # --- Happy path ---
+
+    async def test_cookie_secure_false_in_testing_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """In testing_mode=True (default for tests) the cookie must NOT have Secure flag.
+
+        The test app runs with testing_mode=True so http://localhost auth works.
+        The Set-Cookie header should not contain the 'secure' directive.
+        """
+        from unittest.mock import patch
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = True
+
+            response = await client.post(
+                "/api/auth/verify",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+            )
+
+        # In testing_mode=True, secure=False → cookie header must NOT contain "secure"
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "agm_session=" in set_cookie
+        # The 'secure' attribute should NOT appear when testing_mode=True
+        assert "; secure" not in set_cookie
+
+    async def test_cookie_secure_true_in_production_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """In testing_mode=False (production) the cookie must have Secure flag."""
+        from unittest.mock import patch
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+
+            response = await client.post(
+                "/api/auth/verify",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+            )
+
+        # In testing_mode=False, secure=True → cookie header must contain "secure"
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "agm_session=" in set_cookie
+        assert "; secure" in set_cookie
+
+    async def test_session_restore_cookie_secure_false_in_testing_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore also sets the cookie with Secure=False in testing_mode=True."""
+        from unittest.mock import patch
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = True
+
+            response = await client.post(
+                "/api/auth/session",
+                json={"session_token": token, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 200
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "agm_session=" in set_cookie
+        assert "; secure" not in set_cookie
+
+    async def test_session_restore_cookie_secure_true_in_production_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore sets Secure=True when testing_mode=False."""
+        from unittest.mock import patch
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+
+            response = await client.post(
+                "/api/auth/session",
+                json={"session_token": token, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 200
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "agm_session=" in set_cookie
+        assert "; secure" in set_cookie

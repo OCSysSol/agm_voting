@@ -51,6 +51,15 @@ class TestAdminAuth:
         assert response.json()["ok"] is True
 
     async def test_login_invalid_credentials_returns_401(self, db_session: AsyncSession):
+        """Wrong username + wrong password returns 401.
+
+        A bcrypt hash must be patched into admin_password so _verify_admin_password does not
+        raise ValueError (which it would with the default plaintext 'admin' value).
+        Before the timing-safe fix, short-circuit evaluation meant bcrypt never ran when the
+        username was wrong.  Now bcrypt always runs, so a valid hash is required in settings.
+        """
+        import bcrypt
+        from unittest.mock import patch
         from app.main import create_app
 
         app_instance = create_app()
@@ -60,13 +69,24 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            response = await c.post(
-                "/api/admin/auth/login",
-                json={"username": "wrong", "password": "bad"},
-            )
+        hashed = bcrypt.hashpw(b"correct_pw", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "wrong", "password": "bad"},
+                )
         assert response.status_code == 401
 
     async def test_logout_clears_session(self, db_session: AsyncSession):
