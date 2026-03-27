@@ -45,7 +45,7 @@ Key decisions that must not be inadvertently reversed:
 | Vercel project ID | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
 | Local test DB URL | `postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test` |
 | Main repo path | `/Users/stevensun/personal/agm_survey` |
-| Worktree path pattern | `/Users/stevensun/personal/agm_survey/.claude/worktree/<branch>` |
+| Worktree path pattern | `/Users/stevensun/personal/agm_survey/.worktree/<branch>` |
 
 Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain under the service name `agm-survey`.
 
