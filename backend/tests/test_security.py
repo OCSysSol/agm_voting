@@ -125,6 +125,8 @@ class TestSecurityHeaders:
 
         script-src includes 'unsafe-inline' to permit Vite's module preload
         polyfill inline script that is injected into index.html at build time.
+        https://vercel.live is included in script-src and connect-src to allow
+        Vercel's injected preview feedback widget to load and make API calls.
         """
         response = await client.get("/api/health")
         csp = response.headers.get("Content-Security-Policy", "")
@@ -132,7 +134,8 @@ class TestSecurityHeaders:
         assert "frame-ancestors 'none'" in csp
         assert "script-src 'self'" in csp
         assert "'unsafe-inline'" in csp
-        assert "connect-src 'self'" in csp
+        assert "https://vercel.live" in csp
+        assert "connect-src 'self' https://vercel.live" in csp
 
     async def test_csp_allows_google_fonts(self, client: AsyncClient):
         """CSP permits Google Fonts for font-src and style-src."""
