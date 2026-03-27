@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listGeneralMeetings, getGeneralMeetingsCount, listBuildings } from "../../api/admin";
@@ -15,7 +15,10 @@ export default function GeneralMeetingListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedBuildingId = searchParams.get("building") ?? "";
   const selectedStatus = searchParams.get("status") ?? "";
-  const [page, setPage] = useState(1);
+
+  // RR2-06: Read page from URL search params; default to 1
+  const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
+  const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
 
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["admin", "general-meetings", "count", selectedBuildingId, selectedStatus],
@@ -71,8 +74,9 @@ export default function GeneralMeetingListPage() {
     } else {
       next.delete("building");
     }
+    // Reset page to 1 when filter changes
+    next.delete("page");
     setSearchParams(next);
-    setPage(1);
   }
 
   function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -83,8 +87,20 @@ export default function GeneralMeetingListPage() {
     } else {
       next.delete("status");
     }
+    // Reset page to 1 when filter changes
+    next.delete("page");
     setSearchParams(next);
-    setPage(1);
+  }
+
+  // RR2-06: Update URL search param on page change (use replace to avoid polluting history)
+  function handlePageChange(newPage: number) {
+    const next = new URLSearchParams(searchParams);
+    if (newPage === 1) {
+      next.delete("page");
+    } else {
+      next.set("page", String(newPage));
+    }
+    setSearchParams(next, { replace: true });
   }
 
   if (error) return <p className="state-message state-message--error">Failed to load General Meetings.</p>;
@@ -137,15 +153,20 @@ export default function GeneralMeetingListPage() {
           totalPages={totalPages}
           totalItems={totalCount}
           pageSize={PAGE_SIZE}
-          onPageChange={setPage}
+          onPageChange={handlePageChange}
+          isLoading={isLoading}
         />
-        <GeneralMeetingTable meetings={meetings} isLoading={isLoading} />
+        {/* RR2-07: Show loading overlay while fetching page change */}
+        <div style={{ opacity: isLoading ? 0.5 : 1, transition: "opacity 0.15s" }}>
+          <GeneralMeetingTable meetings={meetings} isLoading={isLoading} />
+        </div>
         <Pagination
           page={safePage}
           totalPages={totalPages}
           totalItems={totalCount}
           pageSize={PAGE_SIZE}
-          onPageChange={setPage}
+          onPageChange={handlePageChange}
+          isLoading={isLoading}
         />
       </div>
     </div>

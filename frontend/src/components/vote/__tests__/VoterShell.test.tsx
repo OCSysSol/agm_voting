@@ -60,4 +60,27 @@ describe("VoterShell", () => {
     renderShell(DEFAULT_CONFIG, true);
     expect(screen.getByText("AGM Voting")).toBeInTheDocument();
   });
+
+  // --- US-ACC-07: Skip link ---
+
+  it("renders skip-to-main-content link before the header", () => {
+    const { container } = renderShell();
+    const skip = container.querySelector(".skip-link") as HTMLElement;
+    expect(skip).toBeTruthy();
+    expect(skip.getAttribute("href")).toBe("#main-content");
+    expect(skip.textContent).toBe("Skip to main content");
+  });
+
+  it("main content area has id=main-content", () => {
+    renderShell();
+    expect(document.getElementById("main-content")).toBeInTheDocument();
+  });
+
+  it("skip link appears before the app-header in DOM order", () => {
+    const { container } = renderShell();
+    const children = Array.from(container.querySelector(".voter-layout")!.children);
+    const skipIdx = children.findIndex((el) => el.classList.contains("skip-link"));
+    const headerIdx = children.findIndex((el) => el.classList.contains("app-header"));
+    expect(skipIdx).toBeLessThan(headerIdx);
+  });
 });

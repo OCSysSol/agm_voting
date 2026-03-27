@@ -83,4 +83,53 @@ describe("SubmitDialog", () => {
     render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  // --- US-ACC-02: Focus trap ---
+
+  it("calls onCancel when Escape key is pressed", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={onCancel} />);
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("focuses first interactive element on mount", () => {
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    // The first focusable element is the Cancel button
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("wraps Tab focus from last to first focusable element", async () => {
+    const user = userEvent.setup();
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    // Focus is on Cancel (first); Tab to Submit ballot (last); Tab again wraps to Cancel (first)
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const submitBtn = screen.getByRole("button", { name: "Submit ballot" });
+    cancelBtn.focus();
+    await user.tab();
+    expect(submitBtn).toHaveFocus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("wraps Shift+Tab focus from first to last focusable element", async () => {
+    const user = userEvent.setup();
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const submitBtn = screen.getByRole("button", { name: "Submit ballot" });
+    cancelBtn.focus();
+    await user.tab({ shift: true });
+    expect(submitBtn).toHaveFocus();
+  });
+
+  // --- Boundary: dialog with aria-labelledby ---
+
+  it("has aria-labelledby pointing to the title", () => {
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    const dialog = screen.getByRole("dialog");
+    const titleId = dialog.getAttribute("aria-labelledby");
+    expect(titleId).toBe("submit-dialog-title");
+    expect(document.getElementById("submit-dialog-title")).toBeInTheDocument();
+  });
 });
