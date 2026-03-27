@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Building } from "../../types";
 import Pagination from "./Pagination";
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 const PAGE_SIZE = 20;
 
@@ -85,7 +86,7 @@ export default function BuildingTable({ buildings, isLoading }: BuildingTablePro
                   )}
                 </td>
                 <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                  {new Date(b.created_at).toLocaleString()}
+                  {formatLocalDateTime(b.created_at)}
                 </td>
               </tr>
             ))

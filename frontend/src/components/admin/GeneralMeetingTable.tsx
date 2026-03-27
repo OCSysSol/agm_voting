@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { GeneralMeetingListItem } from "../../api/admin";
 import StatusBadge from "./StatusBadge";
 import Pagination from "./Pagination";
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 const PAGE_SIZE = 20;
 
@@ -69,10 +70,10 @@ export default function GeneralMeetingTable({ meetings, isLoading }: GeneralMeet
                 <td style={{ fontWeight: 600 }}>{meeting.title}</td>
                 <td><StatusBadge status={meeting.status} /></td>
                 <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                  {new Date(meeting.meeting_at).toLocaleString()}
+                  {formatLocalDateTime(meeting.meeting_at)}
                 </td>
                 <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                  {new Date(meeting.voting_closes_at).toLocaleString()}
+                  {formatLocalDateTime(meeting.voting_closes_at)}
                 </td>
               </tr>
             ))

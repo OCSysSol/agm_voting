@@ -40,6 +40,8 @@ Both `verify_auth` and `restore_session` call this helper. The `verify_auth` end
 
 Public response shapes (`AuthVerifyResponse`) are unchanged. No migration required.
 
+**Schema migration required: no**
+
 ---
 
 ## US-CQM-04: Replace Raw `fetch()` with `apiFetch` in admin.ts
@@ -55,6 +57,8 @@ Seven functions in `frontend/src/api/admin.ts` call `fetch()` directly instead o
 - `deleteBuilding` — DELETE, 204 no-body
 - `deleteMotion` — DELETE, 204 no-body
 
+Note: `MotionExcelUpload.tsx` was listed in an earlier audit but does not contain a raw `fetch()` call and required no change.
+
 This bypasses the centralised error-handling and base URL logic in `apiFetch`.
 
 ### Approach
@@ -67,17 +71,25 @@ This bypasses the centralised error-handling and base URL logic in `apiFetch`.
 
 The request/response contracts are unchanged. MSW handlers that intercept these endpoints remain valid.
 
+**Schema migration required: no**
+
 ---
 
 ## US-CQM-05: Extract `formatLocalDateTime` to Shared Utility
 
 ### Problem
 
-`formatLocalDateTime` is defined identically in two files:
-- `frontend/src/pages/vote/VotingPage.tsx` (line 21)
-- `frontend/src/components/vote/GeneralMeetingListItem.tsx` (line 3)
+`formatLocalDateTime` (or equivalent `new Date(...).toLocaleString()` calls) is duplicated across six files:
+- `frontend/src/pages/vote/VotingPage.tsx` — inline function definition
+- `frontend/src/components/vote/GeneralMeetingListItem.tsx` — inline function definition
+- `frontend/src/pages/admin/GeneralMeetingDetailPage.tsx` — `new Date(...).toLocaleString()`
+- `frontend/src/components/admin/GeneralMeetingTable.tsx` — `new Date(...).toLocaleString()`
+- `frontend/src/pages/GeneralMeetingSummaryPage.tsx` — `new Date(...).toLocaleString()`
+- `frontend/src/components/admin/BuildingTable.tsx` — `new Date(...).toLocaleString()`
 
-If the date format needs to change, both files must be updated.
+Note: `ConfirmationPage.tsx` and `AGMReportView.tsx` do not perform date formatting and required no change.
+
+If the date format needs to change, all six files would otherwise need updating.
 
 ### Approach
 
@@ -99,11 +111,13 @@ Key improvements over the inline versions:
 - Accepts optional `Intl.DateTimeFormatOptions` for flexibility
 - Single source of truth
 
-Both `VotingPage.tsx` and `GeneralMeetingListItem.tsx` import from `../../utils/dateTime` and remove their local definitions.
+All six files now import `formatLocalDateTime` from their respective relative path to `utils/dateTime` and remove the local inline definitions.
 
 ### No schema or API changes
 
 Pure frontend utility extraction. No backend or public API changes.
+
+**Schema migration required: no**
 
 ---
 
@@ -121,6 +135,14 @@ Pure frontend utility extraction. No backend or public API changes.
 - Create `frontend/src/utils/__tests__/dateTime.test.ts` covering: valid UTC ISO string, `null` input, `undefined` input, custom format options.
 - Existing `GeneralMeetingListItem` tests continue to pass (no change to rendering logic).
 - Existing `VotingPage` tests continue to pass (no change to rendering logic).
+
+---
+
+## E2E Test Scenarios
+
+These stories are pure internal refactors — no user-visible behaviour changes in any flow. No new E2E scenarios are required and no existing E2E specs need updating. The voter auth journey, voting flow, and admin report flow all continue to work identically from a browser perspective.
+
+Existing E2E specs that exercise the affected code paths (voter auth, vote submission, admin meeting detail) remain valid as regression coverage for this refactor.
 
 ---
 

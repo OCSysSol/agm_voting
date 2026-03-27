@@ -594,10 +594,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** a bug fix or feature addition in lot resolution only needs to be made in one place.
 
 **Acceptance criteria:**
-- [ ] A private helper function `_resolve_lots_for_email(email, general_meeting_id, db)` is extracted from `auth.py`, containing the shared logic: look up lot owners by email, look up proxied lots, compute `already_submitted` per lot, compute `voted_motion_ids` per lot
-- [ ] Both `verify_auth` and `restore_session` call this helper
-- [ ] No change to the public API shape of either endpoint
-- [ ] All existing auth unit and integration tests pass after the refactor
+- [x] A private helper function `_resolve_voter_state(db, voter_email, general_meeting_id, building_id)` is extracted from `auth.py`, containing the shared logic: look up lot owners by email, look up proxied lots, fetch visible motions, compute `already_submitted` per lot, compute `voted_motion_ids` per lot, compute `unvoted_visible_count`
+- [x] Both `verify_auth` and `restore_session` call this helper
+- [x] No change to the public API shape of either endpoint
+- [x] All existing auth unit and integration tests pass after the refactor
 
 **Technical notes:** `backend/app/routers/auth.py` — refactor, no schema change.
 
@@ -649,10 +649,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** request construction is centralised and type errors are caught at build time.
 
 **Acceptance criteria:**
-- [ ] All `fetch()` calls in admin components (identified in audit: `BuildingCSVUpload.tsx`, `LotOwnerCSVUpload.tsx`, `FinancialPositionUpload.tsx`, `ProxyNominationsUpload.tsx`, `MotionExcelUpload.tsx`) are replaced with typed functions in `frontend/src/api/`
-- [ ] The new API functions are typed with request and response TypeScript interfaces
-- [ ] MSW handlers in `frontend/tests/msw/handlers.ts` are updated to match any new endpoint signatures
-- [ ] All existing component tests pass after the refactor
+- [x] All `fetch()` calls in `frontend/src/api/admin.ts` (identified in audit: `importBuildings`, `importLotOwners`, `importProxyNominations`, `importFinancialPositions`, `deleteGeneralMeeting`, `deleteBuilding`, `deleteMotion`) are replaced with `apiFetch`/`apiFetchVoid` from the shared client. Note: `MotionExcelUpload.tsx` does not call `fetch()` directly and required no change.
+- [x] `apiFetchVoid` added to `frontend/src/api/client.ts` for 204 No Content endpoints (delete operations)
+- [x] The API functions are typed with request and response TypeScript interfaces
+- [x] All existing component tests pass after the refactor
 
 **Technical notes:** `frontend/src/api/` — new or updated API client files. `frontend/src/components/admin/` — replace fetch calls.
 
@@ -667,10 +667,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** formatting changes only need to be made in one place.
 
 **Acceptance criteria:**
-- [ ] A utility function `formatLocalDateTime(isoString: string, options?: Intl.DateTimeFormatOptions): string` is created in `frontend/src/utils/dateTime.ts`
-- [ ] All places that currently duplicate date/time formatting (identified in audit: voting page header, confirmation page, admin meeting list, report view) are updated to call this utility
-- [ ] The utility handles null/undefined input by returning an empty string
-- [ ] Unit tests cover: valid UTC ISO string, null input, custom format options, and DST boundary
+- [x] A utility function `formatLocalDateTime(isoString: string | null | undefined, options?: Intl.DateTimeFormatOptions): string` is created in `frontend/src/utils/dateTime.ts`
+- [x] All places that use inline date/time formatting are updated to call this utility. Actual audit scope (corrected from initial estimate): `VotingPage.tsx`, `GeneralMeetingListItem.tsx`, `GeneralMeetingDetailPage.tsx`, `GeneralMeetingTable.tsx`, `GeneralMeetingSummaryPage.tsx`, `BuildingTable.tsx`. Note: `ConfirmationPage.tsx` and `AGMReportView.tsx` do not perform date formatting and required no change.
+- [x] The utility handles null/undefined input by returning an empty string
+- [x] Unit tests cover: valid UTC ISO string, null input, undefined input, empty string input, custom format options, and DST boundary
 
 **Technical notes:** `frontend/src/utils/dateTime.ts` — new file. `frontend/src/pages/` and `frontend/src/components/` — update usages.
 

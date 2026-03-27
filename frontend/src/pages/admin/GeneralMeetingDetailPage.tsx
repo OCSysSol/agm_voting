@@ -19,6 +19,7 @@ import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 import MotionManagementTable from "../../components/admin/MotionManagementTable";
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 interface DeleteMeetingConfirmModalProps {
   meetingTitle: string;
@@ -479,16 +480,16 @@ export default function GeneralMeetingDetailPage() {
         </span>
         <span className="admin-meta__item">
           <span className="admin-meta__label">Meeting</span>
-          {new Date(meeting.meeting_at).toLocaleString()}
+          {formatLocalDateTime(meeting.meeting_at)}
         </span>
         <span className="admin-meta__item">
           <span className="admin-meta__label">Voting closes</span>
-          {new Date(meeting.voting_closes_at).toLocaleString()}
+          {formatLocalDateTime(meeting.voting_closes_at)}
         </span>
         {meeting.closed_at && (
           <span className="admin-meta__item">
             <span className="admin-meta__label">Closed at</span>
-            {new Date(meeting.closed_at).toLocaleString()}
+            {formatLocalDateTime(meeting.closed_at)}
           </span>
         )}
         <span className="admin-meta__item">
