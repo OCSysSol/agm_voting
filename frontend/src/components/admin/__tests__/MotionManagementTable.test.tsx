@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DragEndEvent } from "@dnd-kit/core";
+import { TouchSensor } from "@dnd-kit/core";
 import MotionManagementTable from "../MotionManagementTable";
 import type { MotionManagementTableProps } from "../MotionManagementTable";
 import type { MotionDetail } from "../../../api/admin";
@@ -11,11 +12,16 @@ import type { MotionDetail } from "../../../api/admin";
 // ---------------------------------------------------------------------------
 
 let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
+const useSensorSpy = vi.fn();
 
 vi.mock("@dnd-kit/core", async () => {
   const actual = await vi.importActual<typeof import("@dnd-kit/core")>("@dnd-kit/core");
   return {
     ...actual,
+    useSensor: (...args: Parameters<typeof actual.useSensor>) => {
+      useSensorSpy(...args);
+      return actual.useSensor(...args);
+    },
     DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd?: (e: DragEndEvent) => void }) => {
       capturedOnDragEnd = onDragEnd ?? null;
       return <>{children}</>;
@@ -90,6 +96,7 @@ function renderTable(overrides: Partial<MotionManagementTableProps> = {}) {
 describe("MotionManagementTable", () => {
   beforeEach(() => {
     capturedOnDragEnd = null;
+    useSensorSpy.mockClear();
   });
 
   // --- Happy path ---
@@ -172,6 +179,29 @@ describe("MotionManagementTable", () => {
   it("does not show drag handles when only one motion", () => {
     renderTable({ motions: [MOTION_A] });
     expect(screen.queryByTestId("drag-handle-m1")).not.toBeInTheDocument();
+  });
+
+  // --- Touch sensor ---
+
+  it("registers TouchSensor with delay+tolerance activation constraint", () => {
+    renderTable();
+    // useSensor is called three times: PointerSensor, TouchSensor, KeyboardSensor
+    const calls = useSensorSpy.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    const touchCall = calls.find((c) => c[0] === TouchSensor);
+    expect(touchCall).toBeDefined();
+    expect(touchCall![1]).toEqual({
+      activationConstraint: { delay: 250, tolerance: 5 },
+    });
+  });
+
+  it("drag handle span has touchAction none and 44px min dimensions", () => {
+    const { container } = renderTable();
+    const handle = container.querySelector("[data-testid='drag-handle-m1']") as HTMLElement;
+    expect(handle).toBeTruthy();
+    expect(handle.style.touchAction).toBe("none");
+    expect(parseInt(handle.style.minWidth)).toBeGreaterThanOrEqual(44);
+    expect(parseInt(handle.style.minHeight)).toBeGreaterThanOrEqual(44);
   });
 
   // --- Move buttons: disabled states ---
