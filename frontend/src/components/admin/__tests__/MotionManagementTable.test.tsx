@@ -47,14 +47,17 @@ function makeMotion(
     motion_number: null,
     motion_type: "general",
     is_visible: true,
+    option_limit: null,
+    options: [],
     tally: {
       yes: { voter_count: 0, entitlement_sum: 0 },
       no: { voter_count: 0, entitlement_sum: 0 },
       abstained: { voter_count: 0, entitlement_sum: 0 },
       absent: { voter_count: 0, entitlement_sum: 0 },
       not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      options: [],
     },
-    voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [], options: {} },
     ...opts,
   };
 }
@@ -460,5 +463,35 @@ describe("MotionManagementTable", () => {
       deleteMotionErrors: { "m-h1": "Failed to delete motion" },
     });
     expect(screen.queryByText("Failed to delete motion")).not.toBeInTheDocument();
+  });
+
+  // --- Multi-choice motion type badge ---
+
+  it("shows Multi-Choice badge with option count for multi_choice motion", () => {
+    const MC_MOTION = makeMotion("mc1", "Board Election", 4, {
+      motion_type: "multi_choice",
+      option_limit: 2,
+      options: [
+        { id: "opt-1", text: "Alice", display_order: 1 },
+        { id: "opt-2", text: "Bob", display_order: 2 },
+        { id: "opt-3", text: "Carol", display_order: 3 },
+      ],
+    });
+    renderTable({ motions: [MC_MOTION] });
+    const badge = screen.getByLabelText("Motion type: Multi-Choice");
+    expect(badge).toHaveClass("motion-type-badge--multi_choice");
+    expect(badge).toHaveTextContent("Multi-Choice (3 options)");
+  });
+
+  it("shows Multi-Choice badge without count when options is empty", () => {
+    const MC_MOTION_NO_OPTS = makeMotion("mc2", "Election", 5, {
+      motion_type: "multi_choice",
+      option_limit: 1,
+      options: [],
+    });
+    renderTable({ motions: [MC_MOTION_NO_OPTS] });
+    const badge = screen.getByLabelText("Motion type: Multi-Choice");
+    expect(badge).toHaveTextContent("Multi-Choice");
+    expect(badge).not.toHaveTextContent("options");
   });
 });

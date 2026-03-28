@@ -172,6 +172,33 @@ class LotOwnerImportResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Motion option schemas
+# ---------------------------------------------------------------------------
+
+
+class MotionOptionCreate(BaseModel):
+    text: str
+    display_order: int = 1
+
+    @field_validator("text")
+    @classmethod
+    def text_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("option text must not be empty")
+        if len(v) > 200:
+            raise ValueError("option text must not exceed 200 characters")
+        return v
+
+
+class MotionOptionOut(BaseModel):
+    id: uuid.UUID
+    text: str
+    display_order: int
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
 # Motion schemas
 # ---------------------------------------------------------------------------
 
@@ -182,6 +209,8 @@ class MotionCreate(BaseModel):
     display_order: int
     motion_type: MotionType = MotionType.general
     motion_number: str | None = None
+    option_limit: int | None = None
+    options: list[MotionOptionCreate] = []
 
     @field_validator("title")
     @classmethod
@@ -204,6 +233,22 @@ class MotionCreate(BaseModel):
             raise ValueError("motion_number must not exceed 50 characters")
         return v
 
+    @model_validator(mode="after")
+    def validate_multi_choice_fields(self) -> "MotionCreate":
+        if self.motion_type == MotionType.multi_choice:
+            if self.option_limit is None or self.option_limit < 1:
+                raise ValueError("option_limit must be >= 1 for multi_choice motions")
+            if len(self.options) < 2:
+                raise ValueError("multi_choice motions require at least 2 options")
+            if self.option_limit > len(self.options):
+                raise ValueError("option_limit cannot exceed the number of options")
+        else:
+            if self.option_limit is not None:
+                raise ValueError("option_limit must be null for non-multi_choice motions")
+            if self.options:
+                raise ValueError("options must be empty for non-multi_choice motions")
+        return self
+
 
 class MotionOut(BaseModel):
     id: uuid.UUID
@@ -213,6 +258,8 @@ class MotionOut(BaseModel):
     motion_number: str | None
     motion_type: MotionType
     is_visible: bool = True
+    option_limit: int | None = None
+    options: list[MotionOptionOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -229,6 +276,8 @@ class MotionVisibilityOut(BaseModel):
     motion_number: str | None
     motion_type: MotionType
     is_visible: bool
+    option_limit: int | None = None
+    options: list[MotionOptionOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -238,6 +287,8 @@ class MotionAddRequest(BaseModel):
     description: str | None = None
     motion_type: MotionType = MotionType.general
     motion_number: str | None = None
+    option_limit: int | None = None
+    options: list[MotionOptionCreate] = []
 
     @field_validator("title")
     @classmethod
@@ -262,12 +313,30 @@ class MotionAddRequest(BaseModel):
             raise ValueError("motion_number must not exceed 50 characters")
         return v
 
+    @model_validator(mode="after")
+    def validate_multi_choice_fields(self) -> "MotionAddRequest":
+        if self.motion_type == MotionType.multi_choice:
+            if self.option_limit is None or self.option_limit < 1:
+                raise ValueError("option_limit must be >= 1 for multi_choice motions")
+            if len(self.options) < 2:
+                raise ValueError("multi_choice motions require at least 2 options")
+            if self.option_limit > len(self.options):
+                raise ValueError("option_limit cannot exceed the number of options")
+        else:
+            if self.option_limit is not None:
+                raise ValueError("option_limit must be null for non-multi_choice motions")
+            if self.options:
+                raise ValueError("options must be empty for non-multi_choice motions")
+        return self
+
 
 class MotionUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     motion_type: MotionType | None = None
     motion_number: str | None = None
+    option_limit: int | None = None
+    options: list[MotionOptionCreate] | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "MotionUpdateRequest":
@@ -276,6 +345,8 @@ class MotionUpdateRequest(BaseModel):
             and self.description is None
             and self.motion_type is None
             and self.motion_number is None
+            and self.option_limit is None
+            and self.options is None
         ):
             raise ValueError("At least one field must be provided")
         return self
@@ -372,12 +443,21 @@ class TallyCategory(BaseModel):
     entitlement_sum: int
 
 
+class OptionTallyEntry(BaseModel):
+    option_id: uuid.UUID
+    option_text: str
+    display_order: int
+    voter_count: int
+    entitlement_sum: int
+
+
 class MotionTally(BaseModel):
     yes: TallyCategory
     no: TallyCategory
     abstained: TallyCategory
     absent: TallyCategory
     not_eligible: TallyCategory
+    options: list[OptionTallyEntry] = []
 
 
 class MotionVoterLists(BaseModel):
@@ -386,6 +466,7 @@ class MotionVoterLists(BaseModel):
     abstained: list[VoterEntry]
     absent: list[VoterEntry]
     not_eligible: list[VoterEntry]
+    options: dict[str, list[VoterEntry]] = {}  # key: option_id str
 
 
 class MotionDetail(BaseModel):
@@ -396,6 +477,8 @@ class MotionDetail(BaseModel):
     motion_number: str | None
     motion_type: MotionType
     is_visible: bool = True
+    option_limit: int | None = None
+    options: list[MotionOptionOut] = []
     tally: MotionTally
     voter_lists: MotionVoterLists
 

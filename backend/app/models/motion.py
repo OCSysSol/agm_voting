@@ -11,6 +11,7 @@ from app.models.base import Base
 class MotionType(str, enum.Enum):
     general = "general"
     special = "special"
+    multi_choice = "multi_choice"
 
 
 class Motion(Base):
@@ -57,6 +58,7 @@ class Motion(Base):
         default=True,
         server_default=sa.text("true"),  # nosemgrep: raw-sql-requires-comment -- server_default for boolean column; SQLAlchemy requires text() to emit a literal SQL expression as a column default
     )
+    option_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
@@ -64,4 +66,10 @@ class Motion(Base):
     )
     votes: Mapped[list["Vote"]] = relationship(  # noqa: F821
         "Vote", back_populates="motion", cascade="all, delete-orphan"
+    )
+    options: Mapped[list["MotionOption"]] = relationship(  # noqa: F821
+        "MotionOption",
+        back_populates="motion",
+        cascade="all, delete-orphan",
+        order_by="MotionOption.display_order",
     )

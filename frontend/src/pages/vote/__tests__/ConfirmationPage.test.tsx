@@ -434,6 +434,116 @@ describe("ConfirmationPage", () => {
     });
   });
 
+  // --- Multi-choice confirmation ---
+
+  it("shows selected option texts for multi_choice vote with options", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                {
+                  motion_id: "m1",
+                  motion_title: "Board Election",
+                  display_order: 1,
+                  motion_number: null,
+                  choice: "selected",
+                  eligible: true,
+                  motion_type: "multi_choice",
+                  selected_options: [{ text: "Alice" }, { text: "Carol" }],
+                },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Alice, Carol")).toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Abstained' for multi_choice vote with no selected options", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                {
+                  motion_id: "m1",
+                  motion_title: "Board Election",
+                  display_order: 1,
+                  motion_number: null,
+                  choice: "abstained",
+                  eligible: true,
+                  motion_type: "multi_choice",
+                  selected_options: [],
+                },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Abstained")).toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Not eligible' for multi_choice not_eligible vote", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "in_arrear",
+              votes: [
+                {
+                  motion_id: "m1",
+                  motion_title: "Board Election",
+                  display_order: 1,
+                  motion_number: null,
+                  choice: "not_eligible",
+                  eligible: false,
+                  motion_type: "multi_choice",
+                  selected_options: [],
+                },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Not eligible")).toBeInTheDocument();
+    });
+  });
+
   it("falls back to display_order when motion_number is whitespace in single-lot ballot", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>

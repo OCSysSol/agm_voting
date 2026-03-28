@@ -1,8 +1,15 @@
 import type { VoteChoice } from "../../types";
 import type { MotionOut } from "../../api/voter";
 import { VoteButton } from "./VoteButton";
+import { MultiChoiceOptionList } from "./MultiChoiceOptionList";
 
 const CHOICES: VoteChoice[] = ["yes", "no", "abstained"];
+
+const MOTION_TYPE_LABELS: Record<string, string> = {
+  general: "General",
+  special: "Special",
+  multi_choice: "Multi-Choice",
+};
 
 interface MotionCardProps {
   motion: MotionOut;
@@ -12,6 +19,9 @@ interface MotionCardProps {
   disabled: boolean;
   highlight: boolean;
   readOnly?: boolean;
+  // Multi-choice state (only used for multi_choice motion type)
+  multiChoiceSelectedIds?: string[];
+  onMultiChoiceChange?: (motionId: string, optionIds: string[]) => void;
 }
 
 export function MotionCard({
@@ -22,6 +32,8 @@ export function MotionCard({
   disabled,
   highlight,
   readOnly = false,
+  multiChoiceSelectedIds = [],
+  onMultiChoiceChange,
 }: MotionCardProps) {
   const handleClick = (c: VoteChoice) => {
     /* c8 ignore next */
@@ -31,8 +43,16 @@ export function MotionCard({
     onChoiceChange(motion.id, next);
   };
 
+  const isMultiChoice = motion.motion_type === "multi_choice";
   const isSpecial = motion.motion_type === "special";
   const isEffectivelyDisabled = disabled || readOnly;
+
+  const badgeClass = isSpecial
+    ? "motion-type-badge--special"
+    : isMultiChoice
+    ? "motion-type-badge--multi_choice"
+    : "motion-type-badge--general";
+  const typeLabel = MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
 
   return (
     <div
@@ -42,10 +62,10 @@ export function MotionCard({
       <div className="motion-card__top-row">
         <p className="motion-card__number">{`Motion ${motion.motion_number?.trim() || position}`}</p>
         <span
-          className={`motion-type-badge${isSpecial ? " motion-type-badge--special" : " motion-type-badge--general"}`}
-          aria-label={`Motion type: ${isSpecial ? "Special" : "General"}`}
+          className={`motion-type-badge ${badgeClass}`}
+          aria-label={`Motion type: ${typeLabel}`}
         >
-          {isSpecial ? "Special" : "General"}
+          {typeLabel}
         </span>
         {highlight && (
           <span className="motion-card__unanswered-badge" aria-label="Unanswered">
@@ -62,18 +82,28 @@ export function MotionCard({
       {motion.description && (
         <p className="motion-card__description">{motion.description}</p>
       )}
-      <div className="vote-buttons">
-        {CHOICES.map((c) => (
-          <VoteButton
-            key={c}
-            choice={c}
-            selected={choice === c}
-            disabled={isEffectivelyDisabled}
-            ariaDisabled={false}
-            onClick={() => handleClick(c)}
-          />
-        ))}
-      </div>
+      {isMultiChoice ? (
+        <MultiChoiceOptionList
+          motion={motion}
+          selectedOptionIds={multiChoiceSelectedIds}
+          onSelectionChange={onMultiChoiceChange ?? (() => {})}
+          disabled={isEffectivelyDisabled}
+          readOnly={readOnly}
+        />
+      ) : (
+        <div className="vote-buttons">
+          {CHOICES.map((c) => (
+            <VoteButton
+              key={c}
+              choice={c}
+              selected={choice === c}
+              disabled={isEffectivelyDisabled}
+              ariaDisabled={false}
+              onClick={() => handleClick(c)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

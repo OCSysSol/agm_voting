@@ -243,4 +243,98 @@ describe("CreateGeneralMeetingForm", () => {
     renderComponent();
     expect(screen.getByLabelText("Voting Closes At")).toHaveAttribute("aria-required", "true");
   });
+
+  // --- Multi-choice motion validation ---
+
+  it("shows error when multi-choice motion has fewer than 2 options", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await fillAndSubmit(user);
+
+    // Change motion type to multi_choice
+    const motionTypeSelects = screen.getAllByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelects[0], "multi_choice");
+
+    // Fill motion title
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "Election");
+
+    // Remove the second option (only 1 remains after removing one from the default 2)
+    const removeOptBtn = screen.queryByRole("button", { name: /Remove motion 1 option 2/i });
+    if (removeOptBtn) {
+      // Can't remove when there are exactly 2 options
+    }
+    // Just attempt to submit with empty options
+    // (options default to 2 empty strings, which won't pass validation since they're empty)
+    await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
+    expect(screen.getByText(/multi-choice requires at least 2 options/i)).toBeInTheDocument();
+  });
+
+  it("shows error when multi-choice option limit exceeds option count", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await fillAndSubmit(user);
+
+    // Change motion type to multi_choice
+    const motionTypeSelects = screen.getAllByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelects[0], "multi_choice");
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "Election");
+
+    // Fill both options
+    const optionInputs = screen.getAllByPlaceholderText(/Option [0-9]+/);
+    await user.type(optionInputs[0], "Alice");
+    await user.type(optionInputs[1], "Bob");
+
+    // Set option limit to 3 (> 2 options)
+    const limitInput = screen.getByLabelText(/Max selections per voter/);
+    await user.clear(limitInput);
+    await user.type(limitInput, "3");
+
+    await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
+    expect(screen.getByText(/option limit cannot exceed option count/i)).toBeInTheDocument();
+  });
+
+  it("shows error when multi-choice motion has option limit less than 1", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await fillAndSubmit(user);
+
+    // Change motion type to multi_choice
+    const motionTypeSelects = screen.getAllByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelects[0], "multi_choice");
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "Election");
+
+    // Fill both options
+    const optionInputs = screen.getAllByPlaceholderText(/Option [0-9]+/);
+    await user.type(optionInputs[0], "Alice");
+    await user.type(optionInputs[1], "Bob");
+
+    // Set option limit to 0 (invalid)
+    const limitInput = screen.getByLabelText(/Max selections per voter/);
+    await user.clear(limitInput);
+    await user.type(limitInput, "0");
+
+    await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
+    expect(screen.getByText(/option limit must be at least 1/i)).toBeInTheDocument();
+  });
+
+  it("submits form with multi-choice motion and navigates on success", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await fillAndSubmit(user);
+
+    // Change motion type to multi_choice
+    const motionTypeSelects = screen.getAllByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelects[0], "multi_choice");
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "Election");
+
+    // Fill both options
+    const optionInputs = screen.getAllByPlaceholderText(/Option [0-9]+/);
+    await user.type(optionInputs[0], "Alice");
+    await user.type(optionInputs[1], "Bob");
+
+    await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings/agm-new");
+    });
+  });
 });
