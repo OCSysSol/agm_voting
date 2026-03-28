@@ -223,10 +223,10 @@ describe("AGMReportView", () => {
     ];
     const csv = await captureCSVFromExport(singleMotion);
     expect(csv).toContain('"direct@example.com"');
-    expect(csv).not.toContain("(proxy:");
+    expect(csv).not.toContain("(proxy)");
   });
 
-  it("CSV data row for proxy-voted lot formats as 'voter (proxy: proxy_email)'", async () => {
+  it("CSV data row for proxy-voted lot formats as 'voter (proxy)'", async () => {
     const singleMotion: MotionDetail[] = [
       {
         ...motions[0],
@@ -248,7 +248,7 @@ describe("AGMReportView", () => {
       },
     ];
     const csv = await captureCSVFromExport(singleMotion);
-    expect(csv).toContain("proxy@example.com (proxy: proxy@example.com)");
+    expect(csv).toContain("proxy@example.com (proxy)");
   });
 
   it("CSV data row for absent lot shows comma-separated contact emails", async () => {

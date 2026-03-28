@@ -36,7 +36,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
       for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
         for (const v of motion.voter_lists[cat]) {
           const emailCell = v.proxy_email
-            ? `${v.voter_email || ""} (proxy: ${v.proxy_email})`
+            ? `${v.voter_email || ""} (proxy)`
             : (v.voter_email || "");
           rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
         }
