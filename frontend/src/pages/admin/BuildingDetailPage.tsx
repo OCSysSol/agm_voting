@@ -351,7 +351,7 @@ export default function BuildingDetailPage() {
             </p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {building && (
             <button
               className="btn btn--secondary"

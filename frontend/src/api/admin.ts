@@ -242,7 +242,7 @@ export interface ListBuildingsParams {
   offset?: number;
   name?: string;
   is_archived?: boolean;
-  sort_by?: string;
+  sort_by?: "name" | "manager_email" | "created_at" | string;
   sort_dir?: "asc" | "desc";
 }
 
@@ -394,7 +394,7 @@ export interface ListGeneralMeetingsParams {
   name?: string;
   building_id?: string;
   status?: string;
-  sort_by?: string;
+  sort_by?: "title" | "created_at" | "meeting_at" | "voting_closes_at" | "status" | string;
   sort_dir?: "asc" | "desc";
 }
 

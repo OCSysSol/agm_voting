@@ -53,8 +53,16 @@ export default function BuildingTable({ buildings, isLoading, sortBy, sortDir, o
             ) : (
               <th>Name</th>
             )}
-            <th>Manager Email</th>
-            <th>Status</th>
+            {onSort ? (
+              <SortableColumnHeader
+                label="Manager Email"
+                column="manager_email"
+                currentSort={currentSort}
+                onSort={onSort}
+              />
+            ) : (
+              <th>Manager Email</th>
+            )}
             {onSort ? (
               <SortableColumnHeader
                 label="Created At"
@@ -70,11 +78,11 @@ export default function BuildingTable({ buildings, isLoading, sortBy, sortDir, o
         <tbody>
           {isLoading && !buildings.length ? (
             <tr>
-              <td colSpan={4} className="state-message">Loading buildings...</td>
+              <td colSpan={3} className="state-message">Loading buildings...</td>
             </tr>
           ) : buildings.length === 0 ? (
             <tr>
-              <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
+              <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
                 No buildings found.
               </td>
             </tr>
@@ -90,22 +98,6 @@ export default function BuildingTable({ buildings, isLoading, sortBy, sortDir, o
                   </button>
                 </td>
                 <td>{b.manager_email}</td>
-                <td>
-                  {b.is_archived && (
-                    <span
-                      className="status-badge status-badge--archived"
-                      style={{
-                        fontSize: "0.75rem",
-                        padding: "2px 8px",
-                        borderRadius: "12px",
-                        background: "var(--text-muted, #888)",
-                        color: "#fff",
-                      }}
-                    >
-                      Archived
-                    </span>
-                  )}
-                </td>
                 <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
                   {formatLocalDateTime(b.created_at)}
                 </td>

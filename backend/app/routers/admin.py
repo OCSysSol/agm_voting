@@ -173,7 +173,7 @@ async def create_building(
     return BuildingOut.model_validate(building)
 
 
-_VALID_BUILDINGS_SORT_BY = {"name", "created_at"}
+_VALID_BUILDINGS_SORT_BY = {"name", "manager_email", "created_at"}
 _VALID_SORT_DIRS = {"asc", "desc"}
 
 
@@ -515,7 +515,7 @@ async def create_general_meeting(
     return GeneralMeetingOut(**meeting_dict)
 
 
-_VALID_MEETINGS_SORT_BY = {"title", "created_at"}
+_VALID_MEETINGS_SORT_BY = {"title", "created_at", "meeting_at", "voting_closes_at", "status"}
 
 
 @router.get("/general-meetings", response_model=list[GeneralMeetingListItem])

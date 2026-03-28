@@ -101,12 +101,13 @@ describe("GeneralMeetingTable", () => {
 
   // --- Sort props ---
 
-  it("renders sortable Title header when onSort is provided", () => {
+  it("renders all sortable column headers when onSort is provided", () => {
     const onSort = vi.fn();
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
-    // Title column should be a button (sortable)
     expect(screen.getByRole("button", { name: /Title/ })).toBeInTheDocument();
-    // Created At column should be a button (sortable) and show ▼ indicator (active, desc)
+    expect(screen.getByRole("button", { name: /Status/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Meeting At/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Voting Closes At/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Created At/ })).toBeInTheDocument();
   });
 
@@ -116,6 +117,30 @@ describe("GeneralMeetingTable", () => {
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
     await user.click(screen.getByRole("button", { name: /Title/ }));
     expect(onSort).toHaveBeenCalledWith("title");
+  });
+
+  it("calls onSort with 'status' when Status header button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    await user.click(screen.getByRole("button", { name: /Status/ }));
+    expect(onSort).toHaveBeenCalledWith("status");
+  });
+
+  it("calls onSort with 'meeting_at' when Meeting At header button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    await user.click(screen.getByRole("button", { name: /Meeting At/ }));
+    expect(onSort).toHaveBeenCalledWith("meeting_at");
+  });
+
+  it("calls onSort with 'voting_closes_at' when Voting Closes At header button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    await user.click(screen.getByRole("button", { name: /Voting Closes At/ }));
+    expect(onSort).toHaveBeenCalledWith("voting_closes_at");
   });
 
   it("calls onSort with 'created_at' when Created At header button is clicked", async () => {
@@ -129,7 +154,6 @@ describe("GeneralMeetingTable", () => {
   it("shows ▲ on active title column when sortDir is asc", () => {
     const onSort = vi.fn();
     renderTable({ meetings, sortBy: "title", sortDir: "asc", onSort });
-    // The Title column header should show ▲
     const titleBtn = screen.getByRole("button", { name: /Title/ });
     expect(titleBtn.textContent).toContain("▲");
   });
@@ -139,6 +163,27 @@ describe("GeneralMeetingTable", () => {
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
     const createdBtn = screen.getByRole("button", { name: /Created At/ });
     expect(createdBtn.textContent).toContain("▼");
+  });
+
+  it("shows ▼ on active status column when sortDir is desc", () => {
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "status", sortDir: "desc", onSort });
+    const statusBtn = screen.getByRole("button", { name: /Status/ });
+    expect(statusBtn.textContent).toContain("▼");
+  });
+
+  it("shows ▲ on active meeting_at column when sortDir is asc", () => {
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "meeting_at", sortDir: "asc", onSort });
+    const meetingAtBtn = screen.getByRole("button", { name: /Meeting At/ });
+    expect(meetingAtBtn.textContent).toContain("▲");
+  });
+
+  it("shows ▲ on active voting_closes_at column when sortDir is asc", () => {
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "voting_closes_at", sortDir: "asc", onSort });
+    const votingBtn = screen.getByRole("button", { name: /Voting Closes At/ });
+    expect(votingBtn.textContent).toContain("▲");
   });
 
   it("shows ⇅ on inactive columns", () => {
@@ -152,7 +197,6 @@ describe("GeneralMeetingTable", () => {
   it("active Created At th has aria-sort='descending'", () => {
     const onSort = vi.fn();
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
-    // Find the th containing Created At button
     const createdBtn = screen.getByRole("button", { name: /Created At/ });
     const th = createdBtn.closest("th");
     expect(th).toHaveAttribute("aria-sort", "descending");
@@ -164,6 +208,14 @@ describe("GeneralMeetingTable", () => {
     const titleBtn = screen.getByRole("button", { name: /Title/ });
     const th = titleBtn.closest("th");
     expect(th).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("Building column is never sortable (no sort button)", () => {
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    // Building th should be a plain <th>, not a button
+    expect(screen.queryByRole("button", { name: /^Building$/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Building")).toBeInTheDocument();
   });
 
   // --- Pagination ---

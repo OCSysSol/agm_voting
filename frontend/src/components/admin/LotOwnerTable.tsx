@@ -6,7 +6,7 @@ import type { SortDir } from "./SortableColumnHeader";
 
 const PAGE_SIZE = 25;
 
-type LotOwnerSortColumn = "lot_number" | "unit_entitlement" | "financial_position";
+type LotOwnerSortColumn = "lot_number" | "unit_entitlement" | "financial_position" | "email" | "proxy";
 
 interface LotOwnerTableProps {
   lotOwners: LotOwner[];
@@ -58,6 +58,18 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
         cmp = (a.unit_entitlement ?? 0) - (b.unit_entitlement ?? 0);
       } else if (sortState.column === "financial_position") {
         cmp = compareFinancialPosition(a.financial_position, b.financial_position);
+      } else if (sortState.column === "email") {
+        const emailA = (a.emails ?? [])[0] ?? "";
+        const emailB = (b.emails ?? [])[0] ?? "";
+        cmp = emailA.localeCompare(emailB);
+      } else if (sortState.column === "proxy") {
+        // Sort by whether proxy exists (no proxy < has proxy), then by proxy email
+        const hasA = a.proxy_email != null ? 1 : 0;
+        const hasB = b.proxy_email != null ? 1 : 0;
+        cmp = hasA - hasB;
+        if (cmp === 0) {
+          cmp = (a.proxy_email ?? "").localeCompare(b.proxy_email ?? "");
+        }
       }
       return sortState.dir === "asc" ? cmp : -cmp;
     });
@@ -70,8 +82,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
       if (prev.column === col) {
         return { column: col, dir: prev.dir === "asc" ? "desc" : "asc" };
       }
-      // Default direction for new column
-      const newDir: SortDir = col === "unit_entitlement" ? "asc" : "asc";
+      const newDir: SortDir = "asc";
       return { column: col, dir: newDir };
     });
     setPage(1);
@@ -106,7 +117,12 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <th>Email</th>
+            <SortableColumnHeader
+              label="Email"
+              column="email"
+              currentSort={currentSort}
+              onSort={handleSort}
+            />
             <SortableColumnHeader
               label="Unit Entitlement"
               column="unit_entitlement"
@@ -119,7 +135,12 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <th>Proxy</th>
+            <SortableColumnHeader
+              label="Proxy"
+              column="proxy"
+              currentSort={currentSort}
+              onSort={handleSort}
+            />
             <th>Actions</th>
           </tr>
         </thead>

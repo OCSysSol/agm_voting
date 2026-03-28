@@ -60,13 +60,13 @@ describe("LotOwnerTable", () => {
     expect(onEdit).toHaveBeenCalledWith(lotOwners[0]);
   });
 
-  it("renders sortable table headers", () => {
+  it("renders sortable table headers for all columns", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByRole("button", { name: /Lot Number/ })).toBeInTheDocument();
-    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Email/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unit Entitlement/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Financial Position/ })).toBeInTheDocument();
-    expect(screen.getByText("Proxy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Proxy/ })).toBeInTheDocument();
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
@@ -99,12 +99,16 @@ describe("LotOwnerTable", () => {
     expect(th).toHaveAttribute("aria-sort", "ascending");
   });
 
-  it("Unit Entitlement and Financial Position show aria-sort='none' by default", () => {
+  it("other columns show aria-sort='none' by default", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     const ueBtn = screen.getByRole("button", { name: /Unit Entitlement/ });
     const fpBtn = screen.getByRole("button", { name: /Financial Position/ });
+    const emailBtn = screen.getByRole("button", { name: /Email/ });
+    const proxyBtn = screen.getByRole("button", { name: /Proxy/ });
     expect(ueBtn.closest("th")).toHaveAttribute("aria-sort", "none");
     expect(fpBtn.closest("th")).toHaveAttribute("aria-sort", "none");
+    expect(emailBtn.closest("th")).toHaveAttribute("aria-sort", "none");
+    expect(proxyBtn.closest("th")).toHaveAttribute("aria-sort", "none");
   });
 
   it("default sort is Lot Number asc — 1A appears before 2B", () => {
@@ -201,6 +205,108 @@ describe("LotOwnerTable", () => {
     const rows = within(tbody).getAllByRole("row");
     // in_arrear (lo2: 2B) should be first
     expect(rows[0].textContent).toContain("2B");
+  });
+
+  // --- Sort: Email ---
+
+  it("clicking Email sorts by first email ascending (case-insensitive)", async () => {
+    const user = userEvent.setup();
+    // Provide reversed order to confirm sorting actually works
+    const emailSortLots: LotOwner[] = [
+      { ...lotOwners[1], emails: ["zz@example.com"] }, // 'zz' would sort after 'aa'
+      { ...lotOwners[0], emails: ["aa@example.com"] },
+    ];
+    render(<LotOwnerTable lotOwners={emailSortLots} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Email/ });
+    await user.click(btn);
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows[0].textContent).toContain("aa@example.com");
+    expect(rows[1].textContent).toContain("zz@example.com");
+  });
+
+  it("clicking Email twice sorts by email descending", async () => {
+    const user = userEvent.setup();
+    const emailSortLots: LotOwner[] = [
+      { ...lotOwners[0], emails: ["aa@example.com"] },
+      { ...lotOwners[1], emails: ["zz@example.com"] },
+    ];
+    render(<LotOwnerTable lotOwners={emailSortLots} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Email/ });
+    await user.click(btn); // asc
+    await user.click(btn); // desc
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "descending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows[0].textContent).toContain("zz@example.com");
+    expect(rows[1].textContent).toContain("aa@example.com");
+  });
+
+  it("lot owner with no emails sorts to front when email sort is ascending (empty string < any email)", async () => {
+    const user = userEvent.setup();
+    const noEmailLot: LotOwner = {
+      id: "lo3",
+      building_id: "b1",
+      lot_number: "3C",
+      emails: [],
+      unit_entitlement: 50,
+      financial_position: "normal",
+      proxy_email: null,
+    };
+    render(<LotOwnerTable lotOwners={[lotOwners[0], noEmailLot]} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Email/ });
+    await user.click(btn); // asc
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    // Empty email sorts first when ascending
+    expect(rows[0].textContent).toContain("3C");
+    expect(rows[1].textContent).toContain("1A");
+  });
+
+  // --- Sort: Proxy ---
+
+  it("clicking Proxy sorts lots without proxy first (ascending: no proxy < has proxy)", async () => {
+    const user = userEvent.setup();
+    render(<LotOwnerTable lotOwners={[lotOwners[1], lotOwners[0]]} onEdit={() => {}} />);
+    // lotOwners[1] has proxy, lotOwners[0] does not
+    const btn = screen.getByRole("button", { name: /Proxy/ });
+    await user.click(btn); // asc
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    // No-proxy lot (1A) should be first
+    expect(rows[0].textContent).toContain("1A");
+    expect(rows[1].textContent).toContain("2B");
+  });
+
+  it("clicking Proxy twice puts lots with proxy first (descending)", async () => {
+    const user = userEvent.setup();
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Proxy/ });
+    await user.click(btn); // asc
+    await user.click(btn); // desc
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "descending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    // Has-proxy lot (2B) should be first in descending
+    expect(rows[0].textContent).toContain("2B");
+    expect(rows[1].textContent).toContain("1A");
+  });
+
+  it("proxy sort breaks ties by proxy email value", async () => {
+    const user = userEvent.setup();
+    const twoProxyLots: LotOwner[] = [
+      { ...lotOwners[0], proxy_email: "zebra@proxy.com" },
+      { ...lotOwners[1], proxy_email: "apple@proxy.com" },
+    ];
+    render(<LotOwnerTable lotOwners={twoProxyLots} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Proxy/ });
+    await user.click(btn); // asc — both have proxies, so sort by email value
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows[0].textContent).toContain("apple@proxy.com");
+    expect(rows[1].textContent).toContain("zebra@proxy.com");
   });
 
   // --- Sort resets page to 1 ---

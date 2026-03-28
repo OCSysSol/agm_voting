@@ -5600,7 +5600,7 @@ class TestListGeneralMeetingsSort:
 
     async def test_invalid_sort_by_returns_422(self, client: AsyncClient):
         """An unrecognised sort_by value must be rejected with 422."""
-        response = await client.get("/api/admin/general-meetings?sort_by=status")
+        response = await client.get("/api/admin/general-meetings?sort_by=invalid_column")
         assert response.status_code == 422
         assert "Invalid sort_by value" in response.json()["detail"]
 
@@ -5631,3 +5631,69 @@ class TestListGeneralMeetingsSort:
         """sort_dir without sort_by uses the default column (created_at)."""
         response = await client.get("/api/admin/general-meetings?sort_dir=asc")
         assert response.status_code == 200
+
+    # --- New columns: meeting_at, voting_closes_at, status ---
+
+    async def test_sort_by_meeting_at_asc_returns_oldest_meeting_first(
+        self, client: AsyncClient, db_session: AsyncSession, building
+    ):
+        """Meetings sorted by meeting_at ascending should be oldest meeting first."""
+        # Use different buildings so the "one open AGM per building" constraint isn't hit
+        b1_resp = await client.post("/api/admin/buildings", json={"name": "SortMeetingAtB1", "manager_email": "b1@test.com"})
+        b1_id = b1_resp.json()["id"]
+        b2_resp = await client.post("/api/admin/buildings", json={"name": "SortMeetingAtB2", "manager_email": "b2@test.com"})
+        b2_id = b2_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b1_id, "SortMeetingAt Later"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b2_id, "SortMeetingAt Earlier"))
+        response = await client.get("/api/admin/general-meetings?sort_by=meeting_at&sort_dir=asc")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
+        meeting_ats = [m["meeting_at"] for m in data]
+        assert meeting_ats == sorted(meeting_ats)
+
+    async def test_sort_by_voting_closes_at_asc_returns_earliest_close_first(
+        self, client: AsyncClient, db_session: AsyncSession, building
+    ):
+        """Meetings sorted by voting_closes_at ascending should be earliest close first."""
+        b1_resp = await client.post("/api/admin/buildings", json={"name": "SortVotingCloseB1", "manager_email": "vc1@test.com"})
+        b1_id = b1_resp.json()["id"]
+        b2_resp = await client.post("/api/admin/buildings", json={"name": "SortVotingCloseB2", "manager_email": "vc2@test.com"})
+        b2_id = b2_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b1_id, "SortVotingClose A"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b2_id, "SortVotingClose B"))
+        response = await client.get("/api/admin/general-meetings?sort_by=voting_closes_at&sort_dir=asc")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
+        closes = [m["voting_closes_at"] for m in data]
+        assert closes == sorted(closes)
+
+    async def test_sort_by_status_asc_is_accepted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """sort_by=status should be accepted (status is now a valid sort column)."""
+        response = await client.get("/api/admin/general-meetings?sort_by=status&sort_dir=asc")
+        assert response.status_code == 200
+
+    # --- Case-insensitive title sort ---
+
+    async def test_sort_by_title_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Title sort is case-insensitive: 'zebra' and 'Apple' and 'MANGO' sort alphabetically."""
+        b1_resp = await client.post("/api/admin/buildings", json={"name": "SortTitleCaseB1", "manager_email": "tc1@test.com"})
+        b1_id = b1_resp.json()["id"]
+        b2_resp = await client.post("/api/admin/buildings", json={"name": "SortTitleCaseB2", "manager_email": "tc2@test.com"})
+        b2_id = b2_resp.json()["id"]
+        b3_resp = await client.post("/api/admin/buildings", json={"name": "SortTitleCaseB3", "manager_email": "tc3@test.com"})
+        b3_id = b3_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b1_id, "zebra meeting"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b2_id, "Apple Meeting"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b3_id, "MANGO Meeting"))
+        response = await client.get("/api/admin/general-meetings?sort_by=title&sort_dir=asc")
+        assert response.status_code == 200
+        titles = [m["title"].lower() for m in response.json()]
+        # Lower-cased titles that include our test data should appear in order apple < mango < zebra
+        test_titles = [t for t in titles if any(kw in t for kw in ("apple", "mango", "zebra"))]
+        assert test_titles == sorted(test_titles)

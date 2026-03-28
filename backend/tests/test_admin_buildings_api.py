@@ -1571,3 +1571,84 @@ class TestListBuildingsSort:
         response = await client.get(f"/api/admin/buildings?sort_by=name&sort_dir=asc&name={unique_prefix}")
         assert response.status_code == 200
         assert len(response.json()) == 1
+
+    # --- New column: manager_email ---
+
+    async def test_sort_by_manager_email_asc_returns_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by manager_email ascending should be in A→Z email order."""
+        unique = "SortEmailTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Z Building", "manager_email": "zzz@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A Building", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"] for b in response.json()]
+        assert emails == sorted(emails)
+
+    async def test_sort_by_manager_email_desc_returns_reverse_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by manager_email descending should be in Z→A email order."""
+        unique = "SortEmailDescTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Z Building", "manager_email": "zzz@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A Building", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=desc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"] for b in response.json()]
+        assert emails == sorted(emails, reverse=True)
+
+    # --- Case-insensitive sorting ---
+
+    async def test_sort_by_name_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Case-insensitive name sort: 'alpha' and 'Alpha' and 'ALPHA' sort together."""
+        unique = "SortCaseTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} zebra tower", "manager_email": "z@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Apple Court", "manager_email": "a@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} MANGO House", "manager_email": "m@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=name&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        names = [b["name"].lower().split(unique.lower())[-1].strip() for b in response.json()]
+        # Lowercased suffixes should be in alphabetical order: apple, mango, zebra
+        assert names == sorted(names)
+
+    async def test_sort_by_manager_email_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Case-insensitive manager_email sort: 'AAA' sorts together with 'aaa'."""
+        unique = "SortEmailCase"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} B", "manager_email": "ZZZ@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"].lower() for b in response.json()]
+        assert emails == sorted(emails)

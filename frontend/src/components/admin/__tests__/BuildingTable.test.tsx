@@ -70,11 +70,15 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings });
     expect(screen.getByText("Name")).toBeInTheDocument();
     expect(screen.getByText("Manager Email")).toBeInTheDocument();
-    expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created At")).toBeInTheDocument();
   });
 
-  it("shows Archived badge for archived buildings", () => {
+  it("does not render a Status column", () => {
+    renderBuildingTable({ buildings });
+    expect(screen.queryByText("Status")).not.toBeInTheDocument();
+  });
+
+  it("archived buildings are rendered with reduced opacity but no Archived badge", () => {
     const archivedBuildings: Building[] = [
       {
         id: "b3",
@@ -85,7 +89,10 @@ describe("BuildingTable", () => {
       },
     ];
     renderBuildingTable({ buildings: archivedBuildings });
-    expect(screen.getByText("Archived")).toBeInTheDocument();
+    // Building row should be rendered (name visible)
+    expect(screen.getByText("Old Tower")).toBeInTheDocument();
+    // No Archived badge — that information is conveyed by the page-level toggle
+    expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 
   it("does not show Archived badge for active buildings", () => {
@@ -95,10 +102,11 @@ describe("BuildingTable", () => {
 
   // --- Sort props ---
 
-  it("renders sortable Name header when onSort is provided", () => {
+  it("renders sortable Name, Manager Email and Created At headers when onSort is provided", () => {
     const onSort = vi.fn();
     renderBuildingTable({ buildings, sortBy: "created_at", sortDir: "desc", onSort });
     expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Manager Email/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Created At/ })).toBeInTheDocument();
   });
 
@@ -108,6 +116,14 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings, sortBy: "created_at", sortDir: "desc", onSort });
     await user.click(screen.getByRole("button", { name: /Name/ }));
     expect(onSort).toHaveBeenCalledWith("name");
+  });
+
+  it("calls onSort with 'manager_email' when Manager Email header button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderBuildingTable({ buildings, sortBy: "name", sortDir: "asc", onSort });
+    await user.click(screen.getByRole("button", { name: /Manager Email/ }));
+    expect(onSort).toHaveBeenCalledWith("manager_email");
   });
 
   it("calls onSort with 'created_at' when Created At header button is clicked", async () => {
@@ -123,6 +139,13 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings, sortBy: "name", sortDir: "asc", onSort });
     const nameBtn = screen.getByRole("button", { name: /Name/ });
     expect(nameBtn.textContent).toContain("▲");
+  });
+
+  it("shows ▼ on active manager_email column when sortDir is desc", () => {
+    const onSort = vi.fn();
+    renderBuildingTable({ buildings, sortBy: "manager_email", sortDir: "desc", onSort });
+    const emailBtn = screen.getByRole("button", { name: /Manager Email/ });
+    expect(emailBtn.textContent).toContain("▼");
   });
 
   it("shows ▼ on active created_at column when sortDir is desc", () => {
@@ -159,6 +182,7 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings });
     // Should NOT have sort buttons
     expect(screen.queryByRole("button", { name: /Name/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Manager Email/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Created At/ })).not.toBeInTheDocument();
   });
 

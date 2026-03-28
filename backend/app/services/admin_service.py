@@ -242,17 +242,22 @@ async def create_building(name: str, manager_email: str, db: AsyncSession) -> Bu
     return building
 
 
+_BUILDINGS_TEXT_SORT_COLUMNS = {"name", "manager_email"}
 _BUILDINGS_SORT_COLUMNS = {
     "name": Building.name,
+    "manager_email": Building.manager_email,
     "created_at": Building.created_at,
 }
 
 
 def _buildings_order_clause(sort_by: str | None, sort_dir: str | None):
-    col = _BUILDINGS_SORT_COLUMNS.get(sort_by or "created_at", Building.created_at)
+    key = sort_by or "created_at"
+    col = _BUILDINGS_SORT_COLUMNS.get(key, Building.created_at)
+    # Use func.lower() for text columns to make sorting case-insensitive
+    effective_col = func.lower(col) if key in _BUILDINGS_TEXT_SORT_COLUMNS else col
     if (sort_dir or "desc") == "asc":
-        return col.asc()
-    return col.desc()
+        return effective_col.asc()
+    return effective_col.desc()
 
 
 async def list_buildings(
@@ -1112,17 +1117,24 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     }
 
 
+_MEETINGS_TEXT_SORT_COLUMNS = {"title"}
 _MEETINGS_SORT_COLUMNS = {
     "title": GeneralMeeting.title,
     "created_at": GeneralMeeting.created_at,
+    "meeting_at": GeneralMeeting.meeting_at,
+    "voting_closes_at": GeneralMeeting.voting_closes_at,
+    "status": GeneralMeeting.status,
 }
 
 
 def _meetings_order_clause(sort_by: str | None, sort_dir: str | None):
-    col = _MEETINGS_SORT_COLUMNS.get(sort_by or "created_at", GeneralMeeting.created_at)
+    key = sort_by or "created_at"
+    col = _MEETINGS_SORT_COLUMNS.get(key, GeneralMeeting.created_at)
+    # Use func.lower() for text columns to make sorting case-insensitive
+    effective_col = func.lower(col) if key in _MEETINGS_TEXT_SORT_COLUMNS else col
     if (sort_dir or "desc") == "asc":
-        return col.asc()
-    return col.desc()
+        return effective_col.asc()
+    return effective_col.desc()
 
 
 async def list_general_meetings(

@@ -55,9 +55,36 @@ export default function GeneralMeetingTable({ meetings, isLoading, sortBy, sortD
             ) : (
               <th>Title</th>
             )}
-            <th>Status</th>
-            <th>Meeting At</th>
-            <th>Voting Closes At</th>
+            {onSort ? (
+              <SortableColumnHeader
+                label="Status"
+                column="status"
+                currentSort={currentSort}
+                onSort={onSort}
+              />
+            ) : (
+              <th>Status</th>
+            )}
+            {onSort ? (
+              <SortableColumnHeader
+                label="Meeting At"
+                column="meeting_at"
+                currentSort={currentSort}
+                onSort={onSort}
+              />
+            ) : (
+              <th>Meeting At</th>
+            )}
+            {onSort ? (
+              <SortableColumnHeader
+                label="Voting Closes At"
+                column="voting_closes_at"
+                currentSort={currentSort}
+                onSort={onSort}
+              />
+            ) : (
+              <th>Voting Closes At</th>
+            )}
             {onSort ? (
               <SortableColumnHeader
                 label="Created At"
