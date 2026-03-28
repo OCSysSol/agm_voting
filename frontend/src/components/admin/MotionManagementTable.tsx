@@ -155,9 +155,13 @@ function SortableRow({
       <td className={mutedCell}>
         <span
           className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
-          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
+          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : motion.motion_type === "multi_choice" ? "Multi-Choice" : "General"}`}
         >
-          {motion.motion_type === "special" ? "Special" : "General"}
+          {motion.motion_type === "special"
+            ? "Special"
+            : motion.motion_type === "multi_choice"
+            ? `Multi-Choice${motion.options && motion.options.length > 0 ? ` (${motion.options.length} options)` : ""}`
+            : "General"}
         </span>
       </td>
       <td>
@@ -269,7 +273,9 @@ export default function MotionManagementTable({
         m.title !== localOrder[i]?.title ||
         m.description !== localOrder[i]?.description ||
         m.motion_type !== localOrder[i]?.motion_type ||
-        m.motion_number !== localOrder[i]?.motion_number
+        m.motion_number !== localOrder[i]?.motion_number ||
+        m.option_limit !== localOrder[i]?.option_limit ||
+        JSON.stringify(m.options) !== JSON.stringify(localOrder[i]?.options)
     )
   ) {
     setLocalOrder(motions);

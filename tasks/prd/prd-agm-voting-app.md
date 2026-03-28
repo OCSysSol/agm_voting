@@ -566,6 +566,8 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-15: The server exposes the current server UTC time via an API endpoint. The voting page fetches this on load, computes the offset from client time, and uses the corrected time for the countdown timer and 5-minute warning to eliminate client clock skew.
 - FR-16: Each motion has a `motion_number` (VARCHAR). When explicitly provided by the admin, it is a free-text display label (e.g. "5", "5a", "Special Resolution 1"). When omitted on creation or add-motion, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3"), ensuring every motion always has a non-null number. Whitespace-only input is treated as blank and stored as `NULL`. `motion_number` is unique per AGM (partial unique index `WHERE motion_number IS NOT NULL`) — a duplicate non-null value returns 409. `motion_number` has no effect on display order; reordering motions never modifies `motion_number`. On the voter-facing voting page, every motion card always renders `"MOTION {motion_number}"` as its label. On the confirmation/SubmitDialog, the same `"MOTION {motion_number}"` label is used. A NULL `motion_number` (legacy motions predating the auto-assign feature) causes the UI to fall back to a positional label based on `display_order`.
 - FR-17: Motions have a `display_order` (INTEGER, 1-based, unique per meeting) that determines the sequence in which they are rendered on the voting page, public summary, and admin detail pages. The admin can reorder motions via `PUT /api/admin/general-meetings/{id}/motions/reorder` which accepts the complete ordered list of motion IDs and atomically renormalises `display_order` values to 1, 2, 3, ... Reordering is only permitted on open or pending meetings. Changing `display_order` never modifies `motion_number`, and changing `motion_number` never modifies `display_order`.
+- FR-18: A third motion type — `multi_choice` — is supported alongside `general` and `special`. A multi-choice motion has a list of options (`motion_options` table) and an `option_limit` (integer, 1 to N options). The voter selects 0 to `option_limit` options; each selected option receives the voter's full UOE (not split). Selecting zero options is recorded as `abstained`. In-arrear lots are recorded as `not_eligible` for multi-choice motions (same rule as `general`). The `votes` table stores one row per selected option per lot per motion with `choice = "selected"` and `motion_option_id` set; a single row with `choice = "abstained"` or `not_eligible"` covers the unselected cases.
+- FR-19: Multi-choice motion tally is computed per option: for each option, the `voter_count` is the number of lots that selected it and `entitlement_sum` is the sum of their snapshotted UOE. A lot may appear in multiple option tallies. The `yes` and `no` tally categories are not applicable to multi-choice motions (returned as zero). `abstained` and `absent` tallies continue to apply and are computed as for other motion types. The results report and CSV export include per-option rows for multi-choice motions.
 
 ---
 
@@ -854,6 +856,101 @@ No backend or database changes are required. The `order_index` field remains 0-b
 - [ ] The seed row is only inserted if the table is empty (idempotent — re-running the migration does not duplicate the row)
 - [ ] `GET /api/config` returns the seed values on a fresh deployment before any admin has edited settings
 - [ ] All tests pass at 100% coverage
+
+---
+
+### US-MC-01: Admin creates a multi-choice motion
+
+**Description:** As a meeting host, I want to create a motion where voters select from a list of custom options (e.g., candidates, proposals) so I can run elections or preference votes within the AGM ballot.
+
+**Acceptance Criteria:**
+
+- [ ] The motion type selector in the Add Motion modal and the AGM creation form includes a "Multi-Choice" option
+- [ ] When "Multi-Choice" is selected, the form shows: an "Option limit" number input (label: "Max selections per voter", min 1, required) and a dynamic list of option text inputs with add/remove buttons
+- [ ] At least 2 options are required; attempting to save with fewer shows an inline error: "At least 2 options are required"
+- [ ] Option limit must be between 1 and the number of options inclusive; saving with limit > option count shows: "Option limit cannot exceed the number of options"
+- [ ] Each option text must be non-empty (max 200 characters); blank option text blocks save with an inline error
+- [ ] Options have an explicit display order; the form provides simple up/down buttons to reorder options within the modal
+- [ ] Saved multi-choice motions appear in the motion management table with a "Multi-Choice (N options)" badge
+- [ ] `POST /api/admin/general-meetings` and `POST /api/admin/general-meetings/{id}/motions` accept `option_limit` and `options` when `motion_type = "multi_choice"`; missing or invalid fields return 422
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-02: Admin edits a multi-choice motion
+
+**Description:** As a meeting host, I want to update the options and option limit of a hidden multi-choice motion so I can correct mistakes before making it visible.
+
+**Acceptance Criteria:**
+
+- [ ] The Edit Motion modal for a hidden multi-choice motion shows the current option list and option limit, fully editable
+- [ ] Admin can add, remove, rename, and reorder options; changes are reflected immediately in the modal UI
+- [ ] Saving a multi-choice motion with fewer than 2 options or an out-of-range option limit is blocked with inline errors (same rules as creation)
+- [ ] `PATCH /api/admin/motions/{id}` accepts `options` (replaces all existing options atomically) and `option_limit`; returns 422 on invalid input
+- [ ] Changing `motion_type` away from `multi_choice` during edit deletes all options and clears `option_limit`
+- [ ] A visible multi-choice motion cannot be edited (must be hidden first — existing rule unchanged)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-03: Voter votes on a multi-choice motion
+
+**Description:** As a lot owner, I want to select from a list of options on a multi-choice motion so I can participate in elections or preference votes within my AGM ballot.
+
+**Acceptance Criteria:**
+
+- [ ] Multi-choice motions render a checkbox list instead of For/Against/Abstain buttons on the voting page
+- [ ] A counter shows "Select up to N option(s) — X selected" and updates in real time as the voter checks/unchecks options
+- [ ] Once the option limit is reached, unchecked checkboxes become disabled; checked boxes remain interactive (can be unchecked)
+- [ ] Unchecking a box re-enables other boxes when the selection drops below the limit
+- [ ] Selecting zero options on a multi-choice motion counts as "answered" for progress bar purposes (will be recorded as Abstained on submit)
+- [ ] Multi-choice motions are included in the unanswered-motions list in the submit confirmation dialog when the voter has not interacted with them at all (same as binary motions left blank)
+- [ ] On submission, each selected option is sent as `multi_choice_votes: [{motion_id, option_ids: [...]}]` in the ballot request body
+- [ ] Backend records one `Vote` row per selected option (`choice = "selected"`, `motion_option_id = option.id`); a voter who selects zero options receives a single `Vote` row with `choice = "abstained"`
+- [ ] An in-arrear lot's multi-choice motion is recorded as `not_eligible` (same rule as General motions); the checkboxes are rendered disabled with a "Not eligible" indicator
+- [ ] Backend enforces option limit: selecting more options than `option_limit` returns 422; invalid option IDs return 400
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-04: Voter confirmation screen shows multi-choice selections
+
+**Description:** As a lot owner, I want the confirmation screen to show which options I selected for multi-choice motions so I have an accurate record of my ballot.
+
+**Acceptance Criteria:**
+
+- [ ] The confirmation screen lists each multi-choice motion with the text of each selected option (e.g., "Candidate A, Candidate C")
+- [ ] If the voter abstained (selected zero options), the screen shows "Abstained" for that motion
+- [ ] If the lot is in arrear for a multi-choice motion, the screen shows "Not eligible"
+- [ ] `GET /api/general-meeting/{id}/my-ballot` returns `BallotVoteItem` with `motion_type = "multi_choice"` and `selected_options: [{id, text, display_order}]` populated from the voter's submitted `Vote` rows
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-05: Admin views multi-choice motion results
+
+**Description:** As a meeting host, I want to see per-option vote tallies for multi-choice motions in the results report so I can determine the outcome of elections and preference votes.
+
+**Acceptance Criteria:**
+
+- [ ] The admin AGM detail page results section shows a per-option breakdown for multi-choice motions instead of yes/no/abstained rows
+- [ ] Each option row shows: option text, voter count (number of lots that selected it), total UOE sum, and percentage of total building UOE
+- [ ] A voter can appear in multiple option rows (their UOE counts for each option they selected)
+- [ ] Abstained (zero selections submitted) and Absent (never submitted) rows still appear below the option list
+- [ ] Not-eligible rows appear for in-arrear lots
+- [ ] `GET /api/admin/general-meetings/{id}` returns `tally.options: [{option_id, option_text, display_order, voter_count, entitlement_sum}]` for multi-choice motions; `tally.yes` and `tally.no` are zero for multi-choice motions
+- [ ] The CSV export includes one row per option per voter: `Motion, Option: {option_text}, Lot Number, Entitlement`
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
 
 ---
 

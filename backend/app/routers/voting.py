@@ -19,13 +19,15 @@ from app.models.general_meeting import GeneralMeeting
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
-from app.models.motion import Motion
+from app.models.motion import Motion, MotionType
+from app.models.motion_option import MotionOption
 from app.models.session_record import SessionRecord
 from app.models.vote import Vote, VoteChoice, VoteStatus
 from app.schemas.voting import (
     DraftSaveRequest,
     DraftSaveResponse,
     DraftsResponse,
+    MultiChoiceVoteItem,
     MotionOut,
     MyBallotResponse,
     SubmitResponse,
@@ -49,6 +51,7 @@ class VoteInlineItem(BaseModel):
 class SubmitBallotRequest(BaseModel):
     lot_owner_ids: list[uuid.UUID]
     votes: list[VoteInlineItem] = []
+    multi_choice_votes: list[MultiChoiceVoteItem] = []
 
 
 @router.get("/general-meeting/{general_meeting_id}/motions", response_model=list[MotionOut])
@@ -104,7 +107,9 @@ async def list_motions(
             Vote.status == VoteStatus.submitted,
         )
     )
-    # Build a dict preferring a non-not_eligible choice when multiple lots vote on the same motion
+    # Build a dict preferring a non-not_eligible choice when multiple lots vote on the same motion.
+    # For multi-choice motions, use VoteChoice.selected as the submitted_choice sentinel
+    # (indicates "you voted" without implying a specific binary choice).
     voted_choice_by_motion: dict[uuid.UUID, VoteChoice] = {}
     for motion_id, choice in voted_result.all():
         existing = voted_choice_by_motion.get(motion_id)
@@ -124,7 +129,20 @@ async def list_motions(
         )
         .order_by(Motion.display_order)
     )
-    motions = result.scalars().all()
+    motions = list(result.scalars().all())
+
+    # Load options for multi-choice motions
+    mc_motion_ids = [m.id for m in motions if m.motion_type == MotionType.multi_choice]
+    options_by_motion: dict[uuid.UUID, list] = {}
+    if mc_motion_ids:
+        opts_result = await db.execute(
+            select(MotionOption)
+            .where(MotionOption.motion_id.in_(mc_motion_ids))
+            .order_by(MotionOption.display_order)
+        )
+        for opt in opts_result.scalars().all():
+            options_by_motion.setdefault(opt.motion_id, []).append(opt)
+
     return [
         MotionOut(
             id=m.id,
@@ -136,6 +154,11 @@ async def list_motions(
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,
             submitted_choice=voted_choice_by_motion.get(m.id),
+            option_limit=m.option_limit,
+            options=[
+                {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+                for opt in options_by_motion.get(m.id, [])
+            ],
         )
         for m in motions
     ]
@@ -276,6 +299,7 @@ async def submit_ballot_endpoint(
         voter_email=session.voter_email,
         lot_owner_ids=body.lot_owner_ids,
         inline_votes={item.motion_id: item.choice for item in body.votes},
+        multi_choice_votes={item.motion_id: item.option_ids for item in body.multi_choice_votes},
     )
     await db.commit()
     return result

@@ -8,7 +8,17 @@ const CHOICE_LABELS: Record<string, string> = {
   no: "Against",
   abstained: "Abstained",
   not_eligible: "Not eligible",
+  selected: "Selected",
 };
+
+function renderChoiceLabel(vote: { choice: string; motion_type?: string; selected_options?: Array<{ text: string }> }): string {
+  if (vote.motion_type === "multi_choice") {
+    if (vote.choice === "not_eligible") return "Not eligible";
+    if (vote.choice === "abstained" || !vote.selected_options || vote.selected_options.length === 0) return "Abstained";
+    return vote.selected_options.map((o) => o.text).join(", ");
+  }
+  return CHOICE_LABELS[vote.choice] ?? vote.choice;
+}
 
 export function ConfirmationPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -54,7 +64,7 @@ export function ConfirmationPage() {
   }
 
   // Collect all votes across submitted lots, deduplicated by motion_id (first lot wins)
-  const allVotes: { motion_id: string; motion_title: string; display_order: number; motion_number: string | null; choice: string; lot_number: string }[] = [];
+  const allVotes: { motion_id: string; motion_title: string; display_order: number; motion_number: string | null; choice: string; lot_number: string; motion_type?: string; selected_options?: Array<{ text: string }> }[] = [];
   for (const lot of data.submitted_lots) {
     for (const v of lot.votes) {
       if (!allVotes.find((x) => x.motion_id === v.motion_id && x.lot_number === lot.lot_number)) {
@@ -103,7 +113,7 @@ export function ConfirmationPage() {
                         <li className="vote-item" key={v.motion_id}>
                           <span className="vote-item__motion">Motion {v.motion_number?.trim() || v.display_order}. {v.motion_title}</span>
                           <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
-                            {CHOICE_LABELS[v.choice] ?? v.choice}
+                            {renderChoiceLabel(v)}
                           </span>
                         </li>
                       ))}
@@ -114,7 +124,7 @@ export function ConfirmationPage() {
                   <li className="vote-item" key={v.motion_id}>
                     <span className="vote-item__motion">Motion {v.motion_number?.trim() || v.display_order}. {v.motion_title}</span>
                     <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
-                      {CHOICE_LABELS[v.choice] ?? v.choice}
+                      {renderChoiceLabel(v)}
                     </span>
                   </li>
                 ))}

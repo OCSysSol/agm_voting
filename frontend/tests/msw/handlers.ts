@@ -138,12 +138,15 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       motion_number: null,
       motion_type: "general" as const,
       is_visible: true,
+      option_limit: null,
+      options: [],
       tally: {
         yes: { voter_count: 2, entitlement_sum: 200 },
         no: { voter_count: 1, entitlement_sum: 100 },
         abstained: { voter_count: 0, entitlement_sum: 0 },
         absent: { voter_count: 2, entitlement_sum: 150 },
         not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
       },
       voter_lists: {
         yes: [
@@ -157,6 +160,7 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
           { voter_email: "voter5@example.com", entitlement: 50 },
         ],
         not_eligible: [],
+        options: {},
       },
     },
   ],
@@ -195,14 +199,17 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
       motion_number: "M-42",
       motion_type: "general" as const,
       is_visible: false,
+      option_limit: null,
+      options: [],
       tally: {
         yes: { voter_count: 0, entitlement_sum: 0 },
         no: { voter_count: 0, entitlement_sum: 0 },
         abstained: { voter_count: 0, entitlement_sum: 0 },
         absent: { voter_count: 0, entitlement_sum: 0 },
         not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
       },
-      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [], options: {} },
     },
   ],
 };
@@ -820,6 +827,8 @@ export const agmClosedFixture = {
   voting_closes_at: "2023-06-01T12:00:00Z",
 };
 
+export const MOTION_ID_MC = "motion-mc-001";
+
 export const motionFixtures = [
   {
     id: MOTION_ID_1,
@@ -831,6 +840,8 @@ export const motionFixtures = [
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
+    option_limit: null,
+    options: [],
   },
   {
     id: MOTION_ID_2,
@@ -842,8 +853,28 @@ export const motionFixtures = [
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
+    option_limit: null,
+    options: [],
   },
 ];
+
+export const mcMotionFixtureVoter = {
+  id: MOTION_ID_MC,
+  title: "Board Election",
+  description: "Vote for board members",
+  display_order: 3,
+  motion_number: null,
+  motion_type: "multi_choice" as const,
+  is_visible: true,
+  already_voted: false,
+  submitted_choice: null,
+  option_limit: 2,
+  options: [
+    { id: "opt-alice", text: "Alice", display_order: 1 },
+    { id: "opt-bob", text: "Bob", display_order: 2 },
+    { id: "opt-carol", text: "Carol", display_order: 3 },
+  ],
+};
 
 export const myBallotFixture = {
   voter_email: "owner@example.com",

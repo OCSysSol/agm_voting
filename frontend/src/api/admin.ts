@@ -26,6 +26,17 @@ export interface FinancialPositionImportResult {
   skipped: number;
 }
 
+export interface MotionOptionCreate {
+  text: string;
+  display_order: number;
+}
+
+export interface MotionOptionOut {
+  id: string;
+  text: string;
+  display_order: number;
+}
+
 export interface MotionOut {
   id: string;
   title: string;
@@ -34,6 +45,8 @@ export interface MotionOut {
   motion_number: string | null;
   motion_type: MotionType;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
 }
 
 export interface GeneralMeetingOut {
@@ -69,12 +82,21 @@ export interface TallyCategory {
   entitlement_sum: number;
 }
 
+export interface OptionTallyEntry {
+  option_id: string;
+  option_text: string;
+  display_order: number;
+  voter_count: number;
+  entitlement_sum: number;
+}
+
 export interface MotionTally {
   yes: TallyCategory;
   no: TallyCategory;
   abstained: TallyCategory;
   absent: TallyCategory;
   not_eligible: TallyCategory;
+  options: OptionTallyEntry[];
 }
 
 export interface MotionVoterLists {
@@ -83,6 +105,7 @@ export interface MotionVoterLists {
   abstained: VoterEntry[];
   absent: VoterEntry[];
   not_eligible: VoterEntry[];
+  options: Record<string, VoterEntry[]>;
 }
 
 export interface MotionDetail {
@@ -93,6 +116,8 @@ export interface MotionDetail {
   motion_number: string | null;
   motion_type: MotionType;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
   tally: MotionTally;
   voter_lists: MotionVoterLists;
 }
@@ -195,6 +220,8 @@ export interface MotionCreateRequest {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export interface GeneralMeetingCreateRequest {
@@ -507,6 +534,8 @@ export interface MotionVisibilityOut {
   motion_number: string | null;
   motion_type: MotionType;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
 }
 
 export interface AddMotionRequest {
@@ -514,6 +543,8 @@ export interface AddMotionRequest {
   description: string | null;
   motion_type: MotionType;
   motion_number?: string | null;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export interface UpdateMotionRequest {
@@ -521,6 +552,8 @@ export interface UpdateMotionRequest {
   description?: string | null;
   motion_type?: MotionType;
   motion_number?: string | null;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export async function addMotionToMeeting(

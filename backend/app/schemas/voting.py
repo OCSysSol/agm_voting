@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.models.motion import MotionType
 from app.models.vote import VoteChoice
+from app.schemas.admin import MotionOptionOut
 
 
 class MotionOut(BaseModel):
@@ -17,6 +18,8 @@ class MotionOut(BaseModel):
     is_visible: bool = True
     already_voted: bool = False
     submitted_choice: Optional[VoteChoice] = None
+    option_limit: Optional[int] = None
+    options: list[MotionOptionOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -60,6 +63,11 @@ class SubmitResponse(BaseModel):
     lots: list[LotBallotResult]
 
 
+class MultiChoiceVoteItem(BaseModel):
+    motion_id: uuid.UUID
+    option_ids: list[uuid.UUID] = []  # empty = abstain
+
+
 class BallotVoteItem(BaseModel):
     motion_id: uuid.UUID
     motion_title: str
@@ -67,6 +75,8 @@ class BallotVoteItem(BaseModel):
     motion_number: Optional[str] = None
     choice: VoteChoice
     eligible: bool = True
+    motion_type: MotionType = MotionType.general
+    selected_options: list[MotionOptionOut] = []
 
 
 class LotBallotSummary(BaseModel):
