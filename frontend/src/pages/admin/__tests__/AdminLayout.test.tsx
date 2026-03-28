@@ -59,6 +59,14 @@ describe("AdminLayout", () => {
     expect(screen.getAllByRole("button", { name: "Sign out" }).length).toBeGreaterThan(0);
   });
 
+  it("all Sign out buttons have explicit rgba white colour (not inherit)", () => {
+    renderLayout();
+    const signOutButtons = screen.getAllByRole("button", { name: "Sign out" });
+    for (const btn of signOutButtons) {
+      expect(btn).toHaveStyle({ color: "rgba(255,255,255,.85)" });
+    }
+  });
+
   it("calls logout and navigates to login on Sign out click", async () => {
     const user = userEvent.setup();
     mockNavigate.mockClear();

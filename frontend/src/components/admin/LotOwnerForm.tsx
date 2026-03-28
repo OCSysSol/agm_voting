@@ -3,19 +3,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { addLotOwner, updateLotOwner, addEmailToLotOwner, removeEmailFromLotOwner, setLotOwnerProxy, removeLotOwnerProxy } from "../../api/admin";
 import type { LotOwner } from "../../types";
 import type { LotOwnerCreateRequest, LotOwnerUpdateRequest } from "../../api/admin";
+import { isValidEmail } from "../../utils/validation";
 
 interface LotOwnerFormProps {
   buildingId: string;
   editTarget: LotOwner | null;
   onSuccess: () => void;
   onCancel: () => void;
-}
-
-// ---------------------------------------------------------------------------
-// Simple email format validator
-// ---------------------------------------------------------------------------
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +470,10 @@ function AddForm({
       setFormError("Email is required.");
       return;
     }
+    if (!isValidEmail(email)) {
+      setFormError("Please enter a valid email address.");
+      return;
+    }
 
     addMutation.mutate({
       lot_number: lotNumber,
@@ -533,7 +531,7 @@ function AddForm({
             <input
               id="lot-email"
               className="field__input"
-              type="text"
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
