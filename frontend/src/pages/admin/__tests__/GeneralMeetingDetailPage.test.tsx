@@ -2091,7 +2091,7 @@ describe("Bulk motion visibility", () => {
 
   // --- Multi-choice motion Add modal ---
 
-  it("shows multi-choice fields when multi_choice type is selected in Add Motion modal", async () => {
+  it("shows multi-choice fields when multi-choice checkbox is checked in Add Motion modal", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -2101,9 +2101,9 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
-    // Select multi_choice type
-    const typeSelect = screen.getByLabelText("Motion Type");
-    await user.selectOptions(typeSelect, "multi_choice");
+    // Check the multi-choice checkbox
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
     // Multi-choice fields should appear
     expect(screen.getByLabelText("Max selections per voter")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 1")).toBeInTheDocument();
@@ -2120,8 +2120,9 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
-    const typeSelect = screen.getByLabelText("Motion Type");
-    await user.selectOptions(typeSelect, "multi_choice");
+    // Check the multi-choice checkbox
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
     // Add a third option
     await user.click(screen.getByRole("button", { name: "+ Add option" }));
     expect(screen.getByLabelText("Option 3")).toBeInTheDocument();
@@ -2131,7 +2132,7 @@ describe("Bulk motion visibility", () => {
     expect(screen.queryByLabelText("Option 3")).not.toBeInTheDocument();
   });
 
-  it("shows validation error when Add Motion submitted with multi_choice but empty options", async () => {
+  it("shows validation error when Add Motion submitted with multi-choice but empty options", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -2143,8 +2144,14 @@ describe("Bulk motion visibility", () => {
     });
     // Fill title
     await user.type(screen.getByLabelText("Title *"), "Board Election");
-    const typeSelect = screen.getByLabelText("Motion Type");
-    await user.selectOptions(typeSelect, "multi_choice");
+    // Check multi-choice checkbox (shows fields with empty options)
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    // Clear the pre-filled option inputs
+    const opt1 = screen.getByLabelText("Option 1");
+    const opt2 = screen.getByLabelText("Option 2");
+    await user.clear(opt1);
+    await user.clear(opt2);
     // Leave options empty and submit
     await user.click(screen.getByRole("button", { name: "Save Motion" }));
     // Error message: "Multi-choice motions require at least 2 options."
@@ -2153,7 +2160,7 @@ describe("Bulk motion visibility", () => {
 
   // --- Multi-choice motion Edit modal ---
 
-  it("shows multi-choice fields in Edit modal when motion_type is multi_choice", async () => {
+  it("shows multi-choice fields in Edit modal when multi-choice checkbox is checked", async () => {
     const user = userEvent.setup();
     // Use ADMIN_MEETING_DETAIL_HIDDEN_MOTION which has a hidden (editable) motion
     renderPage("agm-hidden-motion");
@@ -2168,15 +2175,235 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
 
-    // Select multi_choice type
-    const typeSelect = screen.getByLabelText("Motion Type");
-    await user.selectOptions(typeSelect, "multi_choice");
+    // Check the multi-choice checkbox
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
     expect(screen.getByLabelText("Max selections per voter")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 2")).toBeInTheDocument();
   });
 
-  it("shows validation error when Edit modal saved with multi_choice and option limit exceeding count", async () => {
+  it("can type in Add Motion option inputs when multi-choice is enabled", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    const opt1 = screen.getByLabelText("Option 1");
+    await user.type(opt1, "Alice");
+    expect(opt1).toHaveValue("Alice");
+  });
+
+  it("can add and remove options in Edit modal multi-choice form", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Hidden Motion")).toBeInTheDocument();
+    });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    await user.click(editButton);
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    // Add a third option
+    await user.click(screen.getByRole("button", { name: "+ Add option" }));
+    expect(screen.getByLabelText("Option 3")).toBeInTheDocument();
+    // Remove it
+    const removeBtn = screen.getByRole("button", { name: "Remove option 3" });
+    await user.click(removeBtn);
+    expect(screen.queryByLabelText("Option 3")).not.toBeInTheDocument();
+  });
+
+  it("shows validation error when Edit modal saved with multi-choice but fewer than 2 valid options", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Hidden Motion")).toBeInTheDocument();
+    });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    await user.click(editButton);
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    // Leave options empty (clear the default empty inputs)
+    const opt1 = screen.getByLabelText("Option 1");
+    const opt2 = screen.getByLabelText("Option 2");
+    await user.clear(opt1);
+    await user.clear(opt2);
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Multi-choice motions require at least 2 options.");
+  });
+
+  it("successfully submits Edit modal with multi-choice enabled", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Hidden Motion")).toBeInTheDocument();
+    });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    await user.click(editButton);
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    await user.type(screen.getByLabelText("Option 1"), "Alice");
+    await user.type(screen.getByLabelText("Option 2"), "Bob");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    // Modal should close on success
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit Motion" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows validation error when Edit modal saved with multi-choice and invalid option limit (< 1)", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Hidden Motion")).toBeInTheDocument();
+    });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    await user.click(editButton);
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    // Fill 2 options
+    await user.type(screen.getByLabelText("Option 1"), "Alice");
+    await user.type(screen.getByLabelText("Option 2"), "Bob");
+    // Clear option limit so it becomes NaN (invalid) — triggers "Option limit must be at least 1."
+    const limitInput = screen.getByLabelText("Max selections per voter");
+    await user.clear(limitInput);
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Option limit must be at least 1.");
+  });
+
+  it("populates Edit modal options when editing a motion with existing options", async () => {
+    const user = userEvent.setup();
+    // Override the hidden motion to have existing options (simulating a multi-choice motion)
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () =>
+        HttpResponse.json({
+          ...ADMIN_MEETING_DETAIL_HIDDEN_MOTION,
+          id: "agm-mc-existing",
+          motions: [
+            {
+              ...ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0],
+              id: "motion-with-options",
+              motion_type: "general" as const,
+              is_multi_choice: true,
+              is_visible: false,
+              option_limit: 1,
+              options: [
+                { id: "opt-1", text: "Existing Option A", display_order: 1 },
+                { id: "opt-2", text: "Existing Option B", display_order: 2 },
+              ],
+              tally: {
+                yes: { voter_count: 0, entitlement_sum: 0 },
+                no: { voter_count: 0, entitlement_sum: 0 },
+                abstained: { voter_count: 0, entitlement_sum: 0 },
+                absent: { voter_count: 0, entitlement_sum: 0 },
+                not_eligible: { voter_count: 0, entitlement_sum: 0 },
+                options: [],
+              },
+              voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [], options: {} },
+            },
+          ],
+        })
+      )
+    );
+    renderPage("agm-mc-existing");
+    await waitFor(() => {
+      expect(screen.getByText("Hidden Motion")).toBeInTheDocument();
+    });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    await user.click(editButton);
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
+    });
+    // The existing options should be pre-filled
+    expect(screen.getByLabelText("Option 1")).toHaveValue("Existing Option A");
+    expect(screen.getByLabelText("Option 2")).toHaveValue("Existing Option B");
+  });
+
+  it("successfully submits Add Motion form with multi-choice enabled", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText("Title *"), "Board Election");
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    await user.type(screen.getByLabelText("Option 1"), "Alice");
+    await user.type(screen.getByLabelText("Option 2"), "Bob");
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    // Modal should close on success
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Add Motion" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows validation error when Add Motion with multi-choice has option_limit exceeding count", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText("Title *"), "Election");
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    await user.type(screen.getByLabelText("Option 1"), "Alice");
+    await user.type(screen.getByLabelText("Option 2"), "Bob");
+    const limitInput = screen.getByLabelText("Max selections per voter");
+    await user.clear(limitInput);
+    await user.type(limitInput, "5");
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Option limit cannot exceed the number of options.");
+  });
+
+  it("shows validation error when Add Motion with multi-choice has invalid option_limit (0)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText("Title *"), "Election");
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
+    await user.type(screen.getByLabelText("Option 1"), "Alice");
+    await user.type(screen.getByLabelText("Option 2"), "Bob");
+    // Clear option limit so it becomes NaN (invalid) — triggers "Option limit must be at least 1."
+    const limitInput = screen.getByLabelText("Max selections per voter");
+    await user.clear(limitInput);
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Option limit must be at least 1.");
+  });
+
+  it("shows validation error when Edit modal saved with multi-choice and option limit exceeding count", async () => {
     const user = userEvent.setup();
     renderPage("agm-hidden-motion");
     await waitFor(() => {
@@ -2189,8 +2416,9 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
 
-    const typeSelect = screen.getByLabelText("Motion Type");
-    await user.selectOptions(typeSelect, "multi_choice");
+    // Check the multi-choice checkbox
+    const checkbox = screen.getByLabelText("Multi-choice question format");
+    await user.click(checkbox);
 
     // Fill 2 options
     const opt1 = screen.getByLabelText("Option 1");

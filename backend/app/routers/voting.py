@@ -19,7 +19,7 @@ from app.models.general_meeting import GeneralMeeting
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
-from app.models.motion import Motion, MotionType
+from app.models.motion import Motion
 from app.models.motion_option import MotionOption
 from app.models.session_record import SessionRecord
 from app.models.vote import Vote, VoteChoice, VoteStatus
@@ -132,7 +132,7 @@ async def list_motions(
     motions = list(result.scalars().all())
 
     # Load options for multi-choice motions
-    mc_motion_ids = [m.id for m in motions if m.motion_type == MotionType.multi_choice]
+    mc_motion_ids = [m.id for m in motions if m.is_multi_choice]
     options_by_motion: dict[uuid.UUID, list] = {}
     if mc_motion_ids:
         opts_result = await db.execute(
@@ -151,6 +151,7 @@ async def list_motions(
             display_order=m.display_order,
             motion_number=m.motion_number,
             motion_type=m.motion_type,
+            is_multi_choice=m.is_multi_choice,
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,
             submitted_choice=voted_choice_by_motion.get(m.id),

@@ -4,7 +4,7 @@ export type GeneralMeetingStatus = "open" | "closed" | "pending";
 export type VoteChoice = "yes" | "no" | "abstained" | "not_eligible" | "selected";
 export type VoteStatus = "draft" | "submitted";
 export type EmailDeliveryStatus = "pending" | "delivered" | "failed";
-export type MotionType = "general" | "special" | "multi_choice";
+export type MotionType = "general" | "special";
 export type FinancialPosition = "normal" | "in_arrear";
 
 export interface Building {
@@ -44,6 +44,7 @@ export interface Motion {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice: boolean;
 }
 
 export interface GeneralMeetingLotWeight {

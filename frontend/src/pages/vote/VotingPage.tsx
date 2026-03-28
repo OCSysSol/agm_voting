@@ -386,13 +386,13 @@ export function VotingPage() {
   // Only count motions the voter can still interact with towards the progress bar.
   const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
   const answeredCount = unvotedMotions.filter((m) =>
-    m.motion_type === "multi_choice"
+    m.is_multi_choice
       ? m.id in multiChoiceSelections  // answered once any interaction recorded
       : !!choices[m.id]
   ).length;
 
   const unansweredMotions = unvotedMotions.filter((m) =>
-    m.motion_type === "multi_choice"
+    m.is_multi_choice
       ? !(m.id in multiChoiceSelections)
       : !choices[m.id]
   );
@@ -714,7 +714,7 @@ export function VotingPage() {
                       highlight={
                         highlightUnanswered &&
                         !isMotionReadOnly(motion) &&
-                        (motion.motion_type === "multi_choice"
+                        (motion.is_multi_choice
                           ? !(motion.id in multiChoiceSelections)
                           : !choices[motion.id])
                       }

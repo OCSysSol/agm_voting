@@ -665,7 +665,10 @@ export const adminHandlers = [
         display_order: idx + 1,
         motion_number: base?.motion_number ?? null,
         motion_type: base?.motion_type ?? "general",
+        is_multi_choice: base?.is_multi_choice ?? false,
         is_visible: base?.is_visible ?? true,
+        option_limit: null,
+        options: [],
       };
     });
     const result: MotionReorderOut = { motions: reordered };
@@ -693,7 +696,7 @@ export const adminHandlers = [
 
   // Add motion
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; is_multi_choice?: boolean; motion_number?: string | null; option_limit?: number | null; options?: Array<{ text: string; display_order: number }> };
     if (body?.title === "add-fail") {
       return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
     }
@@ -709,7 +712,10 @@ export const adminHandlers = [
       display_order: autoDisplayOrder,
       motion_number: motionNumber,
       motion_type: body?.motion_type ?? "general",
+      is_multi_choice: body?.is_multi_choice ?? false,
       is_visible: false,
+      option_limit: body?.option_limit ?? null,
+      options: body?.options ?? [],
     }, { status: 201 });
   }),
 
@@ -721,7 +727,7 @@ export const adminHandlers = [
     if (params.motionId === "motion-edit-fail") {
       return HttpResponse.json({ detail: "Server error" }, { status: 500 });
     }
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; is_multi_choice?: boolean; motion_number?: string | null; option_limit?: number | null; options?: Array<{ text: string; display_order: number }> };
     const motion = ADMIN_MEETING_DETAIL.motions[0];
     return HttpResponse.json({
       ...motion,
@@ -729,7 +735,10 @@ export const adminHandlers = [
       title: body?.title ?? motion.title,
       description: body?.description ?? motion.description,
       motion_type: body?.motion_type ?? motion.motion_type,
+      is_multi_choice: body?.is_multi_choice ?? false,
       motion_number: body?.motion_number !== undefined ? body.motion_number : motion.motion_number,
+      option_limit: body?.option_limit ?? null,
+      options: body?.options ?? [],
     });
   }),
 
@@ -864,7 +873,8 @@ export const mcMotionFixtureVoter = {
   description: "Vote for board members",
   display_order: 3,
   motion_number: null,
-  motion_type: "multi_choice" as const,
+  motion_type: "general" as const,
+  is_multi_choice: true,
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
