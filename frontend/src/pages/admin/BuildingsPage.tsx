@@ -7,6 +7,7 @@ import BuildingTable from "../../components/admin/BuildingTable";
 import BuildingCSVUpload from "../../components/admin/BuildingCSVUpload";
 import Pagination from "../../components/admin/Pagination";
 import { useState } from "react";
+import { isValidEmail } from "../../utils/validation";
 
 const FOCUSABLE_SELECTORS =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -124,6 +125,7 @@ export default function BuildingsPage() {
     setFormError(null);
     if (!name.trim()) { setFormError("Building name is required."); return; }
     if (!managerEmail.trim()) { setFormError("Manager email is required."); return; }
+    if (!isValidEmail(managerEmail)) { setFormError("Please enter a valid email address."); return; }
     mutation.mutate({ name: name.trim(), manager_email: managerEmail.trim() });
   }
 
@@ -155,7 +157,7 @@ export default function BuildingsPage() {
     <div>
       <div className="admin-page-header">
         <h1>Buildings</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label className="toggle-switch">
             <input
               id="show-archived-toggle"

@@ -95,7 +95,7 @@ export default function AdminLayout() {
         <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             className="admin-nav__link"
-            style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, color: "inherit" }}
+            style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, color: "rgba(255,255,255,.85)" }}
             onClick={() => { void handleLogout(); }}
           >
             Sign out
@@ -134,7 +134,7 @@ export default function AdminLayout() {
         <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             className="admin-nav__link"
-            style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, color: "inherit" }}
+            style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, color: "rgba(255,255,255,.85)" }}
             onClick={() => { void handleLogout(); }}
           >
             Sign out

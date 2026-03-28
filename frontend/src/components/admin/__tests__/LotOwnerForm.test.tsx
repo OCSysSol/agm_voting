@@ -115,6 +115,25 @@ describe("LotOwnerForm - Add mode", () => {
     expect(screen.getByText("Email is required.")).toBeInTheDocument();
   });
 
+  it("shows validation error for malformed email format", async () => {
+    const user = userEvent.setup();
+    renderAddForm();
+    await user.type(screen.getByLabelText("Lot Number"), "5E");
+    // Use a value that has an @ but no dot in the domain so it fails our regex but
+    // userEvent can type it into a type="email" input without jsdom sanitizing it away
+    await user.type(screen.getByLabelText("Email"), "user@nodot");
+    await user.clear(screen.getByLabelText("Unit Entitlement"));
+    await user.type(screen.getByLabelText("Unit Entitlement"), "100");
+    await user.click(screen.getByRole("button", { name: "Add Lot Owner" }));
+    expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
+  });
+
+  it("email input in add form has type=email", () => {
+    renderAddForm();
+    const emailInput = screen.getByLabelText("Email");
+    expect(emailInput).toHaveAttribute("type", "email");
+  });
+
   it("shows validation error when unit entitlement is not a number", async () => {
     const user = userEvent.setup();
     renderAddForm();

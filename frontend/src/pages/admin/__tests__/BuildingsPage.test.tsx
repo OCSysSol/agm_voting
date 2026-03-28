@@ -184,6 +184,27 @@ describe("BuildingsPage", () => {
     expect(screen.getByText("Manager email is required.")).toBeInTheDocument();
   });
 
+  it("shows error when manager email is malformed on submit", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Test Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "notanemail");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
+  });
+
+  it("controls div has flexWrap wrap style for mobile wrapping", () => {
+    renderPage();
+    const toggle = screen.getByLabelText("Show archived");
+    // The toggle is inside the controls div — walk up to the parent div
+    const controlsDiv = toggle.closest("label")?.parentElement as HTMLElement;
+    expect(controlsDiv).toHaveStyle({ flexWrap: "wrap" });
+  });
+
   // --- Happy path submit ---
 
   it("submits the form and closes modal on success", async () => {
