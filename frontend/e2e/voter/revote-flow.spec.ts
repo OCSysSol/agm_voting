@@ -458,7 +458,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     // Two instances of the checkbox exist: the mobile drawer (display:none on desktop, DOM-first)
     // and the sidebar (visible on desktop, DOM-last). Use .last() to target the visible sidebar
     // instance so Playwright can interact with it on the Desktop Chrome project viewport.
-    const lotBCheckbox = page.getByLabel(`Select Lot ${WF10_LOT_B}`).last();
+    const lotBCheckbox = page.locator(".voting-layout__sidebar").locator('.lot-selection__item', { hasText: `Lot ${WF10_LOT_B}` }).locator('input[type="checkbox"]');
     await expect(lotBCheckbox).toBeVisible({ timeout: 15000 });
     await lotBCheckbox.uncheck();
 
@@ -691,7 +691,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     await expect(motionCardStep1).toBeVisible({ timeout: 15000 });
 
     // Deselect Lot D so only Lot C is submitted
-    const lotDCheckbox = page.getByLabel(`Select Lot ${wf102LotD}`).last();
+    const lotDCheckbox = page.locator(".voting-layout__sidebar").locator('.lot-selection__item', { hasText: `Lot ${wf102LotD}` }).locator('input[type="checkbox"]');
     await expect(lotDCheckbox).toBeVisible({ timeout: 15000 });
     await lotDCheckbox.uncheck();
 

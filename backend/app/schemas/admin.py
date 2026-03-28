@@ -364,6 +364,7 @@ class VoterEntry(BaseModel):
     voter_email: str
     lot_number: str
     entitlement: int
+    proxy_email: str | None = None
 
 
 class TallyCategory(BaseModel):

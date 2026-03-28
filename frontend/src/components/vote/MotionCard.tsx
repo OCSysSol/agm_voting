@@ -47,9 +47,14 @@ export function MotionCard({
         >
           {isSpecial ? "Special" : "General"}
         </span>
+        {highlight && (
+          <span className="motion-card__unanswered-badge" aria-label="Unanswered">
+            ! Unanswered
+          </span>
+        )}
         {readOnly && (
           <span className="motion-card__voted-badge" aria-label="Already voted">
-            Already voted
+            ✓ Already voted
           </span>
         )}
       </div>

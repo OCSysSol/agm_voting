@@ -247,14 +247,14 @@ class TestEmailTemplateRendering:
                     },
                     "voter_lists": {
                         "yes": [
-                            {"voter_email": "alice@example.com", "entitlement": 100},
-                            {"voter_email": "bob@example.com", "entitlement": 100},
+                            {"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100},
+                            {"voter_email": "bob@example.com", "lot_number": "1B", "entitlement": 100},
                         ],
-                        "no": [{"voter_email": "carol@example.com", "entitlement": 50}],
+                        "no": [{"voter_email": "carol@example.com", "lot_number": "2A", "entitlement": 50}],
                         "abstained": [],
                         "absent": [
-                            {"voter_email": "dave@example.com", "entitlement": 75},
-                            {"voter_email": "eve@example.com", "entitlement": 75},
+                            {"voter_email": "dave@example.com", "lot_number": "3A", "entitlement": 75},
+                            {"voter_email": "eve@example.com", "lot_number": "3B", "entitlement": 75},
                         ],
                     },
                 }
@@ -311,6 +311,13 @@ class TestEmailTemplateRendering:
         html = self._render_template(self._default_context())
         assert "dave@example.com" in html
 
+    def test_renders_lot_number_in_voter_rows(self):
+        html = self._render_template(self._default_context())
+        # Lot number should appear alongside voter email in each vote row
+        assert "Lot 1A" in html
+        assert "Lot 2A" in html
+        assert "Lot 3A" in html
+
     def test_null_description_handled_gracefully(self):
         ctx = self._default_context()
         ctx["motions"][0]["description"] = None
@@ -331,7 +338,7 @@ class TestEmailTemplateRendering:
                     "absent": {"voter_count": 2, "entitlement_sum": 150},
                 },
                 "voter_lists": {
-                    "yes": [{"voter_email": "alice@example.com", "entitlement": 100}],
+                    "yes": [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
                     "no": [],
                     "abstained": [],
                     "absent": [],
@@ -852,10 +859,29 @@ class TestTriggerWithRetry:
 
 
 class TestRequeuePendingOnStartup:
+    # --- Setup helper ---
+
+    async def _clear_pending_deliveries(self, db_session: AsyncSession) -> None:
+        """Delete all pending EmailDelivery records to ensure a clean baseline.
+
+        The shared session-scoped transaction means that committed records from
+        prior tests in the same session (e.g. TestCloseAgmEmailIntegration) are
+        visible here. Clearing pending records before each test in this class
+        ensures the call count assertions are accurate.
+        """
+        from sqlalchemy import delete as sa_delete
+        await db_session.execute(
+            sa_delete(EmailDelivery).where(
+                EmailDelivery.status == EmailDeliveryStatus.pending
+            )
+        )
+        await db_session.commit()
+
     # --- Happy path ---
 
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
         """Pending deliveries with attempts < 30 are re-launched."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -872,6 +898,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_delivered_records(self, db_session: AsyncSession, mocker):
         """Delivered records are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -888,6 +915,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_records_at_max_attempts(self, db_session: AsyncSession, mocker):
         """Records with total_attempts >= 30 are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -904,6 +932,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_failed_records(self, db_session: AsyncSession, mocker):
         """Failed records are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -920,6 +949,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_multiple_pending_deliveries_all_requeued(self, db_session: AsyncSession, mocker):
         """Multiple pending deliveries all get re-launched."""
+        await self._clear_pending_deliveries(db_session)
         tasks_created = []
         for _ in range(3):
             building = await _create_building(db_session)

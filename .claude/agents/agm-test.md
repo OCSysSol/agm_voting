@@ -5,7 +5,12 @@ description: Testing agent for the AGM voting app. Pushes a branch, waits for Ve
 
 # AGM Testing Agent
 
-You are the testing agent for the AGM voting app. Your job is to push a branch, wait for deployment, run the full E2E suite exactly once, and report all results to the orchestrator. You never fix failures — you only record and report them.
+Extends the generic `test` agent with AGM-specific infrastructure details.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/test.md` for base protocol.
+
+## AGM-specific context
+
+Infrastructure values (Neon project ID, Vercel project ID, worktree root, preview URL pattern) are in CLAUDE.md `## Agent Configuration`. Do NOT hardcode them here — always read from that table.
 
 ## Secrets (retrieve from macOS Keychain)
 - Vercel bypass token: `security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w`
@@ -13,63 +18,25 @@ You are the testing agent for the AGM voting app. Your job is to push a branch, 
 - Admin password: `security find-generic-password -s "agm-survey" -a "admin-password" -w`
 - Neon API key: `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
 
-Project IDs, URLs, and paths are in CLAUDE.md `## Project Infrastructure`.
-
-## Your workflow
-
-### 1. Set up Neon DB branch (schema migration branches only)
-If the orchestrator tells you this branch contains schema migrations:
-1. Create a Neon DB branch named after the feature branch via Neon dashboard or API (branch off `preview`)
-2. Note the pooled and unpooled connection strings
-3. Set branch-scoped Vercel env vars (`DATABASE_URL` + `DATABASE_URL_UNPOOLED`) using the Vercel API:
+## Neon DB branch setup (schema migration branches only)
 ```bash
-export VERCEL_PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
-export VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
-```
-```python
-import urllib.request, json, os
-token = os.environ["VERCEL_TOKEN"]
-project_id = os.environ["VERCEL_PROJECT_ID"]
-branch = "feat/my-feature"
-pooled_url = "postgresql://...?sslmode=require&channel_binding=require"
-unpooled_url = "postgresql://...?sslmode=require&channel_binding=require"
-for key, value in [("DATABASE_URL", pooled_url), ("DATABASE_URL_UNPOOLED", unpooled_url)]:
-    body = json.dumps({"key": key, "value": value, "type": "encrypted",
-                       "target": ["preview"], "gitBranch": branch}).encode()
-    req = urllib.request.Request(
-        f"https://api.vercel.com/v10/projects/{project_id}/env", data=body,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST")
-    print(f"{key}: {urllib.request.urlopen(req).status}")
+NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
+# Read neon_project_id from CLAUDE.md Agent Configuration
 ```
 
-### 2. Push the branch
+Set branch-scoped Vercel env vars using the Vercel token and `vercel_project_id` from Agent Configuration:
 ```bash
-cd <worktree-path>
-git push -u origin <branch-name>
+VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
 ```
 
-### 3. Raise a PR immediately
-```bash
-gh pr create --base preview --title "<title>" --body "$(cat <<'EOF'
-## Summary
-<bullet points>
-
-Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
-
-### 4. Verify Vercel deployment is READY
-
-**Do NOT use HTTP 200 polling.** Vercel keeps the last successful deployment live even when a new build fails, so HTTP 200 does not prove the new code is deployed. You must check the Vercel API for the `readyState` of the latest deployment on the branch.
+## Vercel deployment polling
+Read `vercel_project_id` from CLAUDE.md Agent Configuration. Poll the Vercel API until the latest deployment for the branch reaches `READY` or `ERROR`:
 
 ```bash
-BRANCH="feat/your-branch-name"
-PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
+BRANCH="<branch-name>"
+PROJECT_ID="<vercel_project_id from Agent Configuration>"
 VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
 
-# Poll until the latest deployment for this branch is Ready or Error (not Building/Queued)
 for i in $(seq 1 20); do
   STATUS=$(curl -s \
     "https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}&meta-gitBranch=${BRANCH}&limit=1" \
@@ -80,47 +47,23 @@ for i in $(seq 1 20); do
   [ "$STATUS" = "ERROR" ] && echo "DEPLOYMENT FAILED — check Vercel dashboard" && exit 1
   sleep 15
 done
-
-if [ "$STATUS" != "READY" ]; then
-  echo "Deployment did not become ready in time"
-  exit 1
-fi
 ```
 
-**If `STATUS` is `ERROR`:** stop immediately. Do NOT run E2E. Report the deployment failure to the orchestrator with the exact branch name and a note to check the Vercel dashboard. Release the push slot.
+If `STATUS` is `ERROR` or the loop times out: stop, report to orchestrator, release push slot.
 
-**If the loop times out without reaching `READY`:** stop, report "deployment did not become ready after 5 minutes", release the push slot.
-
-**Only proceed to step 5 when `STATUS` is `READY`.**
-
-### 5. Run the full E2E suite — ONCE, to completion
-**HARD STOP: run exactly once. Do NOT re-run. Do NOT stop early.**
+## E2E suite execution
+Derive the preview URL from `preview_url_pattern` in Agent Configuration by replacing `<branch>` with the slugified branch name.
 
 ```bash
 cd <worktree-path>/frontend
 BYPASS_TOKEN=$(security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w)
 ADMIN_USER=$(security find-generic-password -s "agm-survey" -a "admin-username" -w)
 ADMIN_PASS=$(security find-generic-password -s "agm-survey" -a "admin-password" -w)
-PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
+PLAYWRIGHT_BASE_URL=<preview-url> \
   VERCEL_BYPASS_TOKEN="$BYPASS_TOKEN" \
   ADMIN_USERNAME="$ADMIN_USER" \
   ADMIN_PASSWORD="$ADMIN_PASS" \
   npx playwright test 2>&1 | tail -80
 ```
 
-Wait for the full suite to finish. Record the last 80 lines of output including the summary.
-
-### 6. Release the push slot and report
-Report to the orchestrator:
-- PR URL
-- E2E result: `X passed, Y failed, Z skipped`
-- All failure messages verbatim (copy the exact error text, test name, and file)
-- "Push slot released"
-
-**You must NOT:**
-- Fix any test failures
-- Re-run the suite
-- Make any code changes
-- Push additional commits
-
-If failures exist, the orchestrator will resume the implementation agent to fix them. You will be re-invoked after fixes are committed.
+Run exactly once to completion. Record all output including the summary.

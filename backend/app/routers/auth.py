@@ -4,6 +4,7 @@ Authentication endpoints:
   POST /api/auth/verify       — validate the OTP and create a session
   GET  /api/test/latest-otp   — test-only: retrieve latest OTP for (email, meeting_id)
 """
+import hmac
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -56,6 +57,113 @@ def _generate_otp_code() -> str:
     return "".join(secrets.choice(_OTP_ALPHABET) for _ in range(8))
 
 
+async def _resolve_voter_state(
+    db: AsyncSession,
+    voter_email: str,
+    general_meeting_id: uuid.UUID,
+    building_id: uuid.UUID,
+) -> dict:
+    """Shared lot-lookup helper used by both verify_auth and restore_session.
+
+    Looks up direct lot owners and proxy lots for the given voter email within
+    the building, fetches visible motions, and computes per-lot already_submitted
+    and voted_motion_ids flags.
+
+    Returns a dict with keys:
+      - lots: list[LotInfo]
+      - visible_motions: list[Motion]
+      - unvoted_visible_count: int
+    """
+    # Find all LotOwnerEmail records matching email for this building (direct owners)
+    emails_result = await db.execute(
+        select(LotOwnerEmail)
+        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        .where(
+            LotOwnerEmail.email.isnot(None),
+            LotOwnerEmail.email == voter_email,
+            LotOwner.building_id == building_id,
+        )
+    )
+    email_records = list(emails_result.scalars().all())
+    direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
+
+    # Find all LotProxy records where proxy_email matches and lot is in this building
+    proxy_result = await db.execute(
+        select(LotProxy)
+        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        .where(
+            LotProxy.proxy_email == voter_email,
+            LotOwner.building_id == building_id,
+        )
+    )
+    proxy_records = list(proxy_result.scalars().all())
+    proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
+
+    # Merge: union of direct and proxy lots
+    all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
+
+    # Fetch all relevant LotOwner records
+    lots_result = await db.execute(
+        select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
+    )
+    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
+
+    # Fetch all currently visible motions for this meeting.
+    visible_motions_result = await db.execute(
+        select(Motion).where(
+            Motion.general_meeting_id == general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
+        )
+    )
+    visible_motions = list(visible_motions_result.scalars().all())
+    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
+
+    # For each lot, determine the set of visible motion IDs that already have a
+    # submitted Vote row.
+    voted_by_lot_result = await db.execute(
+        select(Vote.lot_owner_id, Vote.motion_id).where(
+            Vote.general_meeting_id == general_meeting_id,
+            Vote.lot_owner_id.in_(all_lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
+        )
+    )
+    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for lot_owner_id, motion_id in voted_by_lot_result.all():
+        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
+
+    lots = []
+    for lot_owner_id in all_lot_owner_ids:
+        lo = lot_owners.get(lot_owner_id)
+        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
+            continue
+        is_proxy = lot_owner_id not in direct_lot_owner_ids
+        fp = lo.financial_position
+        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
+        already_submitted = (
+            len(visible_motion_ids) > 0
+            and visible_motion_ids.issubset(voted_for_this_lot)
+        )
+        lots.append(LotInfo(
+            lot_owner_id=lo.id,
+            lot_number=lo.lot_number,
+            financial_position=fp.value if hasattr(fp, "value") else fp,
+            already_submitted=already_submitted,
+            is_proxy=is_proxy,
+            voted_motion_ids=list(voted_for_this_lot),
+        ))
+
+    lots.sort(key=lambda l: l.lot_number)
+
+    any_lot_not_submitted = any(not l.already_submitted for l in lots)
+    unvoted_visible_count = len(visible_motions) if any_lot_not_submitted else 0
+
+    return {
+        "lots": lots,
+        "visible_motions": visible_motions,
+        "unvoted_visible_count": unvoted_visible_count,
+    }
+
+
 async def _upsert_rate_limit(
     db: AsyncSession,
     email: str,
@@ -97,6 +205,9 @@ async def request_otp(
     Send a one-time verification code to the voter's email.
     Always returns 200 {"sent": true} to prevent email enumeration.
     """
+    # Normalise email to lowercase for case-insensitive matching
+    body = body.model_copy(update={"email": body.email.strip().lower()})
+
     # 1. Fetch the GeneralMeeting
     meeting_result = await db.execute(
         select(GeneralMeeting).where(GeneralMeeting.id == body.general_meeting_id)
@@ -228,6 +339,9 @@ async def verify_auth(
     AND lots where this email is a nominated proxy.
     Returns the merged list of lots along with their submission status.
     """
+    # Normalise email to lowercase for case-insensitive matching
+    request = request.model_copy(update={"email": request.email.strip().lower()})
+
     # 1. Fetch the GeneralMeeting to derive building_id
     meeting_result = await db.execute(
         select(GeneralMeeting).where(
@@ -253,7 +367,12 @@ async def verify_auth(
     )
     otp = otp_result.scalar_one_or_none()
 
-    if otp is None or otp.code != request.code:
+    if otp is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired verification code",
+        )
+    if not hmac.compare_digest(otp.code, request.code):
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired verification code",
@@ -265,123 +384,30 @@ async def verify_auth(
 
     building_id = meeting.building_id
 
-    # 4. Find all LotOwnerEmail records matching email for this building (direct owners)
-    emails_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
-        .where(
-            LotOwnerEmail.email.isnot(None),
-            LotOwnerEmail.email == request.email,
-            LotOwner.building_id == building_id,
-        )
+    # 4. Resolve lots, visible motions, and already_submitted flags via shared helper
+    voter_state = await _resolve_voter_state(
+        db=db,
+        voter_email=request.email,
+        general_meeting_id=request.general_meeting_id,
+        building_id=building_id,
     )
-    email_records = list(emails_result.scalars().all())
-    direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
+    lots = voter_state["lots"]
 
-    # 5. Find all LotProxy records where proxy_email matches and lot is in this building
-    proxy_result = await db.execute(
-        select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
-        .where(
-            LotProxy.proxy_email == request.email,
-            LotOwner.building_id == building_id,
-        )
-    )
-    proxy_records = list(proxy_result.scalars().all())
-    proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
-
-    # 6. Merge: union of direct and proxy lots
-    all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
-
-    if not all_lot_owner_ids:
+    if not lots:
         raise HTTPException(
             status_code=401,
             detail="Email address not found for this building",
         )
 
-    # 7. Fetch the Building to get building_name
+    unvoted_visible_count = voter_state["unvoted_visible_count"]
+
+    # 5. Fetch the Building to get building_name
     building_result = await db.execute(
         select(Building).where(Building.id == building_id)
     )
     building = building_result.scalar_one()
 
-    # 8. Fetch all relevant LotOwner records
-    lots_result = await db.execute(
-        select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
-    )
-    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
-
-    # 9. Fetch all currently visible motions for this meeting.
-    #    These are needed both for the per-lot already_submitted computation and for
-    #    unvoted_visible_count. Fetched once here and reused below.
-    visible_motions_result = await db.execute(
-        select(Motion).where(
-            Motion.general_meeting_id == request.general_meeting_id,
-            Motion.is_visible == True,  # noqa: E712
-        )
-    )
-    visible_motions = list(visible_motions_result.scalars().all())
-    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
-
-    # 10. For each lot, determine the set of visible motion IDs that already have a
-    #     submitted Vote row.  A lot is "already submitted" only if it has a submitted
-    #     vote for EVERY currently visible motion — not just if a BallotSubmission row
-    #     exists (which would be permanently True after the first submission even when
-    #     new motions have been made visible since then).
-    voted_by_lot_result = await db.execute(
-        select(Vote.lot_owner_id, Vote.motion_id).where(
-            Vote.general_meeting_id == request.general_meeting_id,
-            Vote.lot_owner_id.in_(all_lot_owner_ids),
-            Vote.status == VoteStatus.submitted,
-        )
-    )
-    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for lot_owner_id, motion_id in voted_by_lot_result.all():
-        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
-
-    lots = []
-    for lot_owner_id in all_lot_owner_ids:
-        lo = lot_owners.get(lot_owner_id)
-        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
-            continue
-        # Direct owner takes precedence: is_proxy=False if voter is a direct owner of this lot
-        is_proxy = lot_owner_id not in direct_lot_owner_ids
-        fp = lo.financial_position
-
-        # A lot is "already submitted" when it has a submitted vote for every currently
-        # visible motion.  If there are no visible motions yet, nothing to vote on so
-        # already_submitted = False (the voter has not "completed" anything).
-        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
-        already_submitted = (
-            len(visible_motion_ids) > 0
-            and visible_motion_ids.issubset(voted_for_this_lot)
-        )
-
-        lots.append(LotInfo(
-            lot_owner_id=lo.id,
-            lot_number=lo.lot_number,
-            financial_position=fp.value if hasattr(fp, "value") else fp,
-            already_submitted=already_submitted,
-            is_proxy=is_proxy,
-            voted_motion_ids=list(voted_for_this_lot),
-        ))
-
-    # Sort by lot_number for consistent ordering
-    lots.sort(key=lambda l: l.lot_number)
-
-    # 11. Compute unvoted_visible_count.
-    #     This is consistent with the per-lot already_submitted definition above:
-    #     if any lot has already_submitted=False, the voter still has visible motions
-    #     to vote on, so unvoted_visible_count = len(visible_motions).
-    #     If all lots are already_submitted=True (every visible motion voted on by every
-    #     lot), unvoted_visible_count = 0.
-    any_lot_not_submitted = any(not l.already_submitted for l in lots)
-    if any_lot_not_submitted:
-        unvoted_visible_count = len(visible_motions)
-    else:
-        unvoted_visible_count = 0
-
-    # 11. Create session
+    # 6. Create session
     token = await create_session(
         db=db,
         voter_email=request.email,
@@ -394,7 +420,7 @@ async def verify_auth(
         key="agm_session",
         value=token,
         httponly=True,
-        secure=True,
+        secure=not settings.testing_mode,
         samesite="strict",
         max_age=86400,
         path="/api",
@@ -470,31 +496,15 @@ async def restore_session(
     voter_email = session_record.voter_email
     building_id = meeting.building_id
 
-    # 4. Run lot-lookup (same as verify_auth steps 4–9)
-    emails_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
-        .where(
-            LotOwnerEmail.email.isnot(None),
-            LotOwnerEmail.email == voter_email,
-            LotOwner.building_id == building_id,
-        )
+    # 4. Run lot-lookup via shared helper (same logic as verify_auth)
+    voter_state = await _resolve_voter_state(
+        db=db,
+        voter_email=voter_email,
+        general_meeting_id=request.general_meeting_id,
+        building_id=building_id,
     )
-    email_records = list(emails_result.scalars().all())
-    direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
-
-    proxy_result = await db.execute(
-        select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
-        .where(
-            LotProxy.proxy_email == voter_email,
-            LotOwner.building_id == building_id,
-        )
-    )
-    proxy_records = list(proxy_result.scalars().all())
-    proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
-
-    all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
+    lots = voter_state["lots"]
+    unvoted_visible_count = voter_state["unvoted_visible_count"]
 
     # 5. Fetch Building for name
     building_result = await db.execute(
@@ -502,65 +512,7 @@ async def restore_session(
     )
     building = building_result.scalar_one()
 
-    # 6. Fetch LotOwner records
-    lots_result = await db.execute(
-        select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
-    )
-    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
-
-    # 7. Fetch visible motions
-    visible_motions_result = await db.execute(
-        select(Motion).where(
-            Motion.general_meeting_id == request.general_meeting_id,
-            Motion.is_visible == True,  # noqa: E712
-        )
-    )
-    visible_motions = list(visible_motions_result.scalars().all())
-    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
-
-    # 8. Fetch submitted votes per lot
-    voted_by_lot_result = await db.execute(
-        select(Vote.lot_owner_id, Vote.motion_id).where(
-            Vote.general_meeting_id == request.general_meeting_id,
-            Vote.lot_owner_id.in_(all_lot_owner_ids),
-            Vote.status == VoteStatus.submitted,
-        )
-    )
-    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for lot_owner_id, motion_id in voted_by_lot_result.all():
-        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
-
-    # 9. Build lot list with fresh already_submitted flags
-    lots = []
-    for lot_owner_id in all_lot_owner_ids:
-        lo = lot_owners.get(lot_owner_id)
-        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
-            continue
-        is_proxy = lot_owner_id not in direct_lot_owner_ids
-        fp = lo.financial_position
-        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
-        already_submitted = (
-            len(visible_motion_ids) > 0
-            and visible_motion_ids.issubset(voted_for_this_lot)
-        )
-        lots.append(LotInfo(
-            lot_owner_id=lo.id,
-            lot_number=lo.lot_number,
-            financial_position=fp.value if hasattr(fp, "value") else fp,
-            already_submitted=already_submitted,
-            is_proxy=is_proxy,
-            voted_motion_ids=list(voted_for_this_lot),
-        ))
-
-    lots.sort(key=lambda l: l.lot_number)
-
-    any_lot_not_submitted = any(not l.already_submitted for l in lots)
-    if any_lot_not_submitted:
-        unvoted_visible_count = len(visible_motions)
-    else:
-        unvoted_visible_count = 0
-
-    # 10. Re-issue a new session token and set the cookie
+    # 6. Re-issue a new session token and set the cookie
     new_token = await create_session(
         db=db,
         voter_email=voter_email,
@@ -573,7 +525,7 @@ async def restore_session(
         key="agm_session",
         value=new_token,
         httponly=True,
-        secure=True,
+        secure=not settings.testing_mode,
         samesite="strict",
         max_age=86400,
         path="/api",

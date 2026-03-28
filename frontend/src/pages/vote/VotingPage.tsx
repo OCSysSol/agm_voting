@@ -17,13 +17,7 @@ import { SubmitDialog } from "../../components/vote/SubmitDialog";
 import { MixedSelectionWarningDialog } from "../../components/vote/MixedSelectionWarningDialog";
 import { ClosedBanner } from "../../components/vote/ClosedBanner";
 import { useServerTime } from "../../hooks/useServerTime";
-
-function formatLocalDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(iso));
-}
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 export function VotingPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -505,17 +499,21 @@ export function VotingPage() {
             className={`lot-selection__item${isLotSubmitted(lot) ? " lot-selection__item--submitted" : ""}`}
             aria-disabled={isLotSubmitted(lot) ? "true" : undefined}
           >
-            <input
-              type="checkbox"
-              id={`lot-checkbox-${lot.lot_owner_id}`}
-              className="lot-selection__checkbox"
-              checked={selectedIds.has(lot.lot_owner_id)}
-              disabled={isLotSubmitted(lot)}
-              onChange={() => handleToggle(lot.lot_owner_id)}
-              aria-label={`Select Lot ${lot.lot_number}`}
-            />
+            <label
+              htmlFor={`lot-checkbox-${lot.lot_owner_id}`}
+              className="lot-selection__label"
+            >
+              <input
+                type="checkbox"
+                id={`lot-checkbox-${lot.lot_owner_id}`}
+                className="lot-selection__checkbox"
+                checked={selectedIds.has(lot.lot_owner_id)}
+                disabled={isLotSubmitted(lot)}
+                onChange={() => handleToggle(lot.lot_owner_id)}
+              />
 
-            <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
+              <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
+            </label>
 
             {lot.is_proxy && (
               <span className="lot-selection__badge lot-selection__badge--proxy">

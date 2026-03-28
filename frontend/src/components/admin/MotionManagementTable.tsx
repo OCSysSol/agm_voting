@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   DndContext,
   PointerSensor,
+  TouchSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
@@ -85,6 +86,7 @@ function SortableRow({
     transition,
     /* c8 ignore next -- isDragging=true only during active pointer drag, not exercisable in JSDOM */
     opacity: isDragging ? 0.5 : 1,
+    touchAction: isDragging ? ("none" as const) : undefined,
   };
 
   const isFirst = index === 0;
@@ -119,7 +121,17 @@ function SortableRow({
               {...listeners}
               aria-label={`Drag to reorder ${motion.title}`}
               data-testid={`drag-handle-${motion.id}`}
-              style={{ cursor: isReorderPending ? "not-allowed" : "grab", fontSize: "1.2rem", userSelect: "none" }}
+              style={{
+              cursor: isReorderPending ? "not-allowed" : "grab",
+              fontSize: "1.2rem",
+              userSelect: "none",
+              touchAction: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 44,
+              minHeight: 44,
+            }}
             >
               &#x2807;
             </span>
@@ -265,6 +277,12 @@ export default function MotionManagementTable({
 
   const sensors = useSensors(
     useSensor(PointerSensor),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })

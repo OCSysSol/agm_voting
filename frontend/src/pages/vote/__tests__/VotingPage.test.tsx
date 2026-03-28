@@ -546,6 +546,49 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  // --- US-ACC-01: lot checkboxes inside <label> elements ---
+
+  it("US-ACC-01: lot checkbox is inside a <label> element with associated lot number text", async () => {
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "5", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "6", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+    // Each checkbox should be labelled by its associated lot number text via <label>
+    const lot5Checkbox = screen.getAllByLabelText("Lot 5")[0];
+    expect(lot5Checkbox).toBeInTheDocument();
+    expect(lot5Checkbox.tagName).toBe("INPUT");
+    expect(lot5Checkbox).toHaveAttribute("type", "checkbox");
+    // The checkbox should be inside a <label> element
+    expect(lot5Checkbox.closest("label")).not.toBeNull();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("US-ACC-01: clicking lot number text (via label) toggles the checkbox", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "7", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "8", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+    // Clicking the label text "Lot 7" should toggle the checkbox
+    const lot7Checkbox = screen.getAllByLabelText("Lot 7")[0];
+    expect(lot7Checkbox).toBeChecked();
+    // Click the label (the label text triggers checkbox toggle)
+    const label = lot7Checkbox.closest("label") as HTMLLabelElement;
+    await user.click(label);
+    expect(lot7Checkbox).not.toBeChecked();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("multi-lot: unchecking a lot updates subtitle count", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     sessionStorage.setItem(
@@ -1360,9 +1403,9 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // Motion 1: both lots have it in voted_motion_ids → read-only badge shown
-    expect(screen.getAllByText("Already voted")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("✓ Already voted")[0]).toBeInTheDocument();
     // Motion 2: neither lot has it in voted_motion_ids → no read-only badge
-    const alreadyVotedBadges = screen.queryAllByText("Already voted");
+    const alreadyVotedBadges = screen.queryAllByText("✓ Already voted");
     expect(alreadyVotedBadges).toHaveLength(1);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -1387,7 +1430,7 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // lo2 has not voted on MOTION_ID_1 → not read-only
-    expect(screen.queryByText("Already voted")).not.toBeInTheDocument();
+    expect(screen.queryByText("✓ Already voted")).not.toBeInTheDocument();
     // Vote buttons should be enabled
     const forButtons = screen.getAllByRole("button", { name: "For" });
     expect(forButtons[0]).not.toBeDisabled();
@@ -1408,7 +1451,7 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // No read-only badge — empty selectedLots means isMotionReadOnly returns false
-    expect(screen.queryByText("Already voted")).not.toBeInTheDocument();
+    expect(screen.queryByText("✓ Already voted")).not.toBeInTheDocument();
   });
 
   // --- Revote scenario tests (BUG-RV-01) ---
@@ -1597,9 +1640,9 @@ describe("VotingPage", () => {
     const updatedCheckboxes = screen.getAllByRole("checkbox");
     // There are 3 lots × 2 panels (sidebar + drawer) = 6 checkboxes rendered in DOM
     // Check by aria-label to target specific lots unambiguously
-    const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
-    const lo2Checkboxes = screen.getAllByLabelText("Select Lot 2");
-    const lo3Checkboxes = screen.getAllByLabelText("Select Lot 3");
+    const lo1Checkboxes = screen.getAllByLabelText("Lot 1");
+    const lo2Checkboxes = screen.getAllByLabelText("Lot 2");
+    const lo3Checkboxes = screen.getAllByLabelText("Lot 3");
     lo1Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
     lo2Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
     lo3Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
@@ -1766,8 +1809,8 @@ describe("VotingPage", () => {
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");   // Motion 1 = "yes"
       expect(againstButtons[1]).toHaveAttribute("aria-pressed", "true"); // Motion 2 = "no"
     });
-    // Both cards show "Already voted" badge (read-only)
-    const alreadyVotedBadges = screen.getAllByText("Already voted");
+    // Both cards show "✓ Already voted" badge (read-only, non-colour cue)
+    const alreadyVotedBadges = screen.getAllByText("✓ Already voted");
     expect(alreadyVotedBadges).toHaveLength(2);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -2088,10 +2131,10 @@ describe("VotingPage", () => {
     // Wait for motions to load so isLotSubmitted can evaluate
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // lo1 has both motions in voted_motion_ids → checkbox disabled
-    const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
+    const lo1Checkboxes = screen.getAllByLabelText("Lot 1");
     lo1Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
     // lo2 has no voted_motion_ids → checkbox enabled
-    const lo2Checkboxes = screen.getAllByLabelText("Select Lot 2");
+    const lo2Checkboxes = screen.getAllByLabelText("Lot 2");
     lo2Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -2112,7 +2155,7 @@ describe("VotingPage", () => {
     // After motions load: MOTION_ID_2 is NOT in lo1's voted_motion_ids
     // isLotSubmitted(lo1) = false → checkbox should be enabled
     await waitFor(() => {
-      const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
+      const lo1Checkboxes = screen.getAllByLabelText("Lot 1");
       lo1Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
     });
     // No "Already submitted" badge for lo1

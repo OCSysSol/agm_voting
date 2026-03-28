@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchVoid } from "./client";
 import type { Building, LotOwner, MotionType } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +61,7 @@ export interface VoterEntry {
   voter_email?: string;
   lot_number?: string;
   entitlement: number;
+  proxy_email?: string | null;
 }
 
 export interface TallyCategory {
@@ -237,8 +238,33 @@ export interface AdminMeOut {
   authenticated: boolean;
 }
 
-export async function listBuildings(): Promise<Building[]> {
-  return apiFetch<Building[]>("/api/admin/buildings");
+export interface ListBuildingsParams {
+  limit?: number;
+  offset?: number;
+  name?: string;
+  is_archived?: boolean;
+  sort_by?: "name" | "manager_email" | "created_at" | string;
+  sort_dir?: "asc" | "desc";
+}
+
+export async function listBuildings(params?: ListBuildingsParams): Promise<Building[]> {
+  const qs = new URLSearchParams();
+  if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params?.offset !== undefined) qs.set("offset", String(params.offset));
+  if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.is_archived !== undefined) qs.set("is_archived", String(params.is_archived));
+  if (params?.sort_by !== undefined) qs.set("sort_by", params.sort_by);
+  if (params?.sort_dir !== undefined) qs.set("sort_dir", params.sort_dir);
+  const query = qs.toString();
+  return apiFetch<Building[]>(`/api/admin/buildings${query ? `?${query}` : ""}`);
+}
+
+export async function getBuildingsCount(params?: { name?: string; is_archived?: boolean }): Promise<{ count: number }> {
+  const qs = new URLSearchParams();
+  if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.is_archived !== undefined) qs.set("is_archived", String(params.is_archived));
+  const query = qs.toString();
+  return apiFetch<{ count: number }>(`/api/admin/buildings/count${query ? `?${query}` : ""}`);
 }
 
 export async function getBuilding(buildingId: string): Promise<Building> {
@@ -285,19 +311,10 @@ export async function adminGetMe(): Promise<AdminMeOut> {
 export async function importBuildings(file: File): Promise<BuildingImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/import`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
-  );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<BuildingImportResult>;
+  return apiFetch<BuildingImportResult>("/api/admin/buildings/import", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -338,19 +355,10 @@ export async function importLotOwners(
 ): Promise<LotOwnerImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<LotOwnerImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<LotOwnerImportResult>;
 }
 
 export async function importProxyNominations(
@@ -359,19 +367,10 @@ export async function importProxyNominations(
 ): Promise<ProxyImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import-proxies`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<ProxyImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import-proxies`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<ProxyImportResult>;
 }
 
 export async function importFinancialPositions(
@@ -380,27 +379,46 @@ export async function importFinancialPositions(
 ): Promise<FinancialPositionImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import-financial-positions`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<FinancialPositionImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import-financial-positions`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<FinancialPositionImportResult>;
 }
 
 // ---------------------------------------------------------------------------
 // General Meetings
 // ---------------------------------------------------------------------------
 
-export async function listGeneralMeetings(): Promise<GeneralMeetingListItem[]> {
-  return apiFetch<GeneralMeetingListItem[]>("/api/admin/general-meetings");
+export interface ListGeneralMeetingsParams {
+  limit?: number;
+  offset?: number;
+  name?: string;
+  building_id?: string;
+  status?: string;
+  sort_by?: "title" | "created_at" | "meeting_at" | "voting_closes_at" | "status" | string;
+  sort_dir?: "asc" | "desc";
+}
+
+export async function listGeneralMeetings(params?: ListGeneralMeetingsParams): Promise<GeneralMeetingListItem[]> {
+  const qs = new URLSearchParams();
+  if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params?.offset !== undefined) qs.set("offset", String(params.offset));
+  if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.building_id !== undefined) qs.set("building_id", params.building_id);
+  if (params?.status !== undefined) qs.set("status", params.status);
+  if (params?.sort_by !== undefined) qs.set("sort_by", params.sort_by);
+  if (params?.sort_dir !== undefined) qs.set("sort_dir", params.sort_dir);
+  const query = qs.toString();
+  return apiFetch<GeneralMeetingListItem[]>(`/api/admin/general-meetings${query ? `?${query}` : ""}`);
+}
+
+export async function getGeneralMeetingsCount(params?: { name?: string; building_id?: string; status?: string }): Promise<{ count: number }> {
+  const qs = new URLSearchParams();
+  if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.building_id !== undefined) qs.set("building_id", params.building_id);
+  if (params?.status !== undefined) qs.set("status", params.status);
+  const query = qs.toString();
+  return apiFetch<{ count: number }>(`/api/admin/general-meetings/count${query ? `?${query}` : ""}`);
 }
 
 export async function createGeneralMeeting(data: GeneralMeetingCreateRequest): Promise<GeneralMeetingOut> {
@@ -433,13 +451,9 @@ export async function resendReport(meetingId: string): Promise<ResendReportOut> 
 }
 
 export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/general-meetings/${meetingId}`, {
+  return apiFetchVoid(`/api/admin/general-meetings/${meetingId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) throw new Error(`Failed to delete meeting: ${res.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,16 +483,9 @@ export async function reorderMotions(
 }
 
 export async function deleteBuilding(buildingId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/buildings/${buildingId}`, {
+  return apiFetchVoid(`/api/admin/buildings/${buildingId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
 }
 
 export async function toggleMotionVisibility(
@@ -539,14 +546,7 @@ export async function updateMotion(
 }
 
 export async function deleteMotion(motionId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/motions/${motionId}`, {
+  return apiFetchVoid(`/api/admin/motions/${motionId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
 }

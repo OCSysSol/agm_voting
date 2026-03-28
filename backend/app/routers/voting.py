@@ -141,6 +141,50 @@ async def list_motions(
     ]
 
 
+async def _verify_lot_ownership(
+    db: AsyncSession,
+    voter_email: str,
+    lot_owner_id: uuid.UUID,
+    building_id: uuid.UUID,
+) -> None:
+    """Raise 403 if lot_owner_id does not belong to the authenticated voter's session email.
+
+    Ownership is confirmed when the voter is either:
+      - a direct lot owner (LotOwnerEmail record linking email → lot in this building), or
+      - a nominated proxy (LotProxy record linking proxy_email → lot in this building).
+    """
+    # Check direct ownership
+    direct_result = await db.execute(
+        select(LotOwnerEmail)
+        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        .where(
+            LotOwnerEmail.email == voter_email,
+            LotOwnerEmail.lot_owner_id == lot_owner_id,
+            LotOwner.building_id == building_id,
+        )
+    )
+    if direct_result.scalar_one_or_none() is not None:
+        return
+
+    # Check proxy ownership
+    proxy_result = await db.execute(
+        select(LotProxy)
+        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        .where(
+            LotProxy.proxy_email == voter_email,
+            LotProxy.lot_owner_id == lot_owner_id,
+            LotOwner.building_id == building_id,
+        )
+    )
+    if proxy_result.scalar_one_or_none() is not None:
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail="You are not authorised to access this lot's draft",
+    )
+
+
 @router.put("/general-meeting/{general_meeting_id}/draft", response_model=DraftSaveResponse)
 async def save_draft_endpoint(
     general_meeting_id: uuid.UUID,
@@ -151,6 +195,26 @@ async def save_draft_endpoint(
 ) -> DraftSaveResponse:
     """Auto-save a single motion's draft selection. Requires valid session."""
     session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
+
+    # Ownership check: when lot_owner_id is supplied, verify it belongs to the
+    # authenticated voter.  Without this check a voter with a valid session could
+    # overwrite another voter's draft by supplying an arbitrary lot_owner_id.
+    #
+    # When lot_owner_id is None the service filters by voter_email only.
+    # The DELETE path (choice=None) is safe without a lot_owner_id because no new
+    # Vote row is inserted; the UPDATE path finds an existing draft by voter_email.
+    # Inserting a new Vote with lot_owner_id=None is blocked by a DB NOT NULL
+    # constraint, so the None path cannot create orphaned rows.
+    # The None case is preserved for backward compatibility with older frontend
+    # clients that do not yet supply lot_owner_id on every call.
+    if body.lot_owner_id is not None:
+        meeting_result = await db.execute(
+            select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id)
+        )
+        meeting = meeting_result.scalar_one_or_none()
+        if meeting is None:  # pragma: no cover — session existence implies meeting exists
+            raise HTTPException(status_code=404, detail="General Meeting not found")
+        await _verify_lot_ownership(db, session.voter_email, body.lot_owner_id, meeting.building_id)
 
     await save_draft(
         db=db,
@@ -174,6 +238,17 @@ async def get_drafts_endpoint(
 ) -> DraftsResponse:
     """Return all saved draft choices for the voter. Requires valid session."""
     session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
+
+    # When a specific lot_owner_id is requested, verify it belongs to this voter
+    # to prevent cross-voter draft reads.
+    if lot_owner_id is not None:
+        meeting_result = await db.execute(
+            select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id)
+        )
+        meeting = meeting_result.scalar_one_or_none()
+        if meeting is None:  # pragma: no cover — session existence implies meeting exists
+            raise HTTPException(status_code=404, detail="General Meeting not found")
+        await _verify_lot_ownership(db, session.voter_email, lot_owner_id, meeting.building_id)
 
     drafts = await get_drafts(
         db=db,

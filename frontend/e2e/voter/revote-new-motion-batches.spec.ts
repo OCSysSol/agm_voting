@@ -156,8 +156,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     // A lot is unlocked when its checkbox is enabled and there is no "Already submitted" badge.
     const sidebar = page.locator(".voting-layout__sidebar");
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
 
     await expect(lotACheckbox).toBeEnabled({ timeout: 10000 });
     await expect(lotBCheckbox).toBeEnabled({ timeout: 10000 });
@@ -255,8 +255,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     // BUG-NM-01-B caused this to fail on the second batch cycle.
     const sidebar = page.locator(".voting-layout__sidebar");
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
 
     await expect(lotACheckbox).toBeEnabled({ timeout: 10000 });
     await expect(lotBCheckbox).toBeEnabled({ timeout: 10000 });

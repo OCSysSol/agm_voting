@@ -16,13 +16,13 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage() {
+function renderPage(initialSearch = "") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[`/admin/buildings${initialSearch}`]}>
         <BuildingsPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -184,6 +184,27 @@ describe("BuildingsPage", () => {
     expect(screen.getByText("Manager email is required.")).toBeInTheDocument();
   });
 
+  it("shows error when manager email is malformed on submit", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Test Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "notanemail");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
+  });
+
+  it("controls div has flexWrap wrap style for mobile wrapping", () => {
+    renderPage();
+    const toggle = screen.getByLabelText("Show archived");
+    // The toggle is inside the controls div — walk up to the parent div
+    const controlsDiv = toggle.closest("label")?.parentElement as HTMLElement;
+    expect(controlsDiv).toHaveStyle({ flexWrap: "wrap" });
+  });
+
   // --- Happy path submit ---
 
   it("submits the form and closes modal on success", async () => {
@@ -246,9 +267,25 @@ describe("BuildingsPage", () => {
 
   // --- Show archived toggle ---
 
-  it("hides archived buildings by default", async () => {
+  it("hides archived buildings by default (server sends is_archived=false)", async () => {
+    // Default handler filters by is_archived=false — Active Tower returns, Old Tower is archived and excluded
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 1 });
+        }
+        return HttpResponse.json({ count: 2 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json([
+            { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
+          ]);
+        }
         return HttpResponse.json([
           { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
           { id: "b2", name: "Old Tower", manager_email: "o@test.com", is_archived: true, created_at: "2023-01-01T00:00:00Z" },
@@ -262,9 +299,25 @@ describe("BuildingsPage", () => {
     expect(screen.queryByText("Old Tower")).not.toBeInTheDocument();
   });
 
-  it("shows archived buildings when toggle is checked", async () => {
+  it("shows archived buildings when toggle is checked (server receives no is_archived filter)", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 1 });
+        }
+        // no is_archived param → all buildings
+        return HttpResponse.json({ count: 2 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json([
+            { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
+          ]);
+        }
         return HttpResponse.json([
           { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
           { id: "b2", name: "Old Tower", manager_email: "o@test.com", is_archived: true, created_at: "2023-01-01T00:00:00Z" },
@@ -277,13 +330,15 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Tower")).toBeInTheDocument();
     });
     await user.click(screen.getByLabelText("Show archived"));
-    expect(screen.getByText("Old Tower")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Old Tower")).toBeInTheDocument();
+    });
     expect(screen.getByText("Active Tower")).toBeInTheDocument();
   });
 
   it("resets table to page 1 when Show archived filter is toggled", async () => {
-    // 21 active buildings + 1 archived — enough for 2 pages when only active shown (21 active)
-    // and also enough for 2 pages when all shown (22 total)
+    // 21 active buildings — enough for 2 pages when only active shown
+    // toggling archived changes the query key, resetting to page 1
     const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
       id: `active-${i + 1}`,
       name: `Active Building ${i + 1}`,
@@ -299,8 +354,21 @@ describe("BuildingsPage", () => {
       created_at: "2023-01-01T00:00:00Z",
     };
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([...activeBuildings, archivedBuilding]);
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 21 });
+        }
+        return HttpResponse.json({ count: 22 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        const all = isArchivedParam === "false" ? activeBuildings : [...activeBuildings, archivedBuilding];
+        return HttpResponse.json(all.slice(offset, offset + limit));
       })
     );
 
@@ -312,12 +380,14 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
 
-    // Navigate to page 2 (Active Building 21 is on page 2) — two "2" buttons exist (top + bottom)
-    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
-    expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    // Navigate to page 2 (Active Building 21 is on page 2)
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
     expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
 
-    // Toggle "Show archived" — visibleBuildings length changes (21 → 22)
+    // Toggle "Show archived" — query changes, page resets to 1
     await user.click(screen.getByLabelText("Show archived"));
 
     // Table should have reset to page 1
@@ -325,6 +395,168 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
     expect(screen.queryByText("Active Building 21")).not.toBeInTheDocument();
+  });
+
+  // --- RR2-06: URL params for page ---
+
+  it("renders page 1 by default (no page param in URL)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    });
+    // No error — page defaults to 1
+    expect(screen.queryByText("Failed to load buildings.")).not.toBeInTheDocument();
+  });
+
+  it("navigates to page 2 via pagination and updates URL param", async () => {
+    const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
+      id: `active-${i + 1}`,
+      name: `Active Building ${i + 1}`,
+      manager_email: `a${i + 1}@test.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(activeBuildings.slice(offset, offset + limit));
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+    // Click page 2 — should remove page=1 from URL (or set page=2)
+    await user.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
+    // Navigate back to page 1 via Previous button — should delete page param
+    await user.click(screen.getAllByRole("button", { name: "Previous page" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+  });
+
+  it("defaults to page 1 when page URL param is not a valid number", async () => {
+    renderPage("?page=abc");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    });
+    // No error — invalid page defaults to 1
+    expect(screen.queryByText("Failed to load buildings.")).not.toBeInTheDocument();
+  });
+
+  it("reads page=2 from URL and loads page 2", async () => {
+    const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
+      id: `active-${i + 1}`,
+      name: `Active Building ${i + 1}`,
+      manager_email: `a${i + 1}@test.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(activeBuildings.slice(offset, offset + limit));
+      })
+    );
+    renderPage("?page=2");
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
+  });
+
+  // --- US-ACC-02: Focus trap in New Building modal ---
+
+  it("pressing Escape key closes the New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+  });
+
+  it("Tab key wraps focus from last to first element in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const createBtn = screen.getByRole("button", { name: "Create Building" });
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    // Tab past last focusable (Cancel) should wrap to first
+    cancelBtn.focus();
+    await user.tab();
+    // First focusable is Building Name input
+    expect(screen.getByLabelText("Building Name")).toHaveFocus();
+    // Tab past Create Building (last before Cancel) wraps
+    createBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("Shift+Tab from first element wraps to last in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const nameInput = screen.getByLabelText("Building Name");
+    nameInput.focus();
+    await user.tab({ shift: true });
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("modal shows Required field legend", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
+  // --- US-ACC-08: Required field markers ---
+
+  it("building name input in modal has aria-required=true", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByLabelText("Building Name")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("manager email input in modal has aria-required=true", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByLabelText("Manager Email")).toHaveAttribute("aria-required", "true");
   });
 
   // --- Error state ---
@@ -338,6 +570,145 @@ describe("BuildingsPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Failed to load buildings.")).toBeInTheDocument();
+    });
+  });
+
+  // --- Sort functionality ---
+
+  it("renders sortable Name and Created At column headers", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Created At/ })).toBeInTheDocument();
+  });
+
+  it("Created At header shows ▼ indicator by default (desc sort)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    const createdBtn = screen.getByRole("button", { name: /Created At/ });
+    expect(createdBtn.textContent).toContain("▼");
+  });
+
+  it("clicking Name header updates URL with sort_by=name&sort_dir=asc", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Name/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ }).closest("th")).toHaveAttribute("aria-sort", "ascending");
+    });
+  });
+
+  it("clicking Name header again toggles to descending", async () => {
+    const user = userEvent.setup();
+    renderPage("?sort_by=name&sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Name/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ }).closest("th")).toHaveAttribute("aria-sort", "descending");
+    });
+  });
+
+  it("reads sort_by=name from URL and shows ascending indicator on Name", async () => {
+    renderPage("?sort_by=name&sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    const nameBtn = screen.getByRole("button", { name: /Name/ });
+    expect(nameBtn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("sort change resets page to 1 (sends request without page param)", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 21 })
+      ),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        const data = Array.from({ length: 21 }, (_, i) => ({
+          id: `b${i + 1}`,
+          name: `Building ${i + 1}`,
+          manager_email: `b${i + 1}@test.com`,
+          is_archived: false,
+          created_at: "2024-01-01T00:00:00Z",
+        }));
+        return HttpResponse.json(data.slice(offset, offset + limit));
+      })
+    );
+    renderPage("?page=2");
+    await waitFor(() => {
+      expect(screen.getByText("Building 21")).toBeInTheDocument();
+    });
+    // Click Name to change sort — page should reset to 1
+    await user.click(screen.getByRole("button", { name: /Name/ }));
+    await waitFor(() => {
+      expect(screen.getByText("Building 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Building 21")).not.toBeInTheDocument();
+  });
+
+  it("shows error state when sort_by is invalid and server returns 422", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json({ detail: "Invalid sort_by value" }, { status: 422 });
+      })
+    );
+    renderPage("?sort_by=INVALID");
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load buildings.")).toBeInTheDocument();
+    });
+  });
+
+  it("clicking same Name column while asc toggles to desc (sortDir=asc branch)", async () => {
+    const user = userEvent.setup();
+    // Start with name asc
+    renderPage("?sort_by=name&sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    });
+    // Click same column while asc → toggles to desc
+    await user.click(screen.getByRole("button", { name: /Name/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ }).closest("th")).toHaveAttribute("aria-sort", "descending");
+    });
+  });
+
+  it("clicking same Name column while desc toggles to asc (sortDir=desc branch)", async () => {
+    const user = userEvent.setup();
+    // Start with name desc
+    renderPage("?sort_by=name&sort_dir=desc");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ })).toBeInTheDocument();
+    });
+    // Click same column while desc → toggles to asc
+    await user.click(screen.getByRole("button", { name: /Name/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Name/ }).closest("th")).toHaveAttribute("aria-sort", "ascending");
+    });
+  });
+
+  it("clicking Created At from name column uses desc as default direction", async () => {
+    const user = userEvent.setup();
+    // Start with name active
+    renderPage("?sort_by=name&sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Created At/ })).toBeInTheDocument();
+    });
+    // Click Created At (different column, date type → default desc)
+    await user.click(screen.getByRole("button", { name: /Created At/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Created At/ }).closest("th")).toHaveAttribute("aria-sort", "descending");
     });
   });
 });

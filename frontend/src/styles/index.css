@@ -183,6 +183,13 @@ button, input, select, textarea {
   margin-bottom: 6px;
 }
 
+/* US-ACC-08: Required field visual marker via CSS — does not affect accessible name */
+.field__label--required::after {
+  content: " *";
+  color: var(--red);
+  aria-hidden: true; /* CSS pseudo-elements are already hidden from accessibility tree */
+}
+
 .field__input {
   width: 100%;
   padding: 11px 14px;
@@ -410,6 +417,11 @@ button, input, select, textarea {
   transform: scale(0.93) translateY(2px);
 }
 
+.vote-btn:focus-visible {
+  outline: 3px solid var(--navy);
+  outline-offset: 2px;
+}
+
 .vote-btn:disabled {
   opacity: 0.38;
   cursor: not-allowed;
@@ -526,6 +538,16 @@ button, input, select, textarea {
 .motion-card--highlight {
   border-color: var(--amber);
   background: var(--amber-bg);
+  border-left: 4px solid var(--amber);
+}
+
+.motion-card--read-only {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.motion-card--read-only .vote-btn {
+  cursor: not-allowed;
 }
 
 .motion-card__number {
@@ -595,6 +617,19 @@ button, input, select, textarea {
   background: #F0EFEE;
   color: var(--text-primary);
   border: 1px solid var(--border);
+}
+
+.motion-card__unanswered-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid var(--amber);
 }
 
 .motion-type-badge--hidden {
@@ -1440,6 +1475,13 @@ button, input, select, textarea {
   vertical-align: middle;
 }
 
+/* Drag handle cell — ensure the cell itself does not constrain the 44px touch target */
+.admin-table__drag-handle {
+  padding: 0;
+  width: 44px;
+  text-align: center;
+}
+
 .admin-table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -1463,6 +1505,37 @@ button, input, select, textarea {
 
 .admin-table__link:hover {
   border-bottom-color: var(--navy);
+}
+
+/* === SORTABLE COLUMN HEADERS === */
+.admin-table__sort-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+}
+.admin-table__sort-btn:hover {
+  color: var(--text-primary);
+}
+.admin-table__sort-btn .sort-indicator {
+  font-size: 0.65rem;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.admin-table__sort-btn .sort-indicator--active {
+  color: var(--text-primary);
+  opacity: 1;
 }
 
 /* === PAGINATION === */
@@ -1969,6 +2042,15 @@ button, input, select, textarea {
   font-size: 0.9375rem;
 }
 
+.lot-selection__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 44px; /* WCAG 2.5.8: minimum touch target size */
+  padding: 4px 0;
+}
+
 .lot-selection__checkbox {
   flex-shrink: 0;
   width: 16px;
@@ -2150,4 +2232,23 @@ button, input, select, textarea {
   font-size: 0.875rem;
   color: var(--text-secondary);
   text-align: center;
+}
+
+/* === ACCESSIBILITY === */
+
+/* US-ACC-07: Skip-to-main-content link — hidden off-screen, visible on focus */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--navy);
+  color: var(--gold-light);
+  border-radius: var(--r-md);
+  font-weight: bold;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 8px;
 }

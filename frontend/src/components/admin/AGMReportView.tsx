@@ -30,12 +30,15 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 }: AGMReportViewProps) {
   function handleExportCSV() {
-    const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE)"];
+    const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE),Voter Email"];
     for (const motion of motions) {
       const motionLabel = `${motion.motion_number?.trim() || String(motion.display_order)}. ${motion.title.replace(/"/g, '""')}`;
       for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
         for (const v of motion.voter_lists[cat]) {
-          rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement}`);
+          const emailCell = v.proxy_email
+            ? `${v.voter_email || ""} (proxy)`
+            : (v.voter_email || "");
+          rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
         }
       }
     }

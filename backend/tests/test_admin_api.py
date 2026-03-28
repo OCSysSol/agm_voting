@@ -5477,8 +5477,8 @@ class TestGetGeneralMeetingDetailEffectiveStatus:
 
 @pytest.mark.asyncio
 class TestCloseAGMAbsentRecords:
-    """Closing a GeneralMeeting does NOT create BallotSubmission records for absent lots.
-    Absent lots are computed by the tally as eligible - submitted."""
+    """Closing a GeneralMeeting creates absent BallotSubmission records (is_absent=True)
+    for lots that did not vote, capturing contact emails as a snapshot."""
 
     async def _make_agm_with_lots(
         self, db_session: AsyncSession, name: str, n_lots: int = 2
@@ -5528,11 +5528,11 @@ class TestCloseAGMAbsentRecords:
 
     # --- Happy path ---
 
-    async def test_close_does_not_create_absent_submissions_for_non_voters(
+    async def test_close_creates_absent_submission_for_non_voters(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Lots with no BallotSubmission must NOT get an absent BallotSubmission on close.
-        The tally computes absent = eligible - submitted without needing phantom records."""
+        """Lots that did not vote get an absent BallotSubmission (is_absent=True) on close.
+        The voter_email contains the lot's contact emails as a snapshot."""
         _, agm, lots, _ = await self._make_agm_with_lots(
             db_session, "AbsentHappy1", n_lots=2
         )
@@ -5541,7 +5541,7 @@ class TestCloseAGMAbsentRecords:
         bs = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lots[0].id,
-            voter_email=f"voter1@AbsentHappy1.test",
+            voter_email="voter1@AbsentHappy1.test",
         )
         db_session.add(bs)
         await db_session.commit()
@@ -5549,7 +5549,8 @@ class TestCloseAGMAbsentRecords:
         response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
-        # lots[1] did not vote — must have NO BallotSubmission after close
+        # lots[1] did not vote — must have an absent BallotSubmission after close
+        await db_session.refresh(lots[1])
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
                 BallotSubmission.general_meeting_id == agm.id,
@@ -5557,7 +5558,9 @@ class TestCloseAGMAbsentRecords:
             )
         )
         absent_sub = subs_result.scalar_one_or_none()
-        assert absent_sub is None
+        assert absent_sub is not None
+        assert absent_sub.is_absent is True
+        assert "voter2@AbsentHappy1.test" in absent_sub.voter_email
 
     async def test_close_tally_shows_absent_lot_in_absent_not_abstained(
         self, client: AsyncClient, db_session: AsyncSession
@@ -5602,7 +5605,7 @@ class TestCloseAGMAbsentRecords:
     async def test_close_does_not_duplicate_existing_submissions(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """A lot that already has a BallotSubmission must not get a second one."""
+        """A lot that already has a real BallotSubmission (is_absent=False) must not get a second one."""
         _, agm, lots, _ = await self._make_agm_with_lots(
             db_session, "AbsentNoDup1", n_lots=1
         )
@@ -5623,6 +5626,7 @@ class TestCloseAGMAbsentRecords:
                 BallotSubmission.lot_owner_id == lots[0].id,
             )
         )
+        # Only the original voted submission — no absent duplicate
         assert len(list(subs_result.scalars().all())) == 1
 
     async def test_close_agm_with_no_lot_weights_no_absent_records(
@@ -5673,10 +5677,10 @@ class TestCloseAGMAbsentRecords:
         assert summary.status_code == 200
         assert summary.json()["total_submitted"] == 1
 
-    async def test_close_agm_lot_with_no_ballot_stays_absent_in_tally(
+    async def test_close_agm_lot_with_no_emails_gets_absent_record_with_empty_voter_email(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """A lot with no BallotSubmission after close appears as absent in the tally."""
+        """A lot with no registered emails gets an absent BallotSubmission with empty voter_email."""
         b = Building(name="NoEmail Building", manager_email="ne@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -5703,7 +5707,7 @@ class TestCloseAGMAbsentRecords:
         response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
-        # No BallotSubmission created for the absent lot
+        # Absent BallotSubmission IS created, with empty voter_email
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
                 BallotSubmission.general_meeting_id == agm.id,
@@ -5711,7 +5715,9 @@ class TestCloseAGMAbsentRecords:
             )
         )
         sub = subs_result.scalar_one_or_none()
-        assert sub is None
+        assert sub is not None
+        assert sub.is_absent is True
+        assert sub.voter_email == ""
 
 
 # ---------------------------------------------------------------------------
@@ -5778,6 +5784,15 @@ class TestGetGeneralMeetingDetailAbsentBehaviour:
             lot_owner_id=lo_voted.id,
             voter_email=f"voted@{name}.test",
         ))
+        # For closed meetings, manually create absent BallotSubmission for the non-voter
+        # (the close endpoint would normally create this, but here we set status directly)
+        if status == GeneralMeetingStatus.closed:
+            db_session.add(BallotSubmission(
+                general_meeting_id=agm.id,
+                lot_owner_id=lo_absent.id,
+                voter_email=f"absent@{name}.test",
+                is_absent=True,
+            ))
         await db_session.commit()
         return agm
 
@@ -6312,9 +6327,9 @@ class TestReorderMotions:
         """Reordering motions must not change their motion_number values.
 
         Uses the auto-assign feature: create two motions without explicit
-        motion_number so the backend assigns "0" and "1" respectively.
+        motion_number so the backend assigns "1" and "2" respectively.
         After reversing the display order, the motion_number values must
-        remain "0" and "1" tied to their original motions.
+        remain "1" and "2" tied to their original motions.
         """
         from app.models import Building as _Building, GeneralMeeting as _GM, Motion as _Motion, GeneralMeetingStatus as _GMS, MotionType as _MT
         from datetime import timezone
@@ -6333,13 +6348,13 @@ class TestReorderMotions:
         await db_session.commit()
         await db_session.refresh(agm)
 
-        # Add two motions without motion_number — backend auto-assigns "0" and "1"
+        # Add two motions without motion_number — backend auto-assigns "1" and "2"
         r1 = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "First Motion"},
         )
         assert r1.status_code == 201
-        assert r1.json()["motion_number"] == "0"
+        assert r1.json()["motion_number"] == "1"
         m1_id = r1.json()["id"]
 
         r2 = await client.post(
@@ -6347,7 +6362,7 @@ class TestReorderMotions:
             json={"title": "Second Motion"},
         )
         assert r2.status_code == 201
-        assert r2.json()["motion_number"] == "1"
+        assert r2.json()["motion_number"] == "2"
         m2_id = r2.json()["id"]
 
         # Reverse the display order
@@ -6363,15 +6378,15 @@ class TestReorderMotions:
         assert response.status_code == 200
         returned = response.json()["motions"]
 
-        # m2 is now first (display_order=1), but its motion_number is still "1"
+        # m2 is now first (display_order=1), but its motion_number is still "2"
         assert returned[0]["id"] == m2_id
         assert returned[0]["display_order"] == 1
-        assert returned[0]["motion_number"] == "1"
+        assert returned[0]["motion_number"] == "2"
 
-        # m1 is now second (display_order=2), but its motion_number is still "0"
+        # m1 is now second (display_order=2), but its motion_number is still "1"
         assert returned[1]["id"] == m1_id
         assert returned[1]["display_order"] == 2
-        assert returned[1]["motion_number"] == "0"
+        assert returned[1]["motion_number"] == "1"
 
 
 class TestToggleMotionVisibility:
@@ -6852,14 +6867,14 @@ class TestMotionManagement:
     async def test_add_motion_first_motion_order_index_zero(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """First motion on a meeting with no existing motions gets display_order=0."""
+        """First motion on a meeting with no existing motions gets display_order=1 (1-based)."""
         agm = await self._create_meeting(db_session, "FirstMotion")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "First"},
         )
         assert response.status_code == 201
-        assert response.json()["display_order"] == 0
+        assert response.json()["display_order"] == 1
 
     async def test_add_motion_order_index_increments(
         self, client: AsyncClient, db_session: AsyncSession
@@ -6876,7 +6891,7 @@ class TestMotionManagement:
     async def test_add_multiple_motions_sequential_order_indexes(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Adding 3 motions results in display_orders 0, 1, 2 with no constraint violations."""
+        """Adding 3 motions results in display_orders 1, 2, 3 (1-based) with no constraint violations."""
         agm = await self._create_meeting(db_session, "SeqOrder")
         indexes = []
         for i in range(3):
@@ -6886,7 +6901,7 @@ class TestMotionManagement:
             )
             assert r.status_code == 201
             indexes.append(r.json()["display_order"])
-        assert indexes == [0, 1, 2]
+        assert indexes == [1, 2, 3]
 
     async def test_add_motion_motion_type_defaults_to_general(
         self, client: AsyncClient, db_session: AsyncSession
@@ -6962,7 +6977,7 @@ class TestMotionManagement:
     async def test_add_motion_without_motion_number_auto_assigns_display_order(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """When motion_number is omitted, it is auto-assigned to str(display_order)."""
+        """When motion_number is omitted on empty meeting, auto-assigns '1' (1-based)."""
         agm = await self._create_meeting(db_session, "AddNoMotionNumber")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
@@ -6970,22 +6985,22 @@ class TestMotionManagement:
         )
         assert response.status_code == 201
         data = response.json()
-        # display_order is 0 for the first motion on an empty meeting
-        assert data["display_order"] == 0
-        assert data["motion_number"] == "0"
+        # display_order is 1 for the first motion on an empty meeting (1-based)
+        assert data["display_order"] == 1
+        assert data["motion_number"] == "1"
 
     async def test_add_motion_whitespace_motion_number_auto_assigned(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Whitespace-only motion_number is treated as absent — auto-assigned from display_order."""
+        """Whitespace-only motion_number is treated as absent — auto-assigns '1' for first motion."""
         agm = await self._create_meeting(db_session, "AddWhitespaceNumber")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Whitespace Number Motion", "motion_number": "   "},
         )
         assert response.status_code == 201
-        # Whitespace is treated same as omitted — auto-assigns from display_order (0 for first motion)
-        assert response.json()["motion_number"] == "0"
+        # Whitespace is treated same as omitted — auto-assigns '1' for first motion on empty meeting
+        assert response.json()["motion_number"] == "1"
 
     # --- State / precondition errors (duplicate motion_number) ---
 
@@ -7024,22 +7039,22 @@ class TestMotionManagement:
     async def test_add_motion_two_omitted_numbers_auto_assigns_sequential(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Adding two motions without motion_number auto-assigns sequential display_order strings."""
+        """Adding two motions without motion_number auto-assigns sequential 1-based numbers."""
         agm = await self._create_meeting(db_session, "AutoSeqMotionNum")
         r1 = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "First Auto Number"},
         )
         assert r1.status_code == 201
-        # First motion gets display_order=0 → motion_number="0"
-        assert r1.json()["motion_number"] == "0"
+        # First motion on empty meeting → motion_number="1"
+        assert r1.json()["motion_number"] == "1"
         r2 = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Second Auto Number"},
         )
         assert r2.status_code == 201
-        # Second motion gets display_order=1 → motion_number="1"
-        assert r2.json()["motion_number"] == "1"
+        # Second motion → max("1")+1 = "2"
+        assert r2.json()["motion_number"] == "2"
 
     # --- Input validation (add) ---
 
@@ -7216,7 +7231,7 @@ class TestMotionManagement:
         result = await db_session.execute(select(Motion).where(Motion.id == motion_id))
         motion = result.scalar_one_or_none()
         assert motion is not None
-        assert motion.motion_number == "0"
+        assert motion.motion_number == "1"
 
     # --- Happy path (update) ---
 

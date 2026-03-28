@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getGeneralMeetingSummary } from "../api/public";
 import type { GeneralMeetingSummaryData } from "../api/public";
+import { formatLocalDateTime } from "../utils/dateTime";
 
 export default function GeneralMeetingSummaryPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -44,8 +45,8 @@ export default function GeneralMeetingSummaryPage() {
 
       <h1>{meeting.title}</h1>
       <p>Building: {meeting.building_name}</p>
-      <p>Meeting: {new Date(meeting.meeting_at).toLocaleString()}</p>
-      <p>Voting closes: {new Date(meeting.voting_closes_at).toLocaleString()}</p>
+      <p>Meeting: {formatLocalDateTime(meeting.meeting_at)}</p>
+      <p>Voting closes: {formatLocalDateTime(meeting.voting_closes_at)}</p>
       <p>
         Status:{" "}
         <span>{meeting.status === "open" ? "Open" : "Closed"}</span>

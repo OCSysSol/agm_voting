@@ -5,6 +5,7 @@ Admin authentication endpoints and require_admin dependency.
   GET  /api/admin/auth/me
   POST /api/admin/auth/hash-password  (dev-only helper)
 """
+import hmac
 from datetime import UTC, datetime, timedelta
 
 import bcrypt as _bcrypt_lib
@@ -86,13 +87,15 @@ async def admin_login(
         )
 
     # --- Credential verification ---
+    # Use timing-safe comparison for both username and password so that a wrong
+    # username does not short-circuit before bcrypt runs — preventing a timing
+    # oracle that could enumerate valid usernames.
     try:
-        valid = (
-            data.username == settings.admin_username
-            and _verify_admin_password(data.password, settings.admin_password)
-        )
+        valid_username = hmac.compare_digest(data.username, settings.admin_username)
+        valid_password = _verify_admin_password(data.password, settings.admin_password)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+    valid = valid_username and valid_password
 
     if not valid:
         # Record the failed attempt

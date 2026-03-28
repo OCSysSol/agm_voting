@@ -61,9 +61,14 @@ test.describe("Voter flow", () => {
     await page.goto("/");
     await expect(page.getByLabel("Select your building")).toBeVisible();
 
-    // Filter out known benign browser noise (e.g. favicon 404s)
+    // Filter out known benign browser noise (e.g. favicon 404s, blob 403s)
     const realErrors = consoleErrors.filter(
-      (e) => !e.includes("favicon") && !e.includes("net::ERR_ABORTED")
+      (e) =>
+        !e.includes("favicon") &&
+        !e.includes("net::ERR_ABORTED") &&
+        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
+        !/blob\.vercel-storage\.com/i.test(e) &&
+        !/net::ERR_FAILED.*403/i.test(e)
     );
     expect(realErrors).toHaveLength(0);
   });
@@ -104,7 +109,12 @@ test.describe("Admin flow", () => {
     await expect(page.getByLabel("Password")).toBeVisible();
 
     const realErrors = consoleErrors.filter(
-      (e) => !e.includes("favicon") && !e.includes("net::ERR_ABORTED")
+      (e) =>
+        !e.includes("favicon") &&
+        !e.includes("net::ERR_ABORTED") &&
+        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
+        !/blob\.vercel-storage\.com/i.test(e) &&
+        !/net::ERR_FAILED.*403/i.test(e)
     );
     expect(realErrors).toHaveLength(0);
   });

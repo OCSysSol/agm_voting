@@ -49,6 +49,8 @@ Key decisions that must not be inadvertently reversed:
 
 Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain under the service name `agm-survey`.
 
+**Operational docs:** Service level objectives are defined in [`docs/slo.md`](docs/slo.md). Incident runbooks are in [`docs/runbooks/`](docs/runbooks/).
+
 ---
 
 ## Codebase Structure
@@ -186,6 +188,29 @@ Auto-extracted from the TOCS management system. Contains Administrative Fund and
 Key columns: `Lot#` -> `LotOwner.lot_number`, `Closing Balance` -> determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
 Multiple fund sections: worst-case across all sections (arrears in any -> `in_arrear`).
 51 lots (lot numbers 1-51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
+
+---
+
+## Agent Configuration
+
+These fields are read by the generic agent definitions. Values here override user-level agent defaults.
+
+| Key | Value |
+|-----|-------|
+| `stack` | React (Vite) · FastAPI · PostgreSQL · SQLAlchemy · Alembic |
+| `backend_dir` | `backend` |
+| `frontend_dir` | `frontend` |
+| `test_backend` | `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test uv run pytest tests/ --cov=app --cov-fail-under=100 -q` |
+| `test_frontend` | `cd frontend && npm run test:coverage` |
+| `e2e_command` | `cd frontend && npx playwright test` |
+| `worktree_root` | `/Users/stevensun/personal/agm_survey/.worktree` |
+| `preview_url_pattern` | `https://agm-voting-git-<branch>-ocss.vercel.app` |
+| `schema_migration_tool` | `alembic` |
+| `container_tool` | `podman` |
+| `neon_project_id` | `divine-dust-41291876` |
+| `vercel_project_id` | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
+| `real_data_patterns` | `"The Vale", "SBT", "Sandridge Bay Towers"` |
+| `test_data_patterns` | `WF*, E2E*, Test*, Delete Test*` |
 
 ---
 

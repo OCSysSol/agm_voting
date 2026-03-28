@@ -3,19 +3,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { addLotOwner, updateLotOwner, addEmailToLotOwner, removeEmailFromLotOwner, setLotOwnerProxy, removeLotOwnerProxy } from "../../api/admin";
 import type { LotOwner } from "../../types";
 import type { LotOwnerCreateRequest, LotOwnerUpdateRequest } from "../../api/admin";
+import { isValidEmail } from "../../utils/validation";
 
 interface LotOwnerFormProps {
   buildingId: string;
   editTarget: LotOwner | null;
   onSuccess: () => void;
   onCancel: () => void;
-}
-
-// ---------------------------------------------------------------------------
-// Simple email format validator
-// ---------------------------------------------------------------------------
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +170,7 @@ function EditModal({
 
   function handleAddEmail() {
     setEmailError(null);
-    const trimmed = newEmail.trim();
+    const trimmed = newEmail.trim().toLowerCase();
     if (!trimmed) {
       setEmailError("Email is required.");
       return;
@@ -190,10 +184,6 @@ function EditModal({
 
   function handleRemoveEmail(email: string) {
     setEmailError(null);
-    if (emails.length <= 1) {
-      setEmailError("A lot owner must have at least one email address.");
-      return;
-    }
     removeEmailMutation.mutate(email);
   }
 
@@ -472,14 +462,14 @@ function AddForm({
       setFormError("Lot number is required.");
       return;
     }
-    if (!email.trim()) {
-      setFormError("Email is required.");
+    if (email.trim() && !isValidEmail(email)) {
+      setFormError("Please enter a valid email address.");
       return;
     }
 
     addMutation.mutate({
       lot_number: lotNumber,
-      emails: [email],
+      emails: email.trim() ? [email.trim().toLowerCase()] : [],
       unit_entitlement: parsed,
       financial_position: financialPosition,
     });
@@ -537,6 +527,7 @@ function AddForm({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
+            <span className="field__hint">Leave blank if no email address</span>
           </div>
 
           <div className="field">

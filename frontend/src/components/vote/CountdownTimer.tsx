@@ -38,6 +38,7 @@ export function CountdownTimer({ closesAt, serverTime }: CountdownTimerProps) {
       aria-live="polite"
       className={`agm-header__timer${isWarning ? " agm-header__timer--warning" : ""}`}
     >
+      {isWarning && <span aria-hidden="true">! </span>}
       {pad(hours)}:{pad(minutes)}:{pad(seconds)}
     </div>
   );

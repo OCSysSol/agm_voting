@@ -31,7 +31,7 @@ export function AuthForm({
       return;
     }
     setEmailError("");
-    onRequestOtp(email.trim());
+    onRequestOtp(email.trim().toLowerCase());
   };
 
   const handleVerify = (e: React.FormEvent) => {
@@ -78,8 +78,11 @@ export function AuthForm({
 
         {step === "email" && (
           <form onSubmit={handleRequestOtp} noValidate>
+            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
             <div className="field">
-              <label className="field__label" htmlFor="email">Email address</label>
+              <label className="field__label field__label--required" htmlFor="email">Email address</label>
               <input
                 id="email"
                 className="field__input"
@@ -88,6 +91,8 @@ export function AuthForm({
                 onChange={(e) => setEmail(e.target.value)}
                 aria-invalid={!!emailError}
                 aria-describedby={emailError ? "email-error" : undefined}
+                aria-required="true"
+                required
                 placeholder="your@email.com"
               />
               {emailError && (
@@ -115,19 +120,31 @@ export function AuthForm({
 
         {step === "code" && (
           <form onSubmit={handleVerify} noValidate>
+            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
+            <p
+              className="auth-card__hint"
+              role="status"
+              aria-live="polite"
+            >
+              Verification code sent to {otpEmail}. Check your email — it may take a minute to arrive.
+            </p>
             <div className="field">
-              <label className="field__label" htmlFor="otp-code">Verification code</label>
+              <label className="field__label field__label--required" htmlFor="otp-code">Verification code</label>
               <input
                 id="otp-code"
                 className="field__input"
                 type="text"
-                inputMode="text"
+                inputMode="numeric"
                 maxLength={20}
                 autoComplete="one-time-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 aria-invalid={!!codeError}
                 aria-describedby={codeError ? "otp-code-error" : undefined}
+                aria-required="true"
+                required
                 placeholder="e.g. ABCD1234"
               />
               {codeError && (

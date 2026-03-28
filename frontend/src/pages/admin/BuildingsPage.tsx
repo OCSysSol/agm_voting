@@ -1,22 +1,95 @@
-import { useState } from "react";
+import { useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { listBuildings, createBuilding } from "../../api/admin";
+import { listBuildings, getBuildingsCount, createBuilding } from "../../api/admin";
 import type { Building } from "../../types";
 import BuildingTable from "../../components/admin/BuildingTable";
+import type { SortDir } from "../../components/admin/SortableColumnHeader";
 import BuildingCSVUpload from "../../components/admin/BuildingCSVUpload";
+import Pagination from "../../components/admin/Pagination";
+import { useState } from "react";
+import { isValidEmail } from "../../utils/validation";
+
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const PAGE_SIZE = 20;
+
+// Text columns default to asc, date columns default to desc
+const DEFAULT_SORT_DIR: Record<string, SortDir> = {
+  name: "asc",
+  created_at: "desc",
+};
 
 export default function BuildingsPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [name, setName] = useState("");
   const [managerEmail, setManagerEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const newBuildingBtnRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // US-ACC-02: Focus trap for New Building modal
+  useEffect(() => {
+    if (!showCreateModal) return;
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) {
+      focusable[0].focus();
+    }
+    return () => {
+      newBuildingBtnRef.current?.focus();
+    };
+  }, [showCreateModal]);
+
+  // RR2-06: Read page from URL search params; default to 1
+  const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
+  const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
+
+  // Sort state from URL search params
+  const sortBy = searchParams.get("sort_by") ?? "created_at";
+  const sortDir = (searchParams.get("sort_dir") ?? "desc") as SortDir;
+
+  const { data: countData } = useQuery<{ count: number }>({
+    queryKey: ["admin", "buildings", "count", showArchived],
+    queryFn: () => getBuildingsCount({ is_archived: showArchived ? undefined : false }),
+  });
+
+  const totalCount = countData?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
 
   const { data: buildings = [], isLoading, error } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings"],
-    queryFn: listBuildings,
+    queryKey: ["admin", "buildings", "list", safePage, showArchived, sortBy, sortDir],
+    queryFn: () =>
+      listBuildings({
+        limit: PAGE_SIZE,
+        offset: (safePage - 1) * PAGE_SIZE,
+        is_archived: showArchived ? undefined : false,
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      }),
   });
+
+  // Prefetch next page
+  useEffect(() => {
+    const nextOffset = safePage * PAGE_SIZE;
+    if (nextOffset < totalCount) {
+      void queryClient.prefetchQuery({
+        queryKey: ["admin", "buildings", "list", safePage + 1, showArchived, sortBy, sortDir],
+        queryFn: () =>
+          listBuildings({
+            limit: PAGE_SIZE,
+            offset: nextOffset,
+            is_archived: showArchived ? undefined : false,
+            sort_by: sortBy,
+            sort_dir: sortDir,
+          }),
+      });
+    }
+  }, [safePage, showArchived, totalCount, queryClient, sortBy, sortDir]);
 
   const mutation = useMutation<Building, Error, { name: string; manager_email: string }>({
     mutationFn: (data) => createBuilding(data),
@@ -29,9 +102,43 @@ export default function BuildingsPage() {
     },
   });
 
-  const visibleBuildings = showArchived
-    ? buildings
-    : buildings.filter((b) => !b.is_archived);
+  // RR2-06: Update URL search param on page change (use replace to avoid polluting history)
+  function handlePageChange(newPage: number) {
+    const next = new URLSearchParams(searchParams);
+    if (newPage === 1) {
+      next.delete("page");
+    } else {
+      next.set("page", String(newPage));
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  function handleShowArchivedChange(checked: boolean) {
+    setShowArchived(checked);
+    // RR2-03: Reset to page 1 when filter changes
+    const next = new URLSearchParams(searchParams);
+    next.delete("page");
+    setSearchParams(next, { replace: true });
+  }
+
+  function handleSortChange(column: string) {
+    const next = new URLSearchParams(searchParams);
+    // Reset page to 1 on sort change
+    next.delete("page");
+    if (column === sortBy) {
+      // Toggle direction
+      const newDir: SortDir = sortDir === "asc" ? "desc" : "asc";
+      next.set("sort_by", column);
+      next.set("sort_dir", newDir);
+    } else {
+      // New column — use its default direction (all valid columns are in DEFAULT_SORT_DIR)
+      /* v8 ignore next -- "asc" fallback is unreachable: all valid sort columns are in DEFAULT_SORT_DIR */
+      const newDir: SortDir = DEFAULT_SORT_DIR[column] !== undefined ? DEFAULT_SORT_DIR[column] : "asc";
+      next.set("sort_by", column);
+      next.set("sort_dir", newDir);
+    }
+    setSearchParams(next, { replace: true });
+  }
 
   function openModal() {
     setName("");
@@ -52,7 +159,26 @@ export default function BuildingsPage() {
     setFormError(null);
     if (!name.trim()) { setFormError("Building name is required."); return; }
     if (!managerEmail.trim()) { setFormError("Manager email is required."); return; }
+    if (!isValidEmail(managerEmail)) { setFormError("Please enter a valid email address."); return; }
     mutation.mutate({ name: name.trim(), manager_email: managerEmail.trim() });
+  }
+
+  function handleModalKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") {
+      closeModal();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    /* c8 ignore next -- defensive guard; the New Building modal always has focusable elements */
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
   }
 
   function handleCSVSuccess() {
@@ -65,19 +191,19 @@ export default function BuildingsPage() {
     <div>
       <div className="admin-page-header">
         <h1>Buildings</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label className="toggle-switch">
             <input
               id="show-archived-toggle"
               className="toggle-switch__input"
               type="checkbox"
               checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
+              onChange={(e) => handleShowArchivedChange(e.target.checked)}
             />
             <span className="toggle-switch__track" />
             Show archived
           </label>
-          <button className="btn btn--primary" onClick={openModal}>
+          <button ref={newBuildingBtnRef} className="btn btn--primary" onClick={openModal}>
             + New Building
           </button>
         </div>
@@ -92,9 +218,11 @@ export default function BuildingsPage() {
           />
           {/* Panel */}
           <div
+            ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-label="New Building"
+            onKeyDown={handleModalKeyDown}
             style={{
               position: "fixed",
               top: "50%",
@@ -109,26 +237,33 @@ export default function BuildingsPage() {
             }}
           >
             <h3 className="admin-card__title">New Building</h3>
-            <form onSubmit={handleSubmit}>
+            <p className="field__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
+            <form onSubmit={handleSubmit} noValidate>
               <div className="field">
-                <label className="field__label" htmlFor="building-name">Building Name</label>
+                <label className="field__label field__label--required" htmlFor="building-name">Building Name</label>
                 <input
                   id="building-name"
                   className="field__input"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  aria-required="true"
+                  required
                   placeholder="e.g. Harbour View Tower"
                 />
               </div>
               <div className="field">
-                <label className="field__label" htmlFor="building-manager-email">Manager Email</label>
+                <label className="field__label field__label--required" htmlFor="building-manager-email">Manager Email</label>
                 <input
                   id="building-manager-email"
                   className="field__input"
                   type="email"
                   value={managerEmail}
                   onChange={(e) => setManagerEmail(e.target.value)}
+                  aria-required="true"
+                  required
                   placeholder="e.g. manager@example.com"
                 />
               </div>
@@ -158,7 +293,32 @@ export default function BuildingsPage() {
       )}
 
       <div className="admin-card">
-        <BuildingTable buildings={visibleBuildings} isLoading={isLoading} />
+        <Pagination
+          page={safePage}
+          totalPages={totalPages}
+          totalItems={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={handlePageChange}
+          isLoading={isLoading}
+        />
+        {/* RR2-07: Show loading overlay while fetching page change */}
+        <div style={{ opacity: isLoading ? 0.5 : 1, transition: "opacity 0.15s" }}>
+          <BuildingTable
+            buildings={buildings}
+            isLoading={isLoading}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSortChange}
+          />
+        </div>
+        <Pagination
+          page={safePage}
+          totalPages={totalPages}
+          totalItems={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={handlePageChange}
+          isLoading={isLoading}
+        />
       </div>
       <BuildingCSVUpload onSuccess={handleCSVSuccess} />
     </div>

@@ -242,17 +242,55 @@ async def create_building(name: str, manager_email: str, db: AsyncSession) -> Bu
     return building
 
 
+_BUILDINGS_TEXT_SORT_COLUMNS = {"name", "manager_email"}
+_BUILDINGS_SORT_COLUMNS = {
+    "name": Building.name,
+    "manager_email": Building.manager_email,
+    "created_at": Building.created_at,
+}
+
+
+def _buildings_order_clause(sort_by: str | None, sort_dir: str | None):
+    key = sort_by or "created_at"
+    col = _BUILDINGS_SORT_COLUMNS.get(key, Building.created_at)
+    # Use func.lower() for text columns to make sorting case-insensitive
+    effective_col = func.lower(col) if key in _BUILDINGS_TEXT_SORT_COLUMNS else col
+    if (sort_dir or "desc") == "asc":
+        return effective_col.asc()
+    return effective_col.desc()
+
+
 async def list_buildings(
     db: AsyncSession,
     limit: int = 100,
     offset: int = 0,
     name: str | None = None,
+    is_archived: bool | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> list[Building]:
-    q = select(Building).order_by(Building.created_at.desc())
+    q = select(Building).order_by(_buildings_order_clause(sort_by, sort_dir))
     if name is not None:
         q = q.where(func.lower(Building.name).contains(name.lower()))
+    if is_archived is not None:
+        q = q.where(Building.is_archived == is_archived)
     result = await db.execute(q.offset(offset).limit(limit))
     return list(result.scalars().all())
+
+
+async def count_buildings(
+    db: AsyncSession,
+    name: str | None = None,
+    is_archived: bool | None = None,
+) -> int:
+    """Return total count of buildings matching the optional name and is_archived filters."""
+    q = select(func.count()).select_from(Building)
+    if name is not None:
+        q = q.where(func.lower(Building.name).contains(name.lower()))
+    if is_archived is not None:
+        q = q.where(Building.is_archived == is_archived)
+    result = await db.execute(q)
+    return result.scalar_one()
 
 
 async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
@@ -365,21 +403,40 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
     )
     owners = list(result.scalars().all())
 
-    # Load emails and proxy for each owner
+    if not owners:
+        return []
+
+    # Batch-load emails and proxies with IN queries — O(1) queries regardless of owner count.
+    owner_ids = [o.id for o in owners]
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+            LotOwnerEmail.lot_owner_id.in_(owner_ids)
+        )
+    )
+    emails_by_owner: dict[uuid.UUID, list[str]] = {}
+    for row in emails_result.all():
+        if row[1] is not None:
+            emails_by_owner.setdefault(row[0], []).append(row[1])
+
+    proxies_result = await db.execute(
+        select(LotProxy.lot_owner_id, LotProxy.proxy_email).where(
+            LotProxy.lot_owner_id.in_(owner_ids)
+        )
+    )
+    proxy_by_owner: dict[uuid.UUID, str | None] = {
+        row[0]: row[1] for row in proxies_result.all()
+    }
+
     out = []
     for owner in owners:
-        emails_result = await db.execute(
-            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
-        )
-        emails = [r[0] for r in emails_result.all() if r[0] is not None]
-        proxy_email = await _get_proxy_email(owner.id, db)
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
-            "emails": emails,
+            "emails": emails_by_owner.get(owner.id, []),
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": owner.financial_position.value if hasattr(owner.financial_position, "value") else owner.financial_position,
-            "proxy_email": proxy_email,
+            "proxy_email": proxy_by_owner.get(owner.id),
         })
     return out
 
@@ -517,7 +574,7 @@ async def import_lot_owners_from_csv(
                 # Use values from first occurrence
                 pass
             for addr in email.split(";"):
-                addr = addr.strip()
+                addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
 
@@ -632,7 +689,7 @@ async def import_lot_owners_from_excel(
                     "emails": set(),
                 }
             for addr in email.split(";"):
-                addr = addr.strip()
+                addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
 
@@ -731,8 +788,9 @@ async def add_lot_owner(
     email_strs = []
     for email in data.emails:
         if email.strip():
-            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=email.strip()))
-            email_strs.append(email.strip())
+            normalised = email.strip().lower()
+            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=normalised))
+            email_strs.append(normalised)
 
     await db.commit()
 
@@ -794,6 +852,8 @@ async def add_email_to_lot_owner(
     lot_owner = result.scalar_one_or_none()
     if lot_owner is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    email = email.strip().lower()
 
     # Check if email already exists for this lot owner
     existing = await db.execute(
@@ -1060,17 +1120,40 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     }
 
 
+_MEETINGS_TEXT_SORT_COLUMNS = {"title"}
+_MEETINGS_SORT_COLUMNS = {
+    "title": GeneralMeeting.title,
+    "created_at": GeneralMeeting.created_at,
+    "meeting_at": GeneralMeeting.meeting_at,
+    "voting_closes_at": GeneralMeeting.voting_closes_at,
+    "status": GeneralMeeting.status,
+}
+
+
+def _meetings_order_clause(sort_by: str | None, sort_dir: str | None):
+    key = sort_by or "created_at"
+    col = _MEETINGS_SORT_COLUMNS.get(key, GeneralMeeting.created_at)
+    # Use func.lower() for text columns to make sorting case-insensitive
+    effective_col = func.lower(col) if key in _MEETINGS_TEXT_SORT_COLUMNS else col
+    if (sort_dir or "desc") == "asc":
+        return effective_col.asc()
+    return effective_col.desc()
+
+
 async def list_general_meetings(
     db: AsyncSession,
     limit: int = 100,
     offset: int = 0,
     name: str | None = None,
     building_id: uuid.UUID | None = None,
+    status: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> list[dict]:
     q = (
         select(GeneralMeeting, Building.name.label("building_name"))
         .join(Building, GeneralMeeting.building_id == Building.id)
-        .order_by(GeneralMeeting.created_at.desc())
+        .order_by(_meetings_order_clause(sort_by, sort_dir))
     )
     if name is not None:
         q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
@@ -1081,19 +1164,57 @@ async def list_general_meetings(
     items = []
     for general_meeting, building_name in rows:
         effective = get_effective_status(general_meeting)
+        effective_str = effective.value if hasattr(effective, "value") else effective
+        # Post-filter by effective status when requested (computed field, not a DB column)
+        if status is not None and effective_str != status:
+            continue
         items.append(
             {
                 "id": general_meeting.id,
                 "building_id": general_meeting.building_id,
                 "building_name": building_name,
                 "title": general_meeting.title,
-                "status": effective.value if hasattr(effective, "value") else effective,
+                "status": effective_str,
                 "meeting_at": general_meeting.meeting_at,
                 "voting_closes_at": general_meeting.voting_closes_at,
                 "created_at": general_meeting.created_at,
             }
         )
     return items
+
+
+async def count_general_meetings(
+    db: AsyncSession,
+    name: str | None = None,
+    building_id: uuid.UUID | None = None,
+    status: str | None = None,
+) -> int:
+    """Return total count of general meetings matching the optional filters."""
+    # When a status filter is applied we must compute effective status in Python,
+    # so we fetch IDs and count them rather than using a SQL COUNT.
+    if status is not None:
+        q = (
+            select(GeneralMeeting)
+            .join(Building, GeneralMeeting.building_id == Building.id)
+        )
+        if name is not None:
+            q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
+        if building_id is not None:
+            q = q.where(GeneralMeeting.building_id == building_id)
+        result = await db.execute(q)
+        meetings = result.scalars().all()
+        return sum(
+            1
+            for m in meetings
+            if (get_effective_status(m).value if hasattr(get_effective_status(m), "value") else get_effective_status(m)) == status
+        )
+    q = select(func.count()).select_from(GeneralMeeting)
+    if name is not None:
+        q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
+    if building_id is not None:
+        q = q.where(GeneralMeeting.building_id == building_id)
+    result = await db.execute(q)
+    return result.scalar_one()
 
 
 async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict:
@@ -1161,13 +1282,19 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     eligible_lot_owner_ids: set[uuid.UUID] = set(lot_entitlement.keys())
     total_eligible_voters = len(eligible_lot_owner_ids)
 
-    # Load ballot submissions
+    # Load ballot submissions — separate actual votes (is_absent=False) from absent records
     submissions_result = await db.execute(
         select(BallotSubmission).where(BallotSubmission.general_meeting_id == general_meeting_id)
     )
     submissions = list(submissions_result.scalars().all())
-    submitted_lot_owner_ids: set[uuid.UUID] = {s.lot_owner_id for s in submissions}
+    # Only real votes count toward submitted_lot_owner_ids and total_submitted
+    voted_submissions = [s for s in submissions if not s.is_absent]
+    submitted_lot_owner_ids: set[uuid.UUID] = {s.lot_owner_id for s in voted_submissions}
     total_submitted = len(submitted_lot_owner_ids)
+    # Absent submissions keyed by lot_owner_id for email lookup
+    absent_submissions: dict[uuid.UUID, BallotSubmission] = {
+        s.lot_owner_id: s for s in submissions if s.is_absent
+    }
 
     # Load submitted votes (joined with lot owner info via voter_email)
     votes_result = await db.execute(
@@ -1184,23 +1311,31 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             "entitlement_sum": sum(lot_entitlement.get(lid, 0) for lid in lot_owner_ids),
         }
 
-    def _lots(lot_owner_ids: set[uuid.UUID]) -> list[dict]:
+    # Build lot_owner_id -> voter_email and proxy_email from voted submissions
+    lot_owner_to_email: dict[uuid.UUID, str] = {sub.lot_owner_id: sub.voter_email for sub in voted_submissions}
+    lot_owner_to_proxy_email: dict[uuid.UUID, str | None] = {sub.lot_owner_id: sub.proxy_email for sub in voted_submissions}
+
+    def _lots(lot_owner_ids: set[uuid.UUID], category: str) -> list[dict]:
         result_list: list[dict] = []
         for lid in lot_owner_ids:
             info = lot_info.get(lid)
             if info:
-                # Use first email as voter_email for backward compat display
-                voter_email = info["emails"][0] if info["emails"] else ""
+                if category == "absent":
+                    # For absent lots, read the snapshot recorded on close
+                    absent_sub = absent_submissions.get(lid)
+                    voter_email = absent_sub.voter_email if absent_sub else ""
+                    proxy_email_val = None  # absent rows don't expose proxy separately in the list
+                else:
+                    # For voted categories, use the actual auth email from BallotSubmission
+                    voter_email = lot_owner_to_email.get(lid, "")
+                    proxy_email_val = lot_owner_to_proxy_email.get(lid)
                 result_list.append({
                     "voter_email": voter_email,
                     "lot_number": info["lot_number"],
                     "entitlement": info["entitlement"],
+                    "proxy_email": proxy_email_val,
                 })
         return result_list
-
-    # Build per-motion tallies - votes now carry lot_owner_id directly
-    # Also build lot_owner_id -> voter_email from submissions for tally
-    lot_owner_to_email: dict[uuid.UUID, str] = {sub.lot_owner_id: sub.voter_email for sub in submissions}
 
     motion_details = []
     for motion in motions:
@@ -1230,7 +1365,8 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 abstained_ids.add(lot_id)
 
         if get_effective_status(general_meeting) == GeneralMeetingStatus.closed:
-            absent_ids: set[uuid.UUID] = eligible_lot_owner_ids - submitted_lot_owner_ids
+            # Absent lots are those with is_absent BallotSubmissions created at close time
+            absent_ids: set[uuid.UUID] = set(absent_submissions.keys())
         else:
             absent_ids: set[uuid.UUID] = set()
 
@@ -1251,11 +1387,11 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "not_eligible": _tally(not_eligible_ids),
                 },
                 "voter_lists": {
-                    "yes": _lots(yes_ids),
-                    "no": _lots(no_ids),
-                    "abstained": _lots(abstained_ids),
-                    "absent": _lots(absent_ids),
-                    "not_eligible": _lots(not_eligible_ids),
+                    "yes": _lots(yes_ids, "yes"),
+                    "no": _lots(no_ids, "no"),
+                    "abstained": _lots(abstained_ids, "abstained"),
+                    "absent": _lots(absent_ids, "absent"),
+                    "not_eligible": _lots(not_eligible_ids, "not_eligible"),
                 },
             }
         )
@@ -1382,13 +1518,31 @@ async def add_motion_to_meeting(
         )
     )
     max_index = max_result.scalar_one_or_none()
-    next_index = (max_index + 1) if max_index is not None else 0
+    # display_order starts at 1 for the first motion (not 0)
+    next_index = (max_index + 1) if max_index is not None else 1
 
     # Auto-assign motion_number from next display_order when the field is absent or blank.
     # The frontend may send null or "" when the user leaves the field empty — treat both
     # as "no explicit number supplied" and fall back to auto-assign.
     explicit_number = data.motion_number.strip() if data.motion_number is not None else ""
-    assigned_motion_number = explicit_number if explicit_number else str(next_index)
+
+    if not explicit_number:
+        # RR2-02: auto-assign from max(existing numeric motion_numbers) + 1 to avoid
+        # conflicts with manually-set motion numbers that match display_order values.
+        from sqlalchemy import Integer, cast as sa_cast
+        numeric_max_result = await db.execute(
+            select(func.max(func.cast(Motion.motion_number, Integer)))
+            .where(Motion.general_meeting_id == general_meeting_id)
+            .where(Motion.motion_number.regexp_match(r"^\d+$"))
+        )
+        max_numeric = numeric_max_result.scalar_one_or_none()
+        if max_numeric is not None:
+            assigned_motion_number = str(max_numeric + 1)
+        else:
+            # No existing numeric motion numbers — fall back to display_order
+            assigned_motion_number = str(next_index)
+    else:
+        assigned_motion_number = explicit_number
 
     motion = Motion(
         general_meeting_id=general_meeting_id,
@@ -1562,6 +1716,64 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
             Vote.status == VoteStatus.draft,
         )
     )
+
+    # Create absent BallotSubmission records for lots that did not vote.
+    # These capture contact emails as a snapshot at close time so the export has
+    # the right emails even if lot owner emails are later changed.
+    weights_result = await db.execute(
+        select(GeneralMeetingLotWeight.lot_owner_id).where(
+            GeneralMeetingLotWeight.general_meeting_id == general_meeting_id
+        )
+    )
+    eligible_lot_owner_ids: set[uuid.UUID] = {row[0] for row in weights_result.all()}
+
+    if eligible_lot_owner_ids:
+        subs_result = await db.execute(
+            select(BallotSubmission.lot_owner_id).where(
+                BallotSubmission.general_meeting_id == general_meeting_id,
+                BallotSubmission.is_absent == False,  # noqa: E712
+            )
+        )
+        voted_lot_owner_ids: set[uuid.UUID] = {row[0] for row in subs_result.all()}
+        absent_lot_owner_ids = eligible_lot_owner_ids - voted_lot_owner_ids
+
+        if absent_lot_owner_ids:
+            # Batch-load owner emails for all absent lots
+            emails_result = await db.execute(
+                select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+                    LotOwnerEmail.lot_owner_id.in_(absent_lot_owner_ids)
+                )
+            )
+            emails_by_owner: dict[uuid.UUID, list[str]] = {}
+            for row in emails_result.all():
+                if row[1]:
+                    emails_by_owner.setdefault(row[0], []).append(row[1])
+
+            # Batch-load proxy emails for all absent lots
+            proxies_result = await db.execute(
+                select(LotProxy.lot_owner_id, LotProxy.proxy_email).where(
+                    LotProxy.lot_owner_id.in_(absent_lot_owner_ids)
+                )
+            )
+            proxy_by_owner: dict[uuid.UUID, str] = {
+                row[0]: row[1] for row in proxies_result.all() if row[1]
+            }
+
+            for lid in absent_lot_owner_ids:
+                owner_emails = emails_by_owner.get(lid, [])
+                proxy_email_val = proxy_by_owner.get(lid)
+                # Deduplicated union: owner emails + proxy email if not already included
+                contact_emails = list(owner_emails)
+                if proxy_email_val and proxy_email_val not in contact_emails:
+                    contact_emails.append(proxy_email_val)
+                voter_email_str = ", ".join(contact_emails)
+                db.add(BallotSubmission(
+                    general_meeting_id=general_meeting_id,
+                    lot_owner_id=lid,
+                    voter_email=voter_email_str,
+                    proxy_email=proxy_email_val,
+                    is_absent=True,
+                ))
 
     # Create EmailDelivery record
     email_delivery = EmailDelivery(

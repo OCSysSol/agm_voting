@@ -125,9 +125,9 @@ test.describe("Lot-selection shortcut buttons", () => {
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer
     await sidebar.getByRole("button", { name: "Deselect all lots", exact: true }).click();
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
-    const lotCCheckbox = sidebar.getByLabel(`Select Lot ${LOT_C}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
+    const lotCCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_C}` }).locator('input[type="checkbox"]');
 
     await expect(lotACheckbox).not.toBeChecked({ timeout: 5000 });
     await expect(lotBCheckbox).not.toBeChecked({ timeout: 5000 });
@@ -162,9 +162,9 @@ test.describe("Lot-selection shortcut buttons", () => {
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer
     await sidebar.getByRole("button", { name: "Select all lots", exact: true }).click();
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
-    const lotCCheckbox = sidebar.getByLabel(`Select Lot ${LOT_C}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
+    const lotCCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_C}` }).locator('input[type="checkbox"]');
 
     await expect(lotACheckbox).toBeChecked({ timeout: 5000 });
     await expect(lotBCheckbox).toBeChecked({ timeout: 5000 });
@@ -199,9 +199,9 @@ test.describe("Lot-selection shortcut buttons", () => {
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer
     await sidebar.getByRole("button", { name: "Select all lots", exact: true }).click();
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
-    const lotCCheckbox = sidebar.getByLabel(`Select Lot ${LOT_C}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
+    const lotCCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_C}` }).locator('input[type="checkbox"]');
 
     // "Select Proxy Lots" button is only shown when proxies exist
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer
@@ -235,9 +235,9 @@ test.describe("Lot-selection shortcut buttons", () => {
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer
     await sidebar.getByRole("button", { name: "Select all lots", exact: true }).click();
 
-    const lotACheckbox = sidebar.getByLabel(`Select Lot ${LOT_A}`);
-    const lotBCheckbox = sidebar.getByLabel(`Select Lot ${LOT_B}`);
-    const lotCCheckbox = sidebar.getByLabel(`Select Lot ${LOT_C}`);
+    const lotACheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_A}` }).locator('input[type="checkbox"]');
+    const lotBCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]');
+    const lotCCheckbox = sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_C}` }).locator('input[type="checkbox"]');
 
     // "Select Owned Lots" button is only shown when proxies exist
     // Scope to sidebar to avoid matching the duplicate button in the hidden mobile drawer

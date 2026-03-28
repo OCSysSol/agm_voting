@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import AGMReportView from "../AGMReportView";
 import type { MotionDetail } from "../../../api/admin";
 
@@ -60,6 +61,44 @@ const motions: MotionDetail[] = [
     },
   },
 ];
+
+// Helper to capture CSV text from a Blob created during export
+async function captureCSVFromExport(
+  motionData: MotionDetail[],
+  agmTitle?: string
+): Promise<string> {
+  // Render FIRST so React can mount the component before we intercept DOM methods
+  render(<AGMReportView motions={motionData} agmTitle={agmTitle} />);
+
+  let capturedBlob: Blob | null = null;
+  // JSDOM does not implement URL.createObjectURL — define it on the global URL object
+  URL.createObjectURL = vi.fn((blob: Blob) => {
+    capturedBlob = blob;
+    return "blob:mock-url";
+  });
+  URL.revokeObjectURL = vi.fn();
+
+  // Mock body DOM methods AFTER render so React can mount properly
+  const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => node);
+  const removeChildSpy = vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
+  const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /Export voter lists/ }));
+
+  appendChildSpy.mockRestore();
+  removeChildSpy.mockRestore();
+  clickSpy.mockRestore();
+
+  if (!capturedBlob) throw new Error("Blob not captured");
+  // Use FileReader to read Blob content (JSDOM compatible)
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsText(capturedBlob as Blob);
+  });
+}
 
 describe("AGMReportView", () => {
   it("renders motion titles", () => {
@@ -158,5 +197,204 @@ describe("AGMReportView", () => {
   it("does not show Hidden badge for visible motion", () => {
     render(<AGMReportView motions={[motions[0]]} />);
     expect(screen.queryByLabelText("Motion is hidden from voters")).not.toBeInTheDocument();
+  });
+
+  // --- CSV export: Voter Email column ---
+
+  it("CSV header row contains 'Voter Email' as the 5th column", async () => {
+    const csv = await captureCSVFromExport(motions);
+    const headerRow = csv.split("\n")[0];
+    expect(headerRow).toBe("Motion,Category,Lot Number,Entitlement (UOE),Voter Email");
+  });
+
+  it("CSV data row for direct-vote lot includes the voter email", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "direct@example.com", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    expect(csv).toContain('"direct@example.com"');
+    expect(csv).not.toContain("(proxy)");
+  });
+
+  it("CSV data row for proxy-voted lot formats as 'voter (proxy)'", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [
+            {
+              voter_email: "proxy@example.com",
+              lot_number: "L1",
+              entitlement: 100,
+              proxy_email: "proxy@example.com",
+            },
+          ],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    expect(csv).toContain("proxy@example.com (proxy)");
+  });
+
+  it("CSV data row for absent lot shows comma-separated contact emails", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [
+            {
+              voter_email: "owner1@example.com, owner2@example.com",
+              lot_number: "L4",
+              entitlement: 100,
+            },
+          ],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    expect(csv).toContain("owner1@example.com, owner2@example.com");
+  });
+
+  it("CSV data row for absent lot with no emails has blank Voter Email cell", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [
+            {
+              voter_email: "",
+              lot_number: "L4",
+              entitlement: 100,
+            },
+          ],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    // The email cell should be empty (quoted empty string at end of row)
+    expect(csv).toContain(',"L4",100,""');
+  });
+
+  it("CSV row for entry with undefined voter_email uses empty string", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [
+            {
+              lot_number: "L1",
+              entitlement: 100,
+              // voter_email is intentionally omitted (undefined)
+            },
+          ],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    // Entry with no voter_email should produce empty email cell
+    expect(csv).toContain(',"L1",100,""');
+  });
+
+  it("CSV export uses agmTitle in filename when provided", async () => {
+    // Render first so React mounts before we mock DOM methods
+    render(<AGMReportView motions={motions} agmTitle="My AGM 2024" />);
+    URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    URL.revokeObjectURL = vi.fn();
+    let capturedDownload = "";
+    const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) {
+        capturedDownload = node.download;
+      }
+      return node;
+    });
+    const removeChildSpy = vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Export voter lists/ }));
+
+    expect(capturedDownload).toContain("My_AGM_2024");
+    appendChildSpy.mockRestore();
+    removeChildSpy.mockRestore();
+    clickSpy.mockRestore();
+  });
+
+  it("CSV export uses default filename when agmTitle is not provided", async () => {
+    // Render first so React mounts before we mock DOM methods
+    render(<AGMReportView motions={motions} />);
+    URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    URL.revokeObjectURL = vi.fn();
+    let capturedDownload = "";
+    const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) {
+        capturedDownload = node.download;
+      }
+      return node;
+    });
+    const removeChildSpy = vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Export voter lists/ }));
+
+    expect(capturedDownload).toBe("general_meeting_results.csv");
+    appendChildSpy.mockRestore();
+    removeChildSpy.mockRestore();
+    clickSpy.mockRestore();
+  });
+
+  it("CSV row with proxy_email containing double-quotes has them escaped", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [
+            {
+              voter_email: 'test"quoted@example.com',
+              lot_number: "L1",
+              entitlement: 100,
+            },
+          ],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(singleMotion);
+    // Double-quotes in the email should be escaped as ""
+    expect(csv).toContain('""quoted@example.com"');
   });
 });

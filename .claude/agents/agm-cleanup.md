@@ -5,7 +5,12 @@ description: Cleanup agent for the AGM voting app. Removes git worktrees, delete
 
 # AGM Cleanup Agent
 
-You are the cleanup agent for the AGM voting app. Your job is to remove all resources created for a feature branch after it merges to `preview`.
+Extends the generic `cleanup` agent with AGM-specific infrastructure details.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/cleanup.md` for base protocol.
+
+## AGM-specific context
+
+Infrastructure values (Neon project ID, Vercel project ID, worktree root, test data patterns, real data patterns) are in CLAUDE.md `## Agent Configuration`. Do NOT hardcode them here — always read from that table.
 
 ## Secrets (retrieve from macOS Keychain)
 - Neon API key: `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
@@ -13,49 +18,30 @@ You are the cleanup agent for the AGM voting app. Your job is to remove all reso
 - Admin password: `security find-generic-password -s "agm-survey" -a "admin-password" -w`
 - Vercel bypass token: `security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w`
 
-Project IDs, URLs, and paths are in CLAUDE.md `## Project Infrastructure`.
+## Neon DB branch cleanup
 
-## Your workflow
-
-The orchestrator will tell you:
-- Branch name (e.g. `feat/my-feature`)
-- Worktree path (e.g. `/Users/stevensun/personal/agm_survey-feat-my-feature`)
-- Whether Vercel branch-scoped env vars were set
-- Whether this is a post-preview-E2E cleanup (test data cleanup only, no branch cleanup)
-
-### 1. Remove git worktree and branches
-```bash
-# Remove worktree
-git worktree remove <worktree-path> --force
-
-# Delete local branch
-git branch -d <branch-name>
-
-# Delete remote branch and prune
-git push origin --delete <branch-name>
-git remote prune origin
-```
-
-### 2. Delete Neon DB branch (ALWAYS required)
-
-**Neon DB branch cleanup is required after EVERY merge** — not only when the branch contained migrations. Vercel automatically creates a Neon DB branch for every preview deployment. These must be deleted after merge or the project will hit the branch limit and all subsequent deployments will fail.
+Read `neon_project_id` from CLAUDE.md Agent Configuration.
 
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
+NEON_PROJECT_ID="<neon_project_id from Agent Configuration>"
+
 # List branches to find the right one (pattern: preview/<branch-name>)
 curl -s -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
+  "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
   | python3 -c "import json,sys; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
 
 # Delete by ID
 curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches/<branch_id>"
+  "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/<branch_id>"
 ```
 
-### 3. Delete Vercel branch-scoped env vars (if created)
-Use the Vercel dashboard or REST API to remove `DATABASE_URL` and `DATABASE_URL_UNPOOLED` scoped to the feature branch.
+**Delete the Neon DB branch after EVERY merge** — Vercel auto-creates a Neon branch for every preview deployment. Not cleaning them up causes "too many branches" deployment failures.
 
-### 4. Clean test data from preview DB (always run after any E2E run against preview)
+## Test data cleanup
+
+Read `test_data_patterns` and `real_data_patterns` from CLAUDE.md Agent Configuration.
+
 ```bash
 BYPASS_TOKEN=$(security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w)
 ADMIN_USER=$(security find-generic-password -s "agm-survey" -a "admin-username" -w)
@@ -74,10 +60,10 @@ curl -s -b /tmp/agm_cookies.txt \
   "https://agm-voting-git-preview-ocss.vercel.app/api/admin/general-meetings"
 ```
 
-Delete meetings with test-pattern titles (`WF*`, `E2E*`, `Test*`, `Delete Test*`):
+Delete meetings with test-pattern titles (patterns are in CLAUDE.md `## Agent Configuration` `test_data_patterns`):
 - If meeting is `open`: close it first, then delete
 - If meeting is `closed` or `pending`: delete directly
-- Do NOT delete real meetings
+- Do NOT delete meetings matching `real_data_patterns`
 
 ```bash
 # Close an open meeting
@@ -89,7 +75,7 @@ curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   -X DELETE "https://agm-voting-git-preview-ocss.vercel.app/api/admin/general-meetings/<id>"
 ```
 
-Archive test buildings (naming patterns and real buildings to protect are in CLAUDE.md `## Test Data Conventions`):
+Archive test buildings (patterns from CLAUDE.md Agent Configuration):
 ```bash
 # List buildings
 curl -s -b /tmp/agm_cookies.txt \

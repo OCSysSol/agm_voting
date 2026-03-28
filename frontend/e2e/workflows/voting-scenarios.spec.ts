@@ -448,7 +448,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     // Both lots visible; uncheck LOT_B (scoped to sidebar to avoid duplicate in mobile drawer)
     const sidebar = page.locator(".voting-layout__sidebar");
     await expect(sidebar.getByText("You are voting for 2 lots.")).toBeVisible();
-    await page.getByRole("checkbox", { name: `Select Lot ${LOT_B}` }).uncheck();
+    await sidebar.locator('.lot-selection__item', { hasText: `Lot ${LOT_B}` }).locator('input[type="checkbox"]').uncheck();
     await expect(sidebar.getByText("You are voting for 1 lot.")).toBeVisible();
 
     await motionCards.filter({ hasText: MOTION1_TITLE }).getByRole("button", { name: "For" }).click();

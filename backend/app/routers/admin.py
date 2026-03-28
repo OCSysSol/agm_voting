@@ -8,11 +8,14 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import engine, get_db
+from app.models import EmailDelivery, GeneralMeeting, get_effective_status
 from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
@@ -170,15 +173,40 @@ async def create_building(
     return BuildingOut.model_validate(building)
 
 
+_VALID_BUILDINGS_SORT_BY = {"name", "manager_email", "created_at"}
+_VALID_SORT_DIRS = {"asc", "desc"}
+
+
 @router.get("/buildings", response_model=list[BuildingOut])
 async def list_buildings(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
     name: str | None = Query(default=None),
+    is_archived: bool | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[BuildingOut]:
-    buildings = await admin_service.list_buildings(db, limit=limit, offset=offset, name=name)
+    if sort_by is not None and sort_by not in _VALID_BUILDINGS_SORT_BY:
+        raise HTTPException(status_code=422, detail="Invalid sort_by value")
+    if sort_dir is not None and sort_dir not in _VALID_SORT_DIRS:
+        raise HTTPException(status_code=422, detail="Invalid sort_dir value")
+    buildings = await admin_service.list_buildings(
+        db, limit=limit, offset=offset, name=name, is_archived=is_archived,
+        sort_by=sort_by, sort_dir=sort_dir,
+    )
     return [BuildingOut.model_validate(b) for b in buildings]
+
+
+@router.get("/buildings/count")
+async def count_buildings(
+    name: str | None = Query(default=None),
+    is_archived: bool | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Return the total count of buildings, applying the same filters as the list endpoint."""
+    count = await admin_service.count_buildings(db, name=name, is_archived=is_archived)
+    return {"count": count}
 
 
 @router.post(
@@ -487,18 +515,43 @@ async def create_general_meeting(
     return GeneralMeetingOut(**meeting_dict)
 
 
+_VALID_MEETINGS_SORT_BY = {"title", "created_at", "meeting_at", "voting_closes_at", "status"}
+
+
 @router.get("/general-meetings", response_model=list[GeneralMeetingListItem])
 async def list_general_meetings(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
     name: str | None = Query(default=None),
     building_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[GeneralMeetingListItem]:
+    if sort_by is not None and sort_by not in _VALID_MEETINGS_SORT_BY:
+        raise HTTPException(status_code=422, detail="Invalid sort_by value")
+    if sort_dir is not None and sort_dir not in _VALID_SORT_DIRS:
+        raise HTTPException(status_code=422, detail="Invalid sort_dir value")
     items = await admin_service.list_general_meetings(
-        db, limit=limit, offset=offset, name=name, building_id=building_id
+        db, limit=limit, offset=offset, name=name, building_id=building_id, status=status,
+        sort_by=sort_by, sort_dir=sort_dir,
     )
     return [GeneralMeetingListItem(**item) for item in items]
+
+
+@router.get("/general-meetings/count")
+async def count_general_meetings(
+    name: str | None = Query(default=None),
+    building_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Return the total count of general meetings, applying the same filters as the list endpoint."""
+    count = await admin_service.count_general_meetings(
+        db, name=name, building_id=building_id, status=status
+    )
+    return {"count": count}
 
 
 @router.get("/general-meetings/{general_meeting_id}", response_model=GeneralMeetingDetail)
@@ -681,3 +734,78 @@ async def update_admin_config(
     """Update branding config — admin only. Returns 422 on validation failure."""
     config = await config_service.update_config(data, db)
     return TenantConfigOut.model_validate(config)
+
+
+# ---------------------------------------------------------------------------
+# Operator debug endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/debug/meeting-status/{meeting_id}")
+async def debug_meeting_status(
+    meeting_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return stored and effective meeting status along with key timestamps.
+
+    Useful for diagnosing unexpected meeting state (e.g. why a meeting appears
+    open or closed when the admin expects otherwise).
+    """
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == meeting_id))
+    meeting = result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    effective = get_effective_status(meeting)
+    return {
+        "meeting_id": str(meeting_id),
+        "stored_status": meeting.status.value,
+        "effective_status": effective.value,
+        "voting_closes_at": meeting.voting_closes_at.isoformat() if meeting.voting_closes_at else None,
+        "current_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/debug/email-deliveries")
+async def debug_email_deliveries(
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List all EmailDelivery records ordered by last update descending.
+
+    Useful for diagnosing email failures and checking retry state.
+    """
+    result = await db.execute(
+        select(EmailDelivery).order_by(EmailDelivery.updated_at.desc())
+    )
+    deliveries = result.scalars().all()
+    return [
+        {
+            "id": str(d.id),
+            "general_meeting_id": str(d.general_meeting_id),
+            "status": d.status.value,
+            "total_attempts": d.total_attempts,
+            "last_error": d.last_error,
+            "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+        }
+        for d in deliveries
+    ]
+
+
+@router.get("/debug/db-health")
+async def debug_db_health() -> dict:
+    """Return DB connection pool diagnostic information.
+
+    Reports the current pool state (size, overflow, checked-in/out connections).
+    Useful for diagnosing connection exhaustion under load.
+    """
+    pool = engine.pool
+    # NullPool (used in some test configurations) does not expose size/status methods.
+    if not hasattr(pool, "size"):  # pragma: no cover — NullPool path not exercised in integration tests
+        return {"pool_type": type(pool).__name__, "status": "n/a"}
+    return {
+        "pool_type": type(pool).__name__,
+        "pool_size": pool.size(),
+        "checked_in": pool.checkedin(),
+        "checked_out": pool.checkedout(),
+        "overflow": pool.overflow(),
+    }

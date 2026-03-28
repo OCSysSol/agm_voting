@@ -344,6 +344,229 @@ class TestListBuildings:
         data = response.json()
         assert len(data) <= 2
 
+    # --- offset / pagination ---
+
+    async def test_offset_returns_second_page(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """offset=1 with limit=1 returns the second building ordered by created_at DESC."""
+        for i in range(3):
+            db_session.add(
+                Building(name=f"Page Building {i}", manager_email=f"pg{i}@test.com")
+            )
+        await db_session.commit()
+
+        first = await client.get("/api/admin/buildings?name=Page+Building&limit=1&offset=0")
+        second = await client.get("/api/admin/buildings?name=Page+Building&limit=1&offset=1")
+        assert first.status_code == 200
+        assert second.status_code == 200
+        first_ids = [b["id"] for b in first.json()]
+        second_ids = [b["id"] for b in second.json()]
+        # The two pages must not return the same building
+        assert first_ids != second_ids
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/buildings/count
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCountBuildings:
+    # --- Happy path ---
+
+    async def test_returns_total_count(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/buildings/count returns {"count": N}."""
+        # Create two buildings
+        db_session.add(Building(name="Count Building A", manager_email="ca@test.com"))
+        db_session.add(Building(name="Count Building B", manager_email="cb@test.com"))
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings/count")
+        assert response.status_code == 200
+        data = response.json()
+        assert "count" in data
+        assert data["count"] >= 2
+
+    # --- name filter ---
+
+    async def test_name_filter_returns_filtered_count(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?name=X returns only the count matching that substring."""
+        db_session.add(Building(name="CountFilter Unique X9Z", manager_email="cfx@test.com"))
+        db_session.add(Building(name="CountFilter Other Building", manager_email="cfo@test.com"))
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings/count?name=CountFilter+Unique+X9Z")
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+
+    async def test_name_filter_no_match_returns_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        response = await client.get("/api/admin/buildings/count?name=ZZZ-impossible-match-999")
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+
+    async def test_name_filter_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        db_session.add(Building(name="CaseCount Building", manager_email="casecount@test.com"))
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings/count?name=casecount")
+        assert response.status_code == 200
+        assert response.json()["count"] >= 1
+
+    async def test_no_name_filter_counts_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting ?name returns the same count as the unfiltered list."""
+        list_resp = await client.get("/api/admin/buildings")
+        count_resp = await client.get("/api/admin/buildings/count")
+        assert list_resp.status_code == 200
+        assert count_resp.status_code == 200
+        assert count_resp.json()["count"] == len(list_resp.json())
+
+    # --- Boundary values ---
+
+    async def test_empty_name_filter_counts_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?name= (empty string) matches everything — same as no filter."""
+        list_resp = await client.get("/api/admin/buildings")
+        count_resp = await client.get("/api/admin/buildings/count?name=")
+        assert list_resp.status_code == 200
+        assert count_resp.status_code == 200
+        assert count_resp.json()["count"] == len(list_resp.json())
+
+    # --- is_archived filter ---
+
+    async def test_is_archived_false_counts_only_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false returns count of only non-archived buildings."""
+        active = Building(name="IsArchFalse Active A", manager_email="iafa@test.com")
+        archived = Building(name="IsArchFalse Archived B", manager_email="iafb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        resp_false = await client.get("/api/admin/buildings/count?is_archived=false")
+        resp_all = await client.get("/api/admin/buildings/count")
+        assert resp_false.status_code == 200
+        assert resp_all.status_code == 200
+        # Active count must be less than total count (archived building excluded)
+        assert resp_false.json()["count"] < resp_all.json()["count"]
+
+    async def test_is_archived_true_counts_only_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=true returns count of only archived buildings."""
+        archived = Building(name="IsArchTrue Archived C", manager_email="iatc@test.com")
+        archived.is_archived = True
+        db_session.add(archived)
+        await db_session.commit()
+
+        resp = await client.get("/api/admin/buildings/count?is_archived=true")
+        assert resp.status_code == 200
+        assert resp.json()["count"] >= 1
+
+    async def test_is_archived_none_counts_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting is_archived returns all buildings regardless of archive status."""
+        active = Building(name="IsArchNone Active", manager_email="iana@test.com")
+        archived = Building(name="IsArchNone Archived", manager_email="ianb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        resp_all = await client.get("/api/admin/buildings/count")
+        resp_false = await client.get("/api/admin/buildings/count?is_archived=false")
+        resp_true = await client.get("/api/admin/buildings/count?is_archived=true")
+        assert resp_all.status_code == 200
+        # total = active + archived
+        assert resp_all.json()["count"] == resp_false.json()["count"] + resp_true.json()["count"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/buildings — is_archived list filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestListBuildingsIsArchivedFilter:
+    # --- Happy path ---
+
+    async def test_is_archived_false_returns_only_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false returns only non-archived buildings."""
+        active = Building(name="ListArchFalse Active", manager_email="lafa@test.com")
+        archived = Building(name="ListArchFalse Archived", manager_email="lafb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=false")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchFalse Active" in names
+        assert "ListArchFalse Archived" not in names
+
+    async def test_is_archived_true_returns_only_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=true returns only archived buildings."""
+        active = Building(name="ListArchTrue Active", manager_email="lata@test.com")
+        archived = Building(name="ListArchTrue Archived", manager_email="latb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=true")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchTrue Archived" in names
+        assert "ListArchTrue Active" not in names
+
+    async def test_no_is_archived_param_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting is_archived returns all buildings."""
+        active = Building(name="ListArchAll Active", manager_email="laaa@test.com")
+        archived = Building(name="ListArchAll Archived", manager_email="laab@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchAll Active" in names
+        assert "ListArchAll Archived" in names
+
+    # --- Edge cases ---
+
+    async def test_is_archived_false_empty_result_when_no_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false with only archived buildings returns empty list."""
+        # Ensure at least one archived exists with unique name to verify filter works
+        # (shared test DB may have other buildings)
+        archived = Building(name="OnlyArchived X9W2Q", manager_email="onlyarch@test.com")
+        archived.is_archived = True
+        db_session.add(archived)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=false&name=OnlyArchived+X9W2Q")
+        assert response.status_code == 200
+        assert response.json() == []
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}
@@ -1204,3 +1427,228 @@ class TestImportBuildingsExcel:
         )
         assert response.status_code == 422
 
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/buildings — sort_by / sort_dir query params
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestListBuildingsSort:
+    """Tests for sort_by and sort_dir query parameters on GET /api/admin/buildings."""
+
+    # --- Happy path ---
+
+    async def test_sort_by_name_asc_returns_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by name ascending should be in A→Z order."""
+        # Create two buildings with known names
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Zephyr Tower", "manager_email": "z@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Alpha Court", "manager_email": "a@test.com"},
+        )
+        response = await client.get("/api/admin/buildings?sort_by=name&sort_dir=asc&is_archived=false")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert names == sorted(names)
+
+    async def test_sort_by_name_desc_returns_reverse_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by name descending should be in Z→A order."""
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Zephyr Tower", "manager_email": "z@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Alpha Court", "manager_email": "a@test.com"},
+        )
+        response = await client.get("/api/admin/buildings?sort_by=name&sort_dir=desc&is_archived=false")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert names == sorted(names, reverse=True)
+
+    async def test_sort_by_created_at_asc_returns_oldest_first(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by created_at ascending should be oldest first."""
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "First Building", "manager_email": "f@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Second Building", "manager_email": "s@test.com"},
+        )
+        response = await client.get("/api/admin/buildings?sort_by=created_at&sort_dir=asc&is_archived=false")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
+        # created_at values should be non-decreasing
+        created_ats = [b["created_at"] for b in data]
+        assert created_ats == sorted(created_ats)
+
+    async def test_sort_by_created_at_desc_is_default_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Without sort params, buildings should be returned newest first (default)."""
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "BuildingA", "manager_email": "ba@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "BuildingB", "manager_email": "bb@test.com"},
+        )
+        response = await client.get("/api/admin/buildings?is_archived=false")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
+        created_ats = [b["created_at"] for b in data]
+        assert created_ats == sorted(created_ats, reverse=True)
+
+    async def test_sort_by_name_no_sort_dir_defaults_to_desc(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """sort_by=name without sort_dir should use desc (the global default)."""
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Zephyr", "manager_email": "z@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Alpha", "manager_email": "a@test.com"},
+        )
+        response = await client.get("/api/admin/buildings?sort_by=name&is_archived=false")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        # Default sort_dir=desc → Z first
+        assert names == sorted(names, reverse=True)
+
+    # --- Input validation ---
+
+    async def test_invalid_sort_by_returns_422(self, client: AsyncClient):
+        """An unrecognised sort_by value must be rejected with 422."""
+        response = await client.get("/api/admin/buildings?sort_by=invalid_column")
+        assert response.status_code == 422
+        assert "Invalid sort_by value" in response.json()["detail"]
+
+    async def test_invalid_sort_dir_returns_422(self, client: AsyncClient):
+        """An unrecognised sort_dir value must be rejected with 422."""
+        response = await client.get("/api/admin/buildings?sort_by=name&sort_dir=sideways")
+        assert response.status_code == 422
+        assert "Invalid sort_dir value" in response.json()["detail"]
+
+    async def test_sql_injection_attempt_in_sort_by_returns_422(self, client: AsyncClient):
+        """A SQL injection attempt in sort_by must be rejected before hitting the DB."""
+        response = await client.get("/api/admin/buildings?sort_by=name;DROP TABLE buildings;--")
+        assert response.status_code == 422
+
+    # --- Boundary values ---
+
+    async def test_sort_with_no_matching_name_filter_returns_empty_list(self, client: AsyncClient, db_session: AsyncSession):
+        """sort_by=name with a name filter that matches nothing returns an empty list."""
+        response = await client.get("/api/admin/buildings?sort_by=name&sort_dir=asc&name=ZZZNOMATCH99999")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_sort_with_single_matching_building_returns_one_item(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """sort_by=name with a unique name prefix returns exactly one item."""
+        unique_prefix = "SortBoundaryUniq"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique_prefix} Solo Building", "manager_email": "solo@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=name&sort_dir=asc&name={unique_prefix}")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    # --- New column: manager_email ---
+
+    async def test_sort_by_manager_email_asc_returns_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by manager_email ascending should be in A→Z email order."""
+        unique = "SortEmailTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Z Building", "manager_email": "zzz@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A Building", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"] for b in response.json()]
+        assert emails == sorted(emails)
+
+    async def test_sort_by_manager_email_desc_returns_reverse_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Buildings sorted by manager_email descending should be in Z→A email order."""
+        unique = "SortEmailDescTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Z Building", "manager_email": "zzz@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A Building", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=desc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"] for b in response.json()]
+        assert emails == sorted(emails, reverse=True)
+
+    # --- Case-insensitive sorting ---
+
+    async def test_sort_by_name_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Case-insensitive name sort: 'alpha' and 'Alpha' and 'ALPHA' sort together."""
+        unique = "SortCaseTest"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} zebra tower", "manager_email": "z@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} Apple Court", "manager_email": "a@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} MANGO House", "manager_email": "m@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=name&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        names = [b["name"].lower().split(unique.lower())[-1].strip() for b in response.json()]
+        # Lowercased suffixes should be in alphabetical order: apple, mango, zebra
+        assert names == sorted(names)
+
+    async def test_sort_by_manager_email_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Case-insensitive manager_email sort: 'AAA' sorts together with 'aaa'."""
+        unique = "SortEmailCase"
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} B", "manager_email": "ZZZ@test.com"},
+        )
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": f"{unique} A", "manager_email": "aaa@test.com"},
+        )
+        response = await client.get(f"/api/admin/buildings?sort_by=manager_email&sort_dir=asc&name={unique}")
+        assert response.status_code == 200
+        emails = [b["manager_email"].lower() for b in response.json()]
+        assert emails == sorted(emails)

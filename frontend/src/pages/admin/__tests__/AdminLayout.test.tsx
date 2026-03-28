@@ -59,6 +59,14 @@ describe("AdminLayout", () => {
     expect(screen.getAllByRole("button", { name: "Sign out" }).length).toBeGreaterThan(0);
   });
 
+  it("all Sign out buttons have explicit rgba white colour (not inherit)", () => {
+    renderLayout();
+    const signOutButtons = screen.getAllByRole("button", { name: "Sign out" });
+    for (const btn of signOutButtons) {
+      expect(btn).toHaveStyle({ color: "rgba(255,255,255,.85)" });
+    }
+  });
+
   it("calls logout and navigates to login on Sign out click", async () => {
     const user = userEvent.setup();
     mockNavigate.mockClear();
@@ -121,6 +129,44 @@ describe("AdminLayout", () => {
     await user.click(drawerLinks[drawerLinks.length - 1]);
     const drawer = screen.getByTestId("admin-nav-drawer");
     expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // --- US-ACC-06: Escape key closes drawer ---
+
+  it("pressing Escape key closes the drawer when open", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "false");
+    await user.keyboard("{Escape}");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("pressing Escape when drawer is closed has no effect", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    // Drawer starts closed
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+    // Pressing Escape should not error or change state
+    await user.keyboard("{Escape}");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // --- US-ACC-07: Skip link ---
+
+  it("renders skip-to-main-content link as first focusable element", () => {
+    renderLayout();
+    const skip = document.querySelector(".skip-link") as HTMLElement;
+    expect(skip).toBeTruthy();
+    expect(skip.getAttribute("href")).toBe("#main-content");
+    expect(skip.textContent).toBe("Skip to main content");
+  });
+
+  it("main content area has id=main-content", () => {
+    renderLayout();
+    expect(document.getElementById("main-content")).toBeInTheDocument();
   });
 
   // --- Settings nav link ---

@@ -10,6 +10,8 @@ You are orchestrating feature development for the AGM voting app. You coordinate
 
 **Sub-agent types available:** `agm-design`, `agm-implement`, `agm-test`, `agm-cleanup`
 
+**Infrastructure values** (Neon project ID, Vercel project ID, worktree root, preview URL pattern) are in CLAUDE.md `## Agent Configuration`. Pass that table to every sub-agent so they can read the values themselves — do not hardcode them in prompts.
+
 ---
 
 ## Push slot queue
@@ -40,27 +42,27 @@ Determine:
 
 **This step is mandatory before any design, code, or test work begins.**
 
-Spawn a sub-agent to create a worktree from the correct base branch. The base is usually `master` for new features and `preview` for fixes/hotfixes — confirm with the user if unclear.
+Read `worktree_root` from CLAUDE.md `## Agent Configuration`. Spawn a sub-agent to create a worktree from the correct base branch. The base is usually `master` for new features and `preview` for fixes/hotfixes — confirm with the user if unclear.
 
 ```bash
 cd /Users/stevensun/personal/agm_survey
 git fetch origin
-git worktree add .worktree/<slug> -b <branch-name> <base-branch>
+git worktree add <worktree_root>/<slug> -b <branch-name> <base-branch>
 # Example (feature from master):
-git worktree add .worktree/my-feature -b feat/my-feature master
+git worktree add <worktree_root>/my-feature -b feat/my-feature master
 # Example (fix from preview):
-git worktree add .worktree/my-fix -b fix/my-fix preview
+git worktree add <worktree_root>/my-fix -b fix/my-fix preview
 ```
 
-Worktree lives at: `/Users/stevensun/personal/agm_survey/.worktree/<slug>`
+Worktree lives at: `<worktree_root>/<slug>` (read `worktree_root` from Agent Configuration).
 
-**All subsequent agents — design, implement, test — must work exclusively inside this worktree.** The main repo root (`/Users/stevensun/personal/agm_survey`) may be on a completely different branch. Reading files from the wrong location produces an incorrect design and broken code.
+**All subsequent agents — design, implement, test — must work exclusively inside this worktree.** The main repo root may be on a completely different branch. Reading files from the wrong location produces an incorrect design and broken code.
 
 ### Step b: Spawn the design agent
 
 Use `subagent_type: "agm-design"`. Provide:
 - The task description
-- The worktree path (e.g. `/Users/stevensun/personal/agm_survey/.worktree/<slug>`)
+- The worktree path
 - The PRD file path **inside the worktree** (if implementing an existing PRD)
 - Explicit instruction: **read all source files from the worktree path, not the main repo root**
 
@@ -85,10 +87,9 @@ Check if any other agent holds the push slot. If free, grant it. Otherwise, queu
 Use `subagent_type: "agm-test"`. Provide:
 - The worktree path
 - The branch name
-- The preview URL (pattern: `https://agm-voting-git-<branch>-ocss.vercel.app`)
 - Whether schema migrations are involved (Neon DB branch needed)
 
-The testing agent will push, create the PR, run E2E, and release the slot.
+The testing agent will derive the preview URL from `preview_url_pattern` in Agent Configuration. It will push, create the PR, run E2E, and release the slot.
 
 ### Step f: After E2E results
 
@@ -115,7 +116,7 @@ Do NOT bundle cleanup into the merge agent — it gets skipped. Always a separat
 
 ### Step h: Full preview E2E (multi-branch only)
 
-After ALL branches for a PRD are merged to `preview`, spawn the testing agent to run the full E2E suite against `https://agm-voting-git-preview-ocss.vercel.app`.
+After ALL branches for a PRD are merged to `preview`, spawn the testing agent to run the full E2E suite against the preview URL (derive from `preview_url_pattern` in Agent Configuration, using branch name `preview`).
 
 After the preview E2E run, spawn the cleanup agent in test-data-only mode to clean up test meetings and buildings.
 
