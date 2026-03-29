@@ -85,59 +85,57 @@ export default async function globalSetup(_config: FullConfig) {
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
   // ── Pre-warm the Lambda before any browser navigation ─────────────────────
-  // All routes are rewritten to the Lambda (vercel.json), so every page load
-  // goes through it. Migrations now run during the Vercel build step, so cold
-  // starts are fast — but a brief warmup still avoids timeout on the very first
-  // browser navigation while the Lambda instance initialises.
+  // POST to the admin login endpoint and retry until it returns HTTP 200.
+  // This guarantees the auth Lambda instance handling the request is warm
+  // before the browser login attempt — avoiding 30-60s cold-start timeouts
+  // on the subsequent page.goto("/admin/login") navigation.
   //
-  // Vercel Serverless can spin up multiple Lambda instances concurrently.
-  // A single warmup request only wakes one instance — subsequent requests
-  // (e.g. the login POST) may hit a still-cold instance. We fire 5 concurrent
-  // requests to different endpoints to force multiple instances awake.
-  // Errors and non-2xx responses are intentionally ignored (401 is fine).
+  // Retry logic:
+  //   - 5xx response → cold start in progress, wait 10s and retry
+  //   - 4xx response (e.g. 401 wrong credentials) → throw immediately
+  //   - 200 → Lambda warm, proceed
+  //   - Loop runs for up to 3 minutes (18 attempts × 10s)
   if (BYPASS_TOKEN) {
-    const warmupHeaders = { "x-vercel-protection-bypass": BYPASS_TOKEN };
-    const warmupEndpoints = [
-      `${baseURL}/api/admin/buildings`,
-      `${baseURL}/api/admin/general-meetings`,
-      `${baseURL}/api/auth/verify`,
-      `${baseURL}/api/admin/buildings`,
-      `${baseURL}/api/admin/general-meetings`,
-    ];
+    const loginUrl = `${baseURL}/api/admin/auth/login`;
+    const maxAttempts = 18; // up to 3 minutes
     let warmedUp = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let res: Response | undefined;
       try {
-        const results = await Promise.allSettled(
-          warmupEndpoints.map(async (endpoint) => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
-            try {
-              const res = await fetch(endpoint, {
-                headers: warmupHeaders,
-                signal: controller.signal,
-              });
-              clearTimeout(timeoutId);
-              return res.status;
-            } catch {
-              clearTimeout(timeoutId);
-              throw new Error("fetch failed");
-            }
-          })
-        );
-        // Lambda is warm if at least one request returned a non-5xx response.
-        const anyAlive = results.some(
-          (r) => r.status === "fulfilled" && r.value > 0 && r.value < 500
-        );
-        if (anyAlive) {
-          warmedUp = true;
-          break;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        try {
+          res = await fetch(loginUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-vercel-protection-bypass": BYPASS_TOKEN,
+            },
+            body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
         }
       } catch {
-        // unexpected error — retry
+        // Network error or timeout — treat as cold start, retry
+        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
+        continue;
       }
-      await new Promise((r) => setTimeout(r, 3000));
+      if (res.ok) {
+        warmedUp = true;
+        break;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(
+          `Lambda warmup login returned ${res.status} — credentials problem, not a cold start. ` +
+          `Check ADMIN_USERNAME / ADMIN_PASSWORD env vars.`
+        );
+      }
+      // 5xx — Lambda still cold, wait and retry
+      if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
     }
-    if (!warmedUp) console.warn("Lambda warmup did not confirm ready after 5 attempts — proceeding anyway");
+    if (!warmedUp) console.warn(`Lambda warmup did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
   }
 
   const browser = await chromium.launch();
