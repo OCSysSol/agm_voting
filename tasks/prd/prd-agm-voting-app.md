@@ -204,6 +204,10 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] Changing display order does NOT change any motion's `motion_number` — the labels are preserved exactly as set
 - [ ] A meeting with a single motion has no drag handle and no move buttons (nothing to reorder)
 - [ ] `PUT /api/admin/general-meetings/{id}/motions/reorder` returns 409 if the meeting is closed, 422 if the submitted list is incomplete or has duplicate positions, 404 if the meeting does not exist
+- [ ] Drag-and-drop reordering works on touch devices (iOS Safari, Android Chrome) — a 250 ms press-and-hold activates the drag; moving the finger more than 5 px during the delay cancels the drag and passes the gesture back to the browser as a scroll
+- [ ] The drag handle touch target is at least 44×44 CSS pixels (meets WCAG 2.5.8 minimum)
+- [ ] `touch-action: none` is applied to the drag handle element so the browser does not intercept the touch gesture as a scroll during an active drag
+- [ ] Vertical page scroll is not blocked when the user is not dragging (touch-action: none is scoped to the handle and the actively-dragged row only)
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
@@ -480,6 +484,66 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-LOE-01: Optional lot owner email
+
+**Description:** As an admin, I want to add a lot owner without an email address, so that buildings with owners who have no email can still be managed in the system.
+
+**Acceptance Criteria:**
+
+- [ ] The email field in the Add Lot Owner form is optional; the input shows hint text "Leave blank if no email address" (or placeholder "owner@example.com (optional)")
+- [ ] Leaving the email field blank is accepted — the form submits without error and the lot owner is created with zero email records
+- [ ] A non-blank email value is still validated for correct format; an invalid format (e.g. `notanemail`) shows the inline error "Please enter a valid email address."
+- [ ] All email addresses are normalised to lowercase before storage and before OTP lookup
+- [ ] CSV import accepts rows where the email cell is blank or the email column is absent entirely; those lot owners are created without email records
+- [ ] The EditModal's "Remove" button on the last email address is not blocked — removing the last email is permitted, leaving the owner with zero emails
+- [ ] Owners with no email are always recorded as absent at AGM close (they have no OTP entry point and cannot vote)
+- [ ] The absent tally and CSV export for an email-less owner show a blank "Voter Email" cell (not an error)
+- [ ] Lot owner table shows a blank email column for email-less owners (no broken UI)
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-SORT-01: Sortable admin table columns
+
+**Description:** As an admin, I want to sort the buildings, meetings, and lot owners tables by clicking column headers, so that I can find records quickly.
+
+**Acceptance Criteria:**
+
+- [ ] Buildings table column headers "Name" and "Created At" are clickable and trigger server-side sorting; clicking a header for the first time sorts ascending for text columns and descending for date columns; clicking again toggles direction
+- [ ] Meetings table column headers "Title" and "Created At" are clickable and trigger server-side sorting with the same toggle behaviour; "Status" and "Building" columns remain non-sortable
+- [ ] Lot owners table column headers "Lot Number", "Unit Entitlement", and "Financial Position" are sortable client-side (full dataset is in memory); "Email" and "Proxy" columns remain non-sortable
+- [ ] `GET /api/admin/buildings` accepts optional `sort_by` (`"name"` | `"created_at"`) and `sort_dir` (`"asc"` | `"desc"`) query parameters; invalid values return 422
+- [ ] `GET /api/admin/general-meetings` accepts the same `sort_by` (`"title"` | `"created_at"`) and `sort_dir` parameters; invalid values return 422
+- [ ] Sort state for buildings and meetings is persisted in URL search params (`sort_by`, `sort_dir`) so it survives page refresh and back navigation
+- [ ] Changing the sort column or direction resets pagination to page 1
+- [ ] Active sort column shows a directional indicator (▲ ascending, ▼ descending); inactive sortable columns show a neutral ⇅ indicator
+- [ ] Every sortable `<th>` has an `aria-sort` attribute (`"ascending"` | `"descending"` | `"none"`); non-sortable `<th>` elements do not have `aria-sort`
+- [ ] Sort buttons inside column headers have `type="button"` and are keyboard-accessible
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-UX-01: Mobile and form usability fixes
+
+**Description:** As an admin or voter, I want the interface to work correctly on mobile devices and validate email inputs consistently, so that I can manage and vote from any device without layout or input errors.
+
+**Acceptance Criteria:**
+
+- [ ] On the Buildings admin page, the "Show archived" toggle and "+ New Building" button wrap to the next line on narrow viewports (≤ 375 px) instead of overflowing or causing horizontal scroll
+- [ ] The Sign out button renders in white/off-white on both mobile (inside the nav drawer) and desktop (inside the sidebar); the colour is set explicitly and does not rely on CSS inheritance from the container
+- [ ] The Add Lot Owner form validates email format on submit: a non-empty email that fails the basic format check (missing `@`, missing domain, etc.) shows the inline error "Please enter a valid email address." and prevents the API call
+- [ ] The New Building modal validates manager email format on submit with the same inline error and same prevention of the API call
+- [ ] Empty email in the Add Lot Owner form is separately permitted (see US-LOE-01); the format check only fires when the field is non-empty
+- [ ] Email format validation uses the shared `isValidEmail` utility (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) consistently across all admin forms
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ### US-006: Sync lot owner data from PropertyIQ
 
 **Description:** As a meeting host, I want to sync lot owner data from PropertyIQ so I don't have to manually export/import CSVs.
@@ -514,7 +578,12 @@ A web application for body corporates to run voting during Annual General Meetin
   - [ ] Total Abstained: voter count and total weighted unit entitlements (submitted ballots where the motion was explicitly abstained or left unanswered)
   - [ ] Total Absent: voter count and total weighted unit entitlements (voters who never submitted or whose draft was discarded on close)
   - [ ] Voter lists show **lot numbers and individual entitlements** (not email addresses) to protect privacy; one row per lot
-  - [ ] Host can export the full voter breakdown as a CSV file (columns: Motion, Category, Lot Number, Entitlement) via an "Export voter lists (CSV)" button
+  - [ ] Host can export the full voter breakdown as a CSV file via an "Export voter lists (CSV)" button; columns: Motion, Category, Lot Number, Entitlement (UOE), Voter Email
+  - [ ] The exported CSV includes a "Voter Email" column on every row:
+    - For direct votes: shows the email address that authenticated and submitted the ballot (`BallotSubmission.voter_email`)
+    - For proxy votes: shows the authenticated proxy email in the format `proxy@example.com (proxy: proxy@example.com)` so the proxy relationship is clearly indicated
+    - For absent lots: shows all registered owner emails and the proxy email (if any), comma-separated, as snapshotted at meeting close time
+    - For absent lots with no registered email: shows an empty cell (not an error)
 - [ ] Typecheck/lint passes
 
 ---
