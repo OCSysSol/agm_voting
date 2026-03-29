@@ -230,10 +230,11 @@ export default function GeneralMeetingDetailPage() {
 
   // Add motion state
   const [showAddMotionModal, setShowAddMotionModal] = useState(false);
-  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string; option_limit: string; options: Array<{ text: string }> }>({
+  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType; is_multi_choice: boolean; motion_number: string; option_limit: string; options: Array<{ text: string }> }>({
     title: "",
     description: "",
     motion_type: "general",
+    is_multi_choice: false,
     motion_number: "",
     option_limit: "1",
     options: [{ text: "" }, { text: "" }],
@@ -242,10 +243,11 @@ export default function GeneralMeetingDetailPage() {
 
   // Edit motion state
   const [editingMotion, setEditingMotion] = useState<MotionDetail | null>(null);
-  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string; option_limit: string; options: Array<{ text: string }> }>({
+  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType; is_multi_choice: boolean; motion_number: string; option_limit: string; options: Array<{ text: string }> }>({
     title: "",
     description: "",
     motion_type: "general",
+    is_multi_choice: false,
     motion_number: "",
     option_limit: "1",
     options: [{ text: "" }, { text: "" }],
@@ -263,7 +265,7 @@ export default function GeneralMeetingDetailPage() {
     onSuccess: () => {
       setShowAddMotionModal(false);
       setAddMotionError(null);
-      setAddMotionForm({ title: "", description: "", motion_type: "general", motion_number: "", option_limit: "1", options: [{ text: "" }, { text: "" }] });
+      setAddMotionForm({ title: "", description: "", motion_type: "general", is_multi_choice: false, motion_number: "", option_limit: "1", options: [{ text: "" }, { text: "" }] });
       void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
     },
     onError: (error: Error) => {
@@ -407,7 +409,7 @@ export default function GeneralMeetingDetailPage() {
     if (!editingMotion) return;
 
     // Validate multi-choice fields
-    if (editForm.motion_type === "multi_choice") {
+    if (editForm.is_multi_choice) {
       const validOptions = editForm.options.filter((o) => o.text.trim());
       if (validOptions.length < 2) {
         setEditMotionError("Multi-choice motions require at least 2 options.");
@@ -430,13 +432,13 @@ export default function GeneralMeetingDetailPage() {
         title: editForm.title || undefined,
         description: editForm.description || undefined,
         motion_type: editForm.motion_type,
-        is_multi_choice: editForm.motion_type === "multi_choice",
+        is_multi_choice: editForm.is_multi_choice,
         // Send trimmed string (possibly empty ""); empty string is handled by
         // the backend as "clear the motion number" (sets motion_number = null).
         // We must NOT send null here because the backend skips the field when
         // motion_number is null (partial-update semantics).
         motion_number: editForm.motion_number.trim(),
-        ...(editForm.motion_type === "multi_choice" ? {
+        ...(editForm.is_multi_choice ? {
           option_limit: parseInt(editForm.option_limit, 10),
           options: editForm.options
             .filter((o) => o.text.trim())
@@ -608,11 +610,11 @@ export default function GeneralMeetingDetailPage() {
           }}
           onEdit={(motion) => {
             setEditingMotion(motion);
-            const isMultiChoice = motion.is_multi_choice ?? false;
             setEditForm({
               title: motion.title,
               description: motion.description ?? "",
-              motion_type: isMultiChoice ? "multi_choice" : motion.motion_type,
+              motion_type: motion.motion_type,
+              is_multi_choice: motion.is_multi_choice ?? false,
               motion_number: motion.motion_number ?? "",
               option_limit: motion.option_limit != null ? String(motion.option_limit) : "1",
               options: motion.options && motion.options.length > 0
@@ -687,7 +689,7 @@ export default function GeneralMeetingDetailPage() {
                   setAddMotionError("Title is required");
                   return;
                 }
-                if (addMotionForm.motion_type === "multi_choice") {
+                if (addMotionForm.is_multi_choice) {
                   const validOpts = addMotionForm.options.filter((o) => o.text.trim());
                   if (validOpts.length < 2) {
                     setAddMotionError("Multi-choice motions require at least 2 options.");
@@ -760,10 +762,20 @@ export default function GeneralMeetingDetailPage() {
                 >
                   <option value="general">General</option>
                   <option value="special">Special</option>
-                  <option value="multi_choice">Multi-Choice</option>
                 </select>
               </div>
-              {addMotionForm.motion_type === "multi_choice" && (
+              <div className="field">
+                <label className="field__label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    id="add-motion-is-multi-choice"
+                    type="checkbox"
+                    checked={addMotionForm.is_multi_choice}
+                    onChange={(e) => setAddMotionForm((f) => ({ ...f, is_multi_choice: e.target.checked }))}
+                  />
+                  Multi-choice question format
+                </label>
+              </div>
+              {addMotionForm.is_multi_choice && (
                 <>
                   <div className="field">
                     <label className="field__label" htmlFor="add-option-limit">Max selections per voter</label>
@@ -914,10 +926,20 @@ export default function GeneralMeetingDetailPage() {
                 >
                   <option value="general">General</option>
                   <option value="special">Special</option>
-                  <option value="multi_choice">Multi-Choice</option>
                 </select>
               </div>
-              {editForm.motion_type === "multi_choice" && (
+              <div className="field">
+                <label className="field__label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    id="modal-edit-is-multi-choice"
+                    type="checkbox"
+                    checked={editForm.is_multi_choice}
+                    onChange={(e) => setEditForm((f) => ({ ...f, is_multi_choice: e.target.checked }))}
+                  />
+                  Multi-choice question format
+                </label>
+              </div>
+              {editForm.is_multi_choice && (
                 <>
                   <div className="field">
                     <label className="field__label" htmlFor="edit-option-limit">Max selections per voter</label>
