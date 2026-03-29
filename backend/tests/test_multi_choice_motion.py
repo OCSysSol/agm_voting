@@ -72,7 +72,8 @@ async def mc_meeting(client: AsyncClient, mc_building: Building) -> dict:
                 "title": "Board Election",
                 "description": "Vote for board members",
                 "display_order": 1,
-                "motion_type": "multi_choice",
+                "motion_type": "general",
+                "is_multi_choice": True,
                 "option_limit": 2,
                 "options": [
                     {"text": "Alice", "display_order": 1},
@@ -141,7 +142,8 @@ class TestMotionOptionModel:
             title="Election",
             display_order=1,
             motion_number="1",
-            motion_type=MotionType.multi_choice,
+            motion_type=MotionType.general,
+            is_multi_choice=True,
             option_limit=2,
         )
         db_session.add(motion)
@@ -177,7 +179,8 @@ class TestMotionOptionModel:
             title="Election",
             display_order=1,
             motion_number="1",
-            motion_type=MotionType.multi_choice,
+            motion_type=MotionType.general,
+            is_multi_choice=True,
             option_limit=1,
         )
         db_session.add(motion)
@@ -202,10 +205,12 @@ class TestMotionOptionModel:
         assert VoteChoice.selected == "selected"
         assert "selected" in [c.value for c in VoteChoice]
 
-    async def test_motion_type_multi_choice_enum(self):
-        """MotionType.multi_choice is a valid enum value."""
-        assert MotionType.multi_choice == "multi_choice"
-        assert "multi_choice" in [t.value for t in MotionType]
+    async def test_motion_is_multi_choice_field(self):
+        """Motion.is_multi_choice is a separate bool field, not a MotionType value."""
+        assert MotionType.general == "general"
+        assert MotionType.special == "special"
+        # multi_choice is NOT a MotionType value — it is represented by is_multi_choice=True
+        assert "multi_choice" not in [t.value for t in MotionType]
 
     async def test_vote_with_motion_option_id(self, db_session: AsyncSession, mc_building: Building):
         """Vote can store a motion_option_id."""
@@ -238,7 +243,8 @@ class TestMotionOptionModel:
             title="Election",
             display_order=1,
             motion_number="1",
-            motion_type=MotionType.multi_choice,
+            motion_type=MotionType.general,
+            is_multi_choice=True,
             option_limit=1,
         )
         db_session.add(motion)
@@ -287,7 +293,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Board Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 2,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -301,7 +308,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
         assert resp.status_code == 201
         data = resp.json()
         motion = data["motions"][0]
-        assert motion["motion_type"] == "multi_choice"
+        assert motion["motion_type"] == "general"
+        assert motion["is_multi_choice"] is True
         assert motion["option_limit"] == 2
         assert len(motion["options"]) == 3
         assert motion["options"][0]["text"] == "Alice"
@@ -326,7 +334,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Board Election",
                     "display_order": 2,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -339,9 +348,11 @@ class TestCreateMeetingWithMultiChoiceMotion:
         assert resp.status_code == 201
         motions = resp.json()["motions"]
         assert motions[0]["motion_type"] == "general"
+        assert motions[0]["is_multi_choice"] is False
         assert motions[0]["options"] == []
         assert motions[0]["option_limit"] is None
-        assert motions[1]["motion_type"] == "multi_choice"
+        assert motions[1]["motion_type"] == "general"
+        assert motions[1]["is_multi_choice"] is True
         assert len(motions[1]["options"]) == 2
         assert motions[1]["option_limit"] == 1
 
@@ -360,7 +371,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "options": [
                         {"text": "Alice", "display_order": 1},
                         {"text": "Bob", "display_order": 2},
@@ -384,7 +396,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [{"text": "Only One", "display_order": 1}],
                 }
@@ -406,7 +419,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 5,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -475,7 +489,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 2,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -500,7 +515,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Choice",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "Option A", "display_order": 1},
@@ -525,7 +541,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "", "display_order": 1},
@@ -550,7 +567,8 @@ class TestCreateMeetingWithMultiChoiceMotion:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "A" * 201, "display_order": 1},
@@ -573,7 +591,8 @@ class TestAddMotionToMeetingMultiChoice:
         meeting_id = mc_meeting["id"]
         payload = {
             "title": "New Election",
-            "motion_type": "multi_choice",
+            "motion_type": "general",
+            "is_multi_choice": True,
             "option_limit": 1,
             "options": [
                 {"text": "Yes Option", "display_order": 1},
@@ -583,7 +602,8 @@ class TestAddMotionToMeetingMultiChoice:
         resp = await client.post(f"/api/admin/general-meetings/{meeting_id}/motions", json=payload)
         assert resp.status_code == 201
         data = resp.json()
-        assert data["motion_type"] == "multi_choice"
+        assert data["motion_type"] == "general"
+        assert data["is_multi_choice"] is True
         assert data["option_limit"] == 1
         assert len(data["options"]) == 2
         assert data["is_visible"] is False
@@ -612,7 +632,8 @@ class TestAddMotionToMeetingMultiChoice:
         meeting_id = mc_meeting["id"]
         payload = {
             "title": "Bad Motion",
-            "motion_type": "multi_choice",
+            "motion_type": "general",
+            "is_multi_choice": True,
             "option_limit": 1,
         }
         resp = await client.post(f"/api/admin/general-meetings/{meeting_id}/motions", json=payload)
@@ -628,7 +649,7 @@ class TestUpdateMotionMultiChoice:
         """Updating options on a hidden multi-choice motion replaces existing options."""
         meeting_id = mc_meeting["id"]
         # Find the multi-choice motion
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         motion_id = mc_motion["id"]
 
         # First, ensure the motion is hidden (it's already created as visible=True in meeting)
@@ -668,7 +689,8 @@ class TestUpdateMotionMultiChoice:
                 {
                     "title": "Election",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -687,14 +709,15 @@ class TestUpdateMotionMultiChoice:
             json={"is_visible": False},
         )
 
-        # Change type to general
+        # Change is_multi_choice to false — should clear options and option_limit
         resp = await client.patch(
             f"/api/admin/motions/{motion_id}",
-            json={"motion_type": "general"},
+            json={"is_multi_choice": False},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["motion_type"] == "general"
+        assert data["is_multi_choice"] is False
         assert data["options"] == []
         assert data["option_limit"] is None
 
@@ -710,7 +733,7 @@ class TestGetMeetingDetailWithMultiChoice:
         resp = await client.get(f"/api/admin/general-meetings/{meeting_id}")
         assert resp.status_code == 200
         data = resp.json()
-        mc_motion = next(m for m in data["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in data["motions"] if m["is_multi_choice"])
         assert mc_motion["option_limit"] == 2
         assert len(mc_motion["options"]) == 3
         assert mc_motion["tally"]["yes"]["voter_count"] == 0
@@ -727,7 +750,7 @@ class TestGetMeetingDetailWithMultiChoice:
         meeting_id = mc_meeting["id"]
         resp = await client.get(f"/api/admin/general-meetings/{meeting_id}")
         data = resp.json()
-        gen_motion = next(m for m in data["motions"] if m["motion_type"] == "general")
+        gen_motion = next(m for m in data["motions"] if not m["is_multi_choice"])
         assert gen_motion["options"] == []
         assert gen_motion["option_limit"] is None
         assert gen_motion["tally"]["options"] == []
@@ -743,7 +766,7 @@ class TestGetMeetingDetailWithMultiChoice:
     ):
         """Tally shows per-option UOE totals after voters submit ballots."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         mc_motion_id = uuid.UUID(mc_motion["id"])
         alice_opt_id = uuid.UUID(mc_motion["options"][0]["id"])
         bob_opt_id = uuid.UUID(mc_motion["options"][1]["id"])
@@ -776,7 +799,7 @@ class TestGetMeetingDetailWithMultiChoice:
                     status=VoteStatus.submitted,
                 ))
             # Also vote on general motion (abstained)
-            gen_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "general")
+            gen_motion = next(m for m in mc_meeting["motions"] if not m["is_multi_choice"])
             db_session.add(Vote(
                 general_meeting_id=meeting_id,
                 motion_id=uuid.UUID(gen_motion["id"]),
@@ -795,7 +818,7 @@ class TestGetMeetingDetailWithMultiChoice:
         resp = await client.get(f"/api/admin/general-meetings/{meeting_id}")
         assert resp.status_code == 200
         data = resp.json()
-        mc_detail = next(m for m in data["motions"] if m["motion_type"] == "multi_choice")
+        mc_detail = next(m for m in data["motions"] if m["is_multi_choice"])
 
         # Alice selected by lot1 (100) and lot2 (200) = 300 entitlement, 2 voters
         alice_tally = next(o for o in mc_detail["tally"]["options"] if o["option_text"] == "Alice")
@@ -824,7 +847,7 @@ class TestToggleVisibilityMultiChoice:
         self, client: AsyncClient, mc_meeting: dict
     ):
         """Toggle visibility on multi-choice motion includes options in response."""
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         motion_id = mc_motion["id"]
 
         # Hide it
@@ -834,7 +857,8 @@ class TestToggleVisibilityMultiChoice:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["motion_type"] == "multi_choice"
+        assert data["motion_type"] == "general"
+        assert data["is_multi_choice"] is True
         assert len(data["options"]) == 3
         assert data["option_limit"] == 2
 
@@ -872,7 +896,7 @@ class TestListMotionsWithMultiChoice:
         )
         assert resp.status_code == 200
         motions = resp.json()
-        mc_motion = next(m for m in motions if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in motions if m["is_multi_choice"])
         assert mc_motion["option_limit"] == 2
         assert len(mc_motion["options"]) == 3
         assert mc_motion["options"][0]["text"] == "Alice"
@@ -902,7 +926,7 @@ class TestListMotionsWithMultiChoice:
             headers={"Authorization": f"Bearer {token}"},
         )
         motions = resp.json()
-        gen_motion = next(m for m in motions if m["motion_type"] == "general")
+        gen_motion = next(m for m in motions if not m["is_multi_choice"])
         assert gen_motion["options"] == []
         assert gen_motion["option_limit"] is None
 
@@ -919,8 +943,8 @@ class TestSubmitBallotMultiChoice:
     ):
         """Voter submits multi-choice ballot with valid options; Vote rows created."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
-        gen_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "general")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
+        gen_motion = next(m for m in mc_meeting["motions"] if not m["is_multi_choice"])
         alice_opt_id = mc_motion["options"][0]["id"]
         bob_opt_id = mc_motion["options"][1]["id"]
 
@@ -976,7 +1000,7 @@ class TestSubmitBallotMultiChoice:
     ):
         """Voter sends empty option_ids for MC motion — records abstained."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
 
         lots_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
@@ -1025,7 +1049,7 @@ class TestSubmitBallotMultiChoice:
     ):
         """Voter doesn't include multi_choice_votes — MC motion recorded as abstained."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
 
         lots_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
@@ -1072,7 +1096,7 @@ class TestSubmitBallotMultiChoice:
     ):
         """Submitting an option_id that doesn't belong to the motion returns 400."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
 
         lots_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
@@ -1108,7 +1132,7 @@ class TestSubmitBallotMultiChoice:
     ):
         """Submitting more option_ids than option_limit returns 422."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         # option_limit=2, try to submit 3
         opt_ids = [o["id"] for o in mc_motion["options"]]
 
@@ -1191,7 +1215,8 @@ class TestSubmitBallotMultiChoice:
                 {
                     "title": "MC Motion",
                     "display_order": 1,
-                    "motion_type": "multi_choice",
+                    "motion_type": "general",
+                    "is_multi_choice": True,
                     "option_limit": 1,
                     "options": [
                         {"text": "Alice", "display_order": 1},
@@ -1271,7 +1296,7 @@ class TestMyBallotMultiChoice:
     ):
         """my-ballot response shows selected options for multi-choice motions."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         alice_opt_id = uuid.UUID(mc_motion["options"][0]["id"])
 
         lots_result = await db_session.execute(
@@ -1310,7 +1335,8 @@ class TestMyBallotMultiChoice:
         data = resp.json()
         lot_ballot = data["submitted_lots"][0]
         mc_vote = next(v for v in lot_ballot["votes"] if v["motion_id"] == mc_motion["id"])
-        assert mc_vote["motion_type"] == "multi_choice"
+        assert mc_vote["motion_type"] == "general"
+        assert mc_vote["is_multi_choice"] is True
         assert mc_vote["choice"] == "selected"
         assert len(mc_vote["selected_options"]) == 1
         assert mc_vote["selected_options"][0]["text"] == "Alice"
@@ -1324,7 +1350,7 @@ class TestMyBallotMultiChoice:
     ):
         """my-ballot shows abstained for multi-choice motion voted with empty options."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
 
         lots_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
@@ -1374,7 +1400,7 @@ class TestMyBallotMultiChoice:
     ):
         """my-ballot groups multiple selected vote rows into one BallotVoteItem."""
         meeting_id = uuid.UUID(mc_meeting["id"])
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
         alice_opt_id = uuid.UUID(mc_motion["options"][0]["id"])
         bob_opt_id = uuid.UUID(mc_motion["options"][1]["id"])
 
@@ -1417,7 +1443,8 @@ class TestMyBallotMultiChoice:
         # Should be exactly one BallotVoteItem for the MC motion
         mc_votes_items = [v for v in lot_ballot["votes"] if v["motion_id"] == mc_motion["id"]]
         assert len(mc_votes_items) == 1
-        assert mc_votes_items[0]["motion_type"] == "multi_choice"
+        assert mc_votes_items[0]["motion_type"] == "general"
+        assert mc_votes_items[0]["is_multi_choice"] is True
         assert len(mc_votes_items[0]["selected_options"]) == 2
         option_texts = {o["text"] for o in mc_votes_items[0]["selected_options"]}
         assert option_texts == {"Alice", "Bob"}
@@ -1509,7 +1536,7 @@ class TestMotionAddRequestValidation:
         with pytest.raises(ValidationError):
             MotionAddRequest(
                 title="Election",
-                motion_type=MotionType.multi_choice,
+                is_multi_choice=True,
                 option_limit=0,
                 options=[
                     MotionOptionCreate(text="A", display_order=1),
@@ -1523,7 +1550,7 @@ class TestMotionAddRequestValidation:
         with pytest.raises(ValidationError):
             MotionAddRequest(
                 title="Election",
-                motion_type=MotionType.multi_choice,
+                is_multi_choice=True,
                 option_limit=3,
                 options=[
                     MotionOptionCreate(text="A", display_order=1),
@@ -1560,8 +1587,8 @@ class TestReorderMotionsWithMultiChoice:
     ):
         """Reordering motions in a meeting with multi-choice returns options in response."""
         meeting_id = mc_meeting["id"]
-        mc_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "multi_choice")
-        gen_motion = next(m for m in mc_meeting["motions"] if m["motion_type"] == "general")
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
+        gen_motion = next(m for m in mc_meeting["motions"] if not m["is_multi_choice"])
 
         # Reorder: put general first, mc second
         payload = {

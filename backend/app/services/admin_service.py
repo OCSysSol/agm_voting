@@ -32,7 +32,6 @@ from app.models import (
     LotProxy,
     Motion,
     MotionOption,
-    MotionType,
     Vote,
     VoteChoice,
     VoteStatus,
@@ -1074,11 +1073,12 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
             display_order=position,
             motion_number=motion_number,
             motion_type=motion_data.motion_type,
-            option_limit=motion_data.option_limit if motion_data.motion_type == MotionType.multi_choice else None,
+            is_multi_choice=motion_data.is_multi_choice,
+            option_limit=motion_data.option_limit if motion_data.is_multi_choice else None,
         )
         db.add(motion)
         await db.flush()  # get motion.id for option FK
-        if motion_data.motion_type == MotionType.multi_choice:
+        if motion_data.is_multi_choice:
             for opt in motion_data.options:
                 db.add(MotionOption(
                     motion_id=motion.id,
@@ -1113,7 +1113,7 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     loaded_motions = list(motions_result.scalars().all())
 
     # Load motion options for multi-choice motions
-    multi_choice_motion_ids = [m.id for m in loaded_motions if m.motion_type == MotionType.multi_choice]
+    multi_choice_motion_ids = [m.id for m in loaded_motions if m.is_multi_choice]
     options_by_motion: dict[uuid.UUID, list] = {}
     if multi_choice_motion_ids:
         opts_result = await db.execute(
@@ -1142,6 +1142,7 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
                 "display_order": m.display_order,
                 "motion_number": m.motion_number,
                 "motion_type": m.motion_type.value if hasattr(m.motion_type, "value") else m.motion_type,
+                "is_multi_choice": m.is_multi_choice,
                 "option_limit": m.option_limit,
                 "options": [
                     {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
@@ -1269,7 +1270,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     motions = list(motions_result.scalars().all())
 
     # Load options for multi-choice motions
-    mc_motion_ids = [m.id for m in motions if m.motion_type == MotionType.multi_choice]
+    mc_motion_ids = [m.id for m in motions if m.is_multi_choice]
     motion_options_map: dict[uuid.UUID, list] = {}
     if mc_motion_ids:
         opts_result = await db.execute(
@@ -1390,7 +1391,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         motion_type_str = motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type
         motion_opts = motion_options_map.get(motion.id, [])
 
-        if motion.motion_type == MotionType.multi_choice:
+        if motion.is_multi_choice:
             # Multi-choice: per-option tallying
             # Collect votes for this motion
             motion_vote_rows = [v for v in submitted_votes if v.motion_id == motion.id and v.lot_owner_id in submitted_lot_owner_ids]
@@ -1435,6 +1436,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 "display_order": motion.display_order,
                 "motion_number": motion.motion_number,
                 "motion_type": motion_type_str,
+                "is_multi_choice": motion.is_multi_choice,
                 "is_visible": motion.is_visible,
                 "option_limit": motion.option_limit,
                 "options": [
@@ -1492,6 +1494,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "display_order": motion.display_order,
                     "motion_number": motion.motion_number,
                     "motion_type": motion_type_str,
+                    "is_multi_choice": motion.is_multi_choice,
                     "is_visible": motion.is_visible,
                     "option_limit": None,
                     "options": [],
@@ -1596,6 +1599,7 @@ async def toggle_motion_visibility(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
         "option_limit": motion.option_limit,
         "options": [
@@ -1684,7 +1688,8 @@ async def add_motion_to_meeting(
         display_order=next_index,
         motion_number=assigned_motion_number,
         motion_type=data.motion_type,
-        option_limit=data.option_limit if data.motion_type == MotionType.multi_choice else None,
+        is_multi_choice=data.is_multi_choice,
+        option_limit=data.option_limit if data.is_multi_choice else None,
         is_visible=False,
     )
     db.add(motion)
@@ -1701,7 +1706,7 @@ async def add_motion_to_meeting(
 
     # Create motion options for multi-choice motions
     created_options = []
-    if data.motion_type == MotionType.multi_choice:
+    if data.is_multi_choice:
         for opt in data.options:
             new_opt = MotionOption(
                 motion_id=motion.id,
@@ -1724,6 +1729,7 @@ async def add_motion_to_meeting(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
         "option_limit": motion.option_limit,
         "options": [
@@ -1768,13 +1774,15 @@ async def update_motion(
     if data.description is not None:
         motion.description = _sanitise_description(data.description)
     if data.motion_type is not None:
+        motion.motion_type = data.motion_type
+    if data.is_multi_choice is not None:
         # When changing away from multi_choice, clear options and option_limit
-        if data.motion_type != MotionType.multi_choice and motion.motion_type == MotionType.multi_choice:
+        if not data.is_multi_choice and motion.is_multi_choice:
             await db.execute(
                 delete(MotionOption).where(MotionOption.motion_id == motion.id)
             )
             motion.option_limit = None
-        motion.motion_type = data.motion_type
+        motion.is_multi_choice = data.is_multi_choice
     if data.motion_number is not None:
         stripped = data.motion_number.strip()
         motion.motion_number = stripped if stripped else None
@@ -1812,6 +1820,7 @@ async def update_motion(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
         "option_limit": motion.option_limit,
         "options": [
@@ -2112,7 +2121,7 @@ async def reorder_motions(
     final_motions = list(final_result.scalars().all())
 
     # Load options for multi-choice motions in the final result
-    final_mc_ids = [m.id for m in final_motions if m.motion_type == MotionType.multi_choice]
+    final_mc_ids = [m.id for m in final_motions if m.is_multi_choice]
     final_opts_map: dict[uuid.UUID, list] = {}
     if final_mc_ids:
         final_opts_result = await db.execute(

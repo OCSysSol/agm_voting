@@ -208,6 +208,7 @@ class MotionCreate(BaseModel):
     description: str | None = None
     display_order: int
     motion_type: MotionType = MotionType.general
+    is_multi_choice: bool = False
     motion_number: str | None = None
     option_limit: int | None = None
     options: list[MotionOptionCreate] = []
@@ -235,7 +236,7 @@ class MotionCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_multi_choice_fields(self) -> "MotionCreate":
-        if self.motion_type == MotionType.multi_choice:
+        if self.is_multi_choice:
             if self.option_limit is None or self.option_limit < 1:
                 raise ValueError("option_limit must be >= 1 for multi_choice motions")
             if len(self.options) < 2:
@@ -257,6 +258,7 @@ class MotionOut(BaseModel):
     display_order: int
     motion_number: str | None
     motion_type: MotionType
+    is_multi_choice: bool = False
     is_visible: bool = True
     option_limit: int | None = None
     options: list[MotionOptionOut] = []
@@ -275,6 +277,7 @@ class MotionVisibilityOut(BaseModel):
     display_order: int
     motion_number: str | None
     motion_type: MotionType
+    is_multi_choice: bool = False
     is_visible: bool
     option_limit: int | None = None
     options: list[MotionOptionOut] = []
@@ -286,6 +289,7 @@ class MotionAddRequest(BaseModel):
     title: str
     description: str | None = None
     motion_type: MotionType = MotionType.general
+    is_multi_choice: bool = False
     motion_number: str | None = None
     option_limit: int | None = None
     options: list[MotionOptionCreate] = []
@@ -315,7 +319,7 @@ class MotionAddRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_multi_choice_fields(self) -> "MotionAddRequest":
-        if self.motion_type == MotionType.multi_choice:
+        if self.is_multi_choice:
             if self.option_limit is None or self.option_limit < 1:
                 raise ValueError("option_limit must be >= 1 for multi_choice motions")
             if len(self.options) < 2:
@@ -334,6 +338,7 @@ class MotionUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     motion_type: MotionType | None = None
+    is_multi_choice: bool | None = None
     motion_number: str | None = None
     option_limit: int | None = None
     options: list[MotionOptionCreate] | None = None
@@ -344,6 +349,7 @@ class MotionUpdateRequest(BaseModel):
             self.title is None
             and self.description is None
             and self.motion_type is None
+            and self.is_multi_choice is None
             and self.motion_number is None
             and self.option_limit is None
             and self.options is None
@@ -476,6 +482,7 @@ class MotionDetail(BaseModel):
     display_order: int
     motion_number: str | None
     motion_type: MotionType
+    is_multi_choice: bool = False
     is_visible: bool = True
     option_limit: int | None = None
     options: list[MotionOptionOut] = []

@@ -11,7 +11,6 @@ from app.models.base import Base
 class MotionType(str, enum.Enum):
     general = "general"
     special = "special"
-    multi_choice = "multi_choice"
 
 
 class Motion(Base):
@@ -57,6 +56,12 @@ class Motion(Base):
         nullable=False,
         default=True,
         server_default=sa.text("true"),  # nosemgrep: raw-sql-requires-comment -- server_default for boolean column; SQLAlchemy requires text() to emit a literal SQL expression as a column default
+    )
+    is_multi_choice: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.text("false"),  # nosemgrep: raw-sql-requires-comment -- server_default for boolean column; SQLAlchemy requires text() to emit a literal SQL expression as a column default
     )
     option_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

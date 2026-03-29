@@ -8,7 +8,6 @@ const CHOICES: VoteChoice[] = ["yes", "no", "abstained"];
 const MOTION_TYPE_LABELS: Record<string, string> = {
   general: "General",
   special: "Special",
-  multi_choice: "Multi-Choice",
 };
 
 interface MotionCardProps {
@@ -43,7 +42,7 @@ export function MotionCard({
     onChoiceChange(motion.id, next);
   };
 
-  const isMultiChoice = motion.motion_type === "multi_choice";
+  const isMultiChoice = motion.is_multi_choice;
   const isSpecial = motion.motion_type === "special";
   const isEffectivelyDisabled = disabled || readOnly;
 
@@ -52,7 +51,9 @@ export function MotionCard({
     : isMultiChoice
     ? "motion-type-badge--multi_choice"
     : "motion-type-badge--general";
-  const typeLabel = MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
+  const typeLabel = isMultiChoice
+    ? "Multi-Choice"
+    : MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
 
   return (
     <div

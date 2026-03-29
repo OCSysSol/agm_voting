@@ -15,6 +15,7 @@ class MotionOut(BaseModel):
     display_order: int
     motion_number: Optional[str]
     motion_type: MotionType
+    is_multi_choice: bool = False
     is_visible: bool = True
     already_voted: bool = False
     submitted_choice: Optional[VoteChoice] = None
@@ -76,6 +77,7 @@ class BallotVoteItem(BaseModel):
     choice: VoteChoice
     eligible: bool = True
     motion_type: MotionType = MotionType.general
+    is_multi_choice: bool = False
     selected_options: list[MotionOptionOut] = []
 
 

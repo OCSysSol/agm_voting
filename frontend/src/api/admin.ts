@@ -44,6 +44,7 @@ export interface MotionOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
   option_limit: number | null;
   options: MotionOptionOut[];
@@ -115,6 +116,7 @@ export interface MotionDetail {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
   option_limit: number | null;
   options: MotionOptionOut[];
@@ -220,6 +222,7 @@ export interface MotionCreateRequest {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   option_limit?: number | null;
   options?: MotionOptionCreate[];
 }
@@ -533,6 +536,7 @@ export interface MotionVisibilityOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
   option_limit: number | null;
   options: MotionOptionOut[];
@@ -542,6 +546,7 @@ export interface AddMotionRequest {
   title: string;
   description: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   motion_number?: string | null;
   option_limit?: number | null;
   options?: MotionOptionCreate[];
@@ -551,6 +556,7 @@ export interface UpdateMotionRequest {
   title?: string;
   description?: string | null;
   motion_type?: MotionType;
+  is_multi_choice?: boolean;
   motion_number?: string | null;
   option_limit?: number | null;
   options?: MotionOptionCreate[];

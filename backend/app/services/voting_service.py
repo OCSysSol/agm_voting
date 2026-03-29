@@ -278,7 +278,7 @@ async def submit_ballot(
             )
 
     # Load options for all visible multi-choice motions (single query to avoid N+1)
-    mc_motion_ids = [m.id for m in visible_motions if m.motion_type == MotionType.multi_choice]
+    mc_motion_ids = [m.id for m in visible_motions if m.is_multi_choice]
     mc_options_map: dict[uuid.UUID, set[uuid.UUID]] = {}  # motion_id -> set of valid option ids
     mc_motion_map: dict[uuid.UUID, Motion] = {}
     if mc_motion_ids:
@@ -287,7 +287,7 @@ async def submit_ballot(
         )
         for opt in opts_result.scalars().all():
             mc_options_map.setdefault(opt.motion_id, set()).add(opt.id)
-        mc_motion_map = {m.id: m for m in visible_motions if m.motion_type == MotionType.multi_choice}
+        mc_motion_map = {m.id: m for m in visible_motions if m.is_multi_choice}
 
     mc_votes_map: dict[uuid.UUID, list[uuid.UUID]] = dict(multi_choice_votes) if multi_choice_votes else {}
 
@@ -362,7 +362,7 @@ async def submit_ballot(
             if motion.id in already_voted_for_lot:
                 continue
 
-            if motion.motion_type == MotionType.multi_choice:
+            if motion.is_multi_choice:
                 # Multi-choice handling
                 if is_in_arrear:
                     # In-arrear lots: record not_eligible for multi-choice as well
@@ -673,7 +673,7 @@ async def get_my_ballot(
             eligible = not (
                 is_in_arrear and motion.motion_type == MotionType.general
             )
-            if motion.motion_type == MotionType.multi_choice:
+            if motion.is_multi_choice:
                 if motion.id in seen_motion_ids:
                     # Already have an item for this motion; add to its selected_options
                     for existing_item in lot_votes:
@@ -711,6 +711,7 @@ async def get_my_ballot(
                     choice=vote.choice,
                     eligible=eligible,
                     motion_type=motion.motion_type,
+                    is_multi_choice=motion.is_multi_choice,
                     selected_options=selected_opts,
                 ))
             else:
@@ -722,6 +723,7 @@ async def get_my_ballot(
                     choice=vote.choice,
                     eligible=eligible,
                     motion_type=motion.motion_type,
+                    is_multi_choice=motion.is_multi_choice,
                 ))
 
         submitted_lots.append(LotBallotSummary(

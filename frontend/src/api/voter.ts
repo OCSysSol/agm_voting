@@ -66,6 +66,7 @@ export interface MotionOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
   already_voted: boolean;
   submitted_choice: VoteChoice | null;
@@ -107,6 +108,7 @@ export interface BallotVoteItem {
   choice: VoteChoice;
   eligible: boolean;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   selected_options: MotionOptionOut[];
 }
 
