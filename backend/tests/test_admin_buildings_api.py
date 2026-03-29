@@ -971,6 +971,28 @@ class TestArchiveBuilding:
         assert response.status_code == 200
         assert response.json()["is_archived"] is True
 
+    async def test_archive_building_lot_owners_with_no_emails(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Archive succeeds and archives lot owners when they have no LotOwnerEmail entries.
+
+        Regression test: db.refresh() after commit caused ORM lazy-load errors for
+        lot owners with zero email entries, resulting in HTTP 500.
+        """
+        b = Building(name="No Email Archive Bldg", manager_email="noemail_arc@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="NE1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 200
+        assert response.json()["is_archived"] is True
+
+        await db_session.refresh(lo)
+        assert lo.is_archived is True
+
 
 # ---------------------------------------------------------------------------
 # PATCH /api/admin/buildings/{id}

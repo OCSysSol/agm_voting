@@ -348,7 +348,10 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
             owner.is_archived = True
 
     await db.commit()
-    await db.refresh(building)
+    result = await db.execute(
+        select(Building).where(Building.id == building_id)
+    )
+    building = result.scalar_one()
     return building
 
 
