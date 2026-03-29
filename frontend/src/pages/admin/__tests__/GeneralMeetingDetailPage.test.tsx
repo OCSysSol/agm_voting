@@ -872,6 +872,24 @@ describe("Add Motion form", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
+  it("Motion Type dropdown in Add Motion modal has General, Special, and Multi-Choice options", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Motion Type") as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => ({ value: o.value, label: o.text }));
+    expect(options).toContainEqual({ value: "general", label: "General" });
+    expect(options).toContainEqual({ value: "special", label: "Special" });
+    expect(options).toContainEqual({ value: "multi_choice", label: "Multi-Choice" });
+    expect(options).toHaveLength(3);
+  });
+
   it("submitting the form with valid data calls the API and closes the form", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1095,6 +1113,24 @@ describe("Edit motion modal", () => {
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Edit Motion")).toBeInTheDocument();
+  });
+
+  it("Motion Type dropdown in Edit modal has General, Special, and Multi-Choice options", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Motion Type") as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => ({ value: o.value, label: o.text }));
+    expect(options).toContainEqual({ value: "general", label: "General" });
+    expect(options).toContainEqual({ value: "special", label: "Special" });
+    expect(options).toContainEqual({ value: "multi_choice", label: "Multi-Choice" });
+    expect(options).toHaveLength(3);
   });
 
   it("modal pre-fills form fields with current motion values including motion number", async () => {
@@ -2091,7 +2127,7 @@ describe("Bulk motion visibility", () => {
 
   // --- Multi-choice motion Add modal ---
 
-  it("shows multi-choice fields when multi-choice checkbox is checked in Add Motion modal", async () => {
+  it("shows multi-choice fields when Multi-Choice is selected in Add Motion modal", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -2101,9 +2137,9 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
-    // Check the multi-choice checkbox
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    // Select multi_choice from the Motion Type dropdown
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Multi-choice fields should appear
     expect(screen.getByLabelText("Max selections per voter")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 1")).toBeInTheDocument();
@@ -2120,9 +2156,9 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
-    // Check the multi-choice checkbox
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    // Select multi_choice from the Motion Type dropdown
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Add a third option
     await user.click(screen.getByRole("button", { name: "+ Add option" }));
     expect(screen.getByLabelText("Option 3")).toBeInTheDocument();
@@ -2144,9 +2180,9 @@ describe("Bulk motion visibility", () => {
     });
     // Fill title
     await user.type(screen.getByLabelText("Title *"), "Board Election");
-    // Check multi-choice checkbox (shows fields with empty options)
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    // Select multi_choice from the Motion Type dropdown
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Clear the pre-filled option inputs
     const opt1 = screen.getByLabelText("Option 1");
     const opt2 = screen.getByLabelText("Option 2");
@@ -2160,7 +2196,7 @@ describe("Bulk motion visibility", () => {
 
   // --- Multi-choice motion Edit modal ---
 
-  it("shows multi-choice fields in Edit modal when multi-choice checkbox is checked", async () => {
+  it("shows multi-choice fields in Edit modal when Multi-Choice is selected", async () => {
     const user = userEvent.setup();
     // Use ADMIN_MEETING_DETAIL_HIDDEN_MOTION which has a hidden (editable) motion
     renderPage("agm-hidden-motion");
@@ -2175,9 +2211,9 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
 
-    // Check the multi-choice checkbox
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    // Select multi_choice from the Motion Type dropdown
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     expect(screen.getByLabelText("Max selections per voter")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Option 2")).toBeInTheDocument();
@@ -2193,8 +2229,8 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     const opt1 = screen.getByLabelText("Option 1");
     await user.type(opt1, "Alice");
     expect(opt1).toHaveValue("Alice");
@@ -2211,8 +2247,8 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Add a third option
     await user.click(screen.getByRole("button", { name: "+ Add option" }));
     expect(screen.getByLabelText("Option 3")).toBeInTheDocument();
@@ -2233,8 +2269,8 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Leave options empty (clear the default empty inputs)
     const opt1 = screen.getByLabelText("Option 1");
     const opt2 = screen.getByLabelText("Option 2");
@@ -2255,8 +2291,8 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     await user.type(screen.getByLabelText("Option 1"), "Alice");
     await user.type(screen.getByLabelText("Option 2"), "Bob");
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
@@ -2277,8 +2313,8 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     // Fill 2 options
     await user.type(screen.getByLabelText("Option 1"), "Alice");
     await user.type(screen.getByLabelText("Option 2"), "Bob");
@@ -2289,9 +2325,11 @@ describe("Bulk motion visibility", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Option limit must be at least 1.");
   });
 
-  it("populates Edit modal options when editing a motion with existing options", async () => {
+  it("populates Edit modal options when editing a motion with existing options (is_multi_choice=true maps to multi_choice type)", async () => {
     const user = userEvent.setup();
-    // Override the hidden motion to have existing options (simulating a multi-choice motion)
+    // Override the hidden motion to have existing options (simulating a multi-choice motion
+    // stored with is_multi_choice=true, motion_type="general" — legacy representation).
+    // The frontend maps is_multi_choice=true → motion_type="multi_choice" on open.
     server.use(
       http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () =>
         HttpResponse.json({
@@ -2332,7 +2370,10 @@ describe("Bulk motion visibility", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
-    // The existing options should be pre-filled
+    // motion_type should be pre-set to "multi_choice" (derived from is_multi_choice=true)
+    const motionTypeSelect = screen.getByLabelText("Motion Type") as HTMLSelectElement;
+    expect(motionTypeSelect.value).toBe("multi_choice");
+    // The existing options should be pre-filled (visible because motion_type = multi_choice)
     expect(screen.getByLabelText("Option 1")).toHaveValue("Existing Option A");
     expect(screen.getByLabelText("Option 2")).toHaveValue("Existing Option B");
   });
@@ -2348,8 +2389,8 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
     await user.type(screen.getByLabelText("Title *"), "Board Election");
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     await user.type(screen.getByLabelText("Option 1"), "Alice");
     await user.type(screen.getByLabelText("Option 2"), "Bob");
     await user.click(screen.getByRole("button", { name: "Save Motion" }));
@@ -2370,8 +2411,8 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
     await user.type(screen.getByLabelText("Title *"), "Election");
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     await user.type(screen.getByLabelText("Option 1"), "Alice");
     await user.type(screen.getByLabelText("Option 2"), "Bob");
     const limitInput = screen.getByLabelText("Max selections per voter");
@@ -2392,8 +2433,8 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     });
     await user.type(screen.getByLabelText("Title *"), "Election");
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
     await user.type(screen.getByLabelText("Option 1"), "Alice");
     await user.type(screen.getByLabelText("Option 2"), "Bob");
     // Clear option limit so it becomes NaN (invalid) — triggers "Option limit must be at least 1."
@@ -2416,9 +2457,9 @@ describe("Bulk motion visibility", () => {
       expect(screen.getByRole("dialog", { name: "Edit Motion" })).toBeInTheDocument();
     });
 
-    // Check the multi-choice checkbox
-    const checkbox = screen.getByLabelText("Multi-choice question format");
-    await user.click(checkbox);
+    // Select multi_choice from the Motion Type dropdown
+    const motionTypeSelect = screen.getByLabelText("Motion Type");
+    await user.selectOptions(motionTypeSelect, "multi_choice");
 
     // Fill 2 options
     const opt1 = screen.getByLabelText("Option 1");
