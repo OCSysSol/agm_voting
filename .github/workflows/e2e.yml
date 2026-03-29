@@ -32,6 +32,20 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
+      - name: Extract branch name
+        id: branch
+        # For deployment_status events, github.event.deployment.ref may be a
+        # commit SHA rather than a branch name. Strip the refs/heads/ prefix if
+        # present; otherwise fall back to github.ref_name (the checked-out ref).
+        run: |
+          RAW_REF="${{ github.event.deployment.ref }}"
+          BRANCH="${RAW_REF#refs/heads/}"
+          # If it still looks like a SHA (40 hex chars), use github.ref_name instead
+          if echo "$BRANCH" | grep -qE '^[0-9a-f]{40}$'; then
+            BRANCH="${{ github.ref_name }}"
+          fi
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
       - name: Run E2E tests
         run: cd frontend && npx playwright test
         env:
@@ -41,7 +55,7 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           # Branch name for test data namespacing (used by global-setup.ts)
-          GITHUB_HEAD_REF: ${{ github.event.deployment.ref }}
+          GITHUB_HEAD_REF: ${{ steps.branch.outputs.name }}
 
       - name: Upload Playwright report
         if: always()

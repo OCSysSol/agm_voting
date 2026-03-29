@@ -89,28 +89,51 @@ export default async function globalSetup(_config: FullConfig) {
   // goes through it. Migrations now run during the Vercel build step, so cold
   // starts are fast — but a brief warmup still avoids timeout on the very first
   // browser navigation while the Lambda instance initialises.
+  //
+  // Vercel Serverless can spin up multiple Lambda instances concurrently.
+  // A single warmup request only wakes one instance — subsequent requests
+  // (e.g. the login POST) may hit a still-cold instance. We fire 5 concurrent
+  // requests to different endpoints to force multiple instances awake.
+  // Errors and non-2xx responses are intentionally ignored (401 is fine).
   if (BYPASS_TOKEN) {
-    // Pre-warm the Lambda using native fetch (Node 18+). All routes pass
-    // through the Lambda so we wait for it to be ready before opening a browser page.
-    const warmupEndpoint = `${baseURL}/api/admin/buildings`;
+    const warmupHeaders = { "x-vercel-protection-bypass": BYPASS_TOKEN };
+    const warmupEndpoints = [
+      `${baseURL}/api/admin/buildings`,
+      `${baseURL}/api/admin/general-meetings`,
+      `${baseURL}/api/auth/verify`,
+      `${baseURL}/api/admin/buildings`,
+      `${baseURL}/api/admin/general-meetings`,
+    ];
     let warmedUp = false;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        const res = await fetch(warmupEndpoint, {
-          headers: { "x-vercel-protection-bypass": BYPASS_TOKEN },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        // Any non-5xx response means the Lambda is alive.
-        // 401 = unauthenticated (expected) — Lambda is warm.
-        if (res.status > 0 && res.status < 500) {
+        const results = await Promise.allSettled(
+          warmupEndpoints.map(async (endpoint) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            try {
+              const res = await fetch(endpoint, {
+                headers: warmupHeaders,
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+              return res.status;
+            } catch {
+              clearTimeout(timeoutId);
+              throw new Error("fetch failed");
+            }
+          })
+        );
+        // Lambda is warm if at least one request returned a non-5xx response.
+        const anyAlive = results.some(
+          (r) => r.status === "fulfilled" && r.value > 0 && r.value < 500
+        );
+        if (anyAlive) {
           warmedUp = true;
           break;
         }
       } catch {
-        // network error or abort — retry
+        // unexpected error — retry
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
@@ -122,9 +145,10 @@ export default async function globalSetup(_config: FullConfig) {
     baseURL,
     ignoreHTTPSErrors: true,
   });
-  // 60s navigation timeout: Lambda cold starts are migration-free; only app
+  // 120s navigation timeout: Lambda cold starts are migration-free; only app
   // startup is needed now that migrations run in the Vercel build step.
-  context.setDefaultNavigationTimeout(60000);
+  // Increased from 60s to handle remaining cold starts after parallel warmup.
+  context.setDefaultNavigationTimeout(120000);
   const page = await context.newPage();
 
   // Bypass Vercel Deployment Protection when running against a deployed URL.
@@ -157,7 +181,7 @@ export default async function globalSetup(_config: FullConfig) {
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   try {
-    await page.waitForURL(/\/admin\/buildings/, { timeout: 60000 });
+    await page.waitForURL(/\/admin\/buildings/, { timeout: 120000 });
   } catch {
     const url = page.url();
     const content = await page.content();
