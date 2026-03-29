@@ -239,6 +239,7 @@ class TestEmailTemplateRendering:
                 {
                     "title": "Approve Budget",
                     "description": "Approve the 2026 budget",
+                    "motion_number": "3",
                     "tally": {
                         "yes": {"voter_count": 2, "entitlement_sum": 200},
                         "no": {"voter_count": 1, "entitlement_sum": 50},
@@ -286,6 +287,15 @@ class TestEmailTemplateRendering:
         html = self._render_template(self._default_context())
         assert "Approve Budget" in html
 
+    def test_renders_motion_number_from_field_not_loop_index(self):
+        """Template must show motion.motion_number, not the Jinja loop.index position."""
+        ctx = self._default_context()
+        # motion_number is "3" but it is the first (and only) motion in the list,
+        # so loop.index would produce "1". If we see "Motion 3" the field is used.
+        html = self._render_template(ctx)
+        assert "Motion 3" in html
+        assert "Motion 1" not in html
+
     def test_renders_motion_description(self):
         html = self._render_template(self._default_context())
         assert "Approve the 2026 budget" in html
@@ -331,6 +341,7 @@ class TestEmailTemplateRendering:
             {
                 "title": "Elect New Chair",
                 "description": None,
+                "motion_number": "7",
                 "tally": {
                     "yes": {"voter_count": 3, "entitlement_sum": 300},
                     "no": {"voter_count": 0, "entitlement_sum": 0},
