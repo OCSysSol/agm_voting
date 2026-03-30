@@ -228,6 +228,83 @@ describe("GeneralMeetingDetailPage", () => {
     expect(screen.getByText(/Email delivery failed/)).toBeInTheDocument();
   });
 
+  it("shows Resend Summary Email button for closed meeting with delivered email", async () => {
+    renderPage("agm-delivered-email");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Resend Summary Email" })).toBeInTheDocument();
+    });
+  });
+
+  it("does not show Resend Summary Email button for closed meeting without email delivery", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Resend Summary Email" })).not.toBeInTheDocument();
+  });
+
+  it("does not show Resend Summary Email button for open meeting", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Resend Summary Email" })).not.toBeInTheDocument();
+  });
+
+  it("does not show Resend Summary Email button when email delivery failed (banner is shown instead)", async () => {
+    renderPage("agm-failed-email");
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Resend Summary Email" })).not.toBeInTheDocument();
+  });
+
+  it("clicking Resend Summary Email button calls API and shows success message", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-delivered-email");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Resend Summary Email" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Resend Summary Email" }));
+    await waitFor(() => {
+      expect(screen.getByText("Summary email queued for resend.")).toBeInTheDocument();
+    });
+  });
+
+  it("Resend Summary Email button shows loading state while in flight", async () => {
+    server.use(
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", async () => {
+        await new Promise(() => {}); // never resolves
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-delivered-email");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Resend Summary Email" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Resend Summary Email" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Sending..." })).toBeDisabled();
+    });
+  });
+
+  it("Resend Summary Email shows error on failure", async () => {
+    server.use(
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", () => {
+        return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-delivered-email");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Resend Summary Email" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Resend Summary Email" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
+
   it("shows generic error when non-404 fetch fails", async () => {
     server.use(
       http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () => {

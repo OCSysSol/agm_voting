@@ -439,6 +439,116 @@ class TestEmailTemplateRendering:
         assert "Board Member Election" in html
         assert "<!DOCTYPE html>" in html
 
+    def test_multi_choice_renders_per_option_voter_lists(self):
+        """Per-option voter lists are rendered in the email for multi-choice motions."""
+        import uuid as _uuid
+        opt_id_alice = str(_uuid.uuid4())
+        opt_id_bob = str(_uuid.uuid4())
+        ctx = self._default_context()
+        ctx["motions"] = [
+            {
+                "title": "Board Election",
+                "description": None,
+                "motion_number": "1",
+                "motion_type": "general",
+                "is_multi_choice": True,
+                "tally": {
+                    "yes": {"voter_count": 0, "entitlement_sum": 0},
+                    "no": {"voter_count": 0, "entitlement_sum": 0},
+                    "abstained": {"voter_count": 0, "entitlement_sum": 0},
+                    "absent": {"voter_count": 0, "entitlement_sum": 0},
+                    "options": [
+                        {"option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1, "voter_count": 1, "entitlement_sum": 100},
+                        {"option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2, "voter_count": 0, "entitlement_sum": 0},
+                    ],
+                },
+                "voter_lists": {
+                    "yes": [],
+                    "no": [],
+                    "abstained": [],
+                    "absent": [],
+                    "options": {
+                        opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
+                        opt_id_bob: [],
+                    },
+                },
+            }
+        ]
+        html = self._render_template(ctx)
+        # Voter for Alice Smith option should appear
+        assert "alice@example.com" in html
+        assert "Voted: Alice Smith" in html
+
+    def test_multi_choice_option_with_no_voters_not_rendered(self):
+        """Options with no voters do not produce a voter-list section."""
+        import uuid as _uuid
+        opt_id_alice = str(_uuid.uuid4())
+        opt_id_bob = str(_uuid.uuid4())
+        ctx = self._default_context()
+        ctx["motions"] = [
+            {
+                "title": "Board Election",
+                "description": None,
+                "motion_number": "1",
+                "motion_type": "general",
+                "is_multi_choice": True,
+                "tally": {
+                    "yes": {"voter_count": 0, "entitlement_sum": 0},
+                    "no": {"voter_count": 0, "entitlement_sum": 0},
+                    "abstained": {"voter_count": 0, "entitlement_sum": 0},
+                    "absent": {"voter_count": 0, "entitlement_sum": 0},
+                    "options": [
+                        {"option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1, "voter_count": 1, "entitlement_sum": 100},
+                        {"option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2, "voter_count": 0, "entitlement_sum": 0},
+                    ],
+                },
+                "voter_lists": {
+                    "yes": [],
+                    "no": [],
+                    "abstained": [],
+                    "absent": [],
+                    "options": {
+                        opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
+                        opt_id_bob: [],
+                    },
+                },
+            }
+        ]
+        html = self._render_template(ctx)
+        # Bob Jones voter section should not appear (empty list)
+        assert "Voted: Bob Jones" not in html
+
+    def test_motion_type_general_label_rendered(self):
+        """General resolution label is shown for general motion type."""
+        html = self._render_template(self._default_context())
+        assert "General Resolution" in html
+
+    def test_motion_type_special_label_rendered(self):
+        """Special resolution label is shown for special motion type."""
+        ctx = self._default_context()
+        ctx["motions"][0]["motion_type"] = "special"
+        html = self._render_template(ctx)
+        assert "Special Resolution" in html
+
+    def test_motion_type_general_not_special_in_standard_context(self):
+        """General motion does not show Special Resolution label."""
+        html = self._render_template(self._default_context())
+        assert "Special Resolution" not in html
+
+    def test_multi_choice_general_resolution_label(self):
+        """Multi-choice motion still shows General Resolution label when motion_type=general."""
+        ctx = self._multi_choice_motion_context()
+        ctx["motions"][0]["motion_type"] = "general"
+        html = self._render_template(ctx)
+        assert "General Resolution" in html
+
+    def test_multi_choice_special_resolution_label(self):
+        """Multi-choice motion shows Special Resolution label when motion_type=special."""
+        ctx = self._multi_choice_motion_context()
+        ctx["motions"][0]["motion_type"] = "special"
+        html = self._render_template(ctx)
+        assert "Special Resolution" in html
+
 
 # ---------------------------------------------------------------------------
 # OTEL logging
@@ -1174,6 +1284,59 @@ class TestCloseAgmEmailIntegration:
 
         # trigger_with_retry should have been scheduled via BackgroundTasks
         trigger_mock.assert_called_once_with(agm.id)
+
+    async def test_resend_report_succeeds_when_already_delivered(
+        self, client: AsyncClient, db_session: AsyncSession, mocker
+    ):
+        """POST /api/admin/general-meetings/{id}/resend-report succeeds even when email was already delivered."""
+        building = Building(name=f"Bld3 {uuid.uuid4()}", manager_email="mgr@example.com")
+        db_session.add(building)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=building.id,
+            title="Test GeneralMeeting 3",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+            closed_at=datetime.now(UTC),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        delivery = EmailDelivery(
+            general_meeting_id=agm.id,
+            status=EmailDeliveryStatus.delivered,
+            total_attempts=1,
+            last_error=None,
+        )
+        db_session.add(delivery)
+        await db_session.commit()
+
+        mocker.patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+        )
+
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
+        assert resp.status_code == 200
+        assert resp.json()["queued"] is True
+
+        await db_session.refresh(delivery)
+        assert delivery.status == EmailDeliveryStatus.pending
+        assert delivery.total_attempts == 0
+
+    async def test_resend_report_not_found(
+        self, client: AsyncClient, db_session: AsyncSession, mocker
+    ):
+        """POST /api/admin/general-meetings/{id}/resend-report returns 404 for non-existent meeting."""
+        mocker.patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+        )
+        fake_id = uuid.uuid4()
+        resp = await client.post(f"/api/admin/general-meetings/{fake_id}/resend-report")
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

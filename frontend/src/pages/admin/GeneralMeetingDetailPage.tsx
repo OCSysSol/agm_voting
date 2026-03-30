@@ -9,6 +9,7 @@ import {
   addMotionToMeeting,
   updateMotion,
   deleteMotion,
+  resendReport,
 } from "../../api/admin";
 import type { GeneralMeetingDetail, AddMotionRequest, UpdateMotionRequest, MotionDetail } from "../../api/admin";
 import type { MotionType } from "../../types";
@@ -222,6 +223,20 @@ export default function GeneralMeetingDetailPage() {
     mutationFn: () => deleteGeneralMeeting(meetingId!),
     onSuccess: () => {
       navigate("/admin/general-meetings");
+    },
+  });
+
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const resendMutation = useMutation({
+    mutationFn: () => resendReport(meetingId!),
+    onSuccess: () => {
+      setResendSuccess(true);
+      setResendError(null);
+    },
+    onError: (err: Error) => {
+      setResendError(err.message || "Failed to resend summary email");
+      setResendSuccess(false);
     },
   });
 
@@ -555,6 +570,27 @@ export default function GeneralMeetingDetailPage() {
           lastError={meetingExtended.email_delivery?.last_error ?? null}
           onRetrySuccess={handleRetrySuccess}
         />
+      )}
+
+      {meeting.status === "closed" && meetingExtended.email_delivery && !showEmailBanner && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => { setResendSuccess(false); setResendError(null); resendMutation.mutate(); }}
+            disabled={resendMutation.isPending}
+          >
+            {resendMutation.isPending ? "Sending..." : "Resend Summary Email"}
+          </button>
+          {resendSuccess && (
+            <span style={{ color: "var(--green)", fontSize: "0.875rem", fontWeight: 600 }}>
+              Summary email queued for resend.
+            </span>
+          )}
+          {resendError && (
+            <span role="alert" style={{ color: "var(--red)", fontSize: "0.875rem" }}>{resendError}</span>
+          )}
+        </div>
       )}
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motions</h2>
