@@ -568,7 +568,7 @@ export default function GeneralMeetingDetailPage() {
         />
       )}
 
-      {meeting.status === "closed" && meetingExtended.email_delivery && !showEmailBanner && (
+      {meeting.status === "closed" && meeting.email_delivery && !showEmailBanner && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
           <button
             type="button"
