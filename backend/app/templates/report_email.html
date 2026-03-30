@@ -76,6 +76,11 @@
                   <td style="background-color:#f7f7f7;padding:12px 16px;border-bottom:1px solid #e0e0e0;border-radius:4px 4px 0 0;">
                     <div style="font-size:11px;color:#888888;text-transform:uppercase;letter-spacing:0.5px;">Motion {{ motion.motion_number }}</div>
                     <div style="font-size:15px;font-weight:bold;color:#1a3c5e;margin-top:2px;">{{ motion.title }}</div>
+                    {% if motion.motion_type == "special" %}
+                    <div style="font-size:11px;color:#7b5ea7;font-weight:bold;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;">Special Resolution</div>
+                    {% else %}
+                    <div style="font-size:11px;color:#2e7d32;font-weight:bold;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;">General Resolution</div>
+                    {% endif %}
                     {% if motion.description %}
                     <div style="font-size:13px;color:#555555;margin-top:6px;">{{ motion.description }}</div>
                     {% endif %}
@@ -153,6 +158,27 @@
                 </tr>
 
                 <!-- Voter lists -->
+                {% if motion.is_multi_choice %}
+                <!-- Multi-choice: per-option voter lists -->
+                {% for opt in motion.tally.options %}
+                {% set opt_voters = motion.voter_lists.options[opt.option_id | string] if motion.voter_lists.options is defined and (opt.option_id | string) in motion.voter_lists.options else [] %}
+                {% if opt_voters %}
+                <tr>
+                  <td style="padding:0 16px 8px 16px;">
+                    <div style="font-size:12px;font-weight:bold;color:#1a3c5e;margin-bottom:4px;">Voted: {{ opt.option_text }}</div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      {% for voter in opt_voters %}
+                      <tr>
+                        <td style="padding:2px 0;font-size:12px;color:#333333;">Lot {{ voter.lot_number }} | {{ voter.voter_email }}</td>
+                        <td style="padding:2px 0;font-size:12px;color:#666666;text-align:right;">entitlement: {{ voter.entitlement }}</td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+                {% else %}
                 {% if motion.voter_lists.yes %}
                 <tr>
                   <td style="padding:0 16px 8px 16px;">
@@ -183,6 +209,7 @@
                     </table>
                   </td>
                 </tr>
+                {% endif %}
                 {% endif %}
 
                 {% if motion.voter_lists.abstained %}

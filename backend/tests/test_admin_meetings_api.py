@@ -2117,23 +2117,33 @@ class TestResendReport:
 
     # --- State / precondition errors ---
 
-    async def test_resend_pending_delivery_returns_409(
+    async def test_resend_pending_delivery_succeeds(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        agm, _ = await self._setup_closed_agm_with_delivery(
+        """Resend is allowed even when delivery is in pending state."""
+        agm, delivery = await self._setup_closed_agm_with_delivery(
             db_session, "Pending Delivery Building", EmailDeliveryStatus.pending
         )
         response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
-        assert response.status_code == 409
+        assert response.status_code == 200
+        assert response.json()["queued"] is True
+        await db_session.refresh(delivery)
+        assert delivery.status == EmailDeliveryStatus.pending
+        assert delivery.total_attempts == 0
 
-    async def test_resend_delivered_delivery_returns_409(
+    async def test_resend_delivered_delivery_succeeds(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        agm, _ = await self._setup_closed_agm_with_delivery(
+        """Resend is allowed even when email was already delivered."""
+        agm, delivery = await self._setup_closed_agm_with_delivery(
             db_session, "Delivered Delivery Building", EmailDeliveryStatus.delivered
         )
         response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
-        assert response.status_code == 409
+        assert response.status_code == 200
+        assert response.json()["queued"] is True
+        await db_session.refresh(delivery)
+        assert delivery.status == EmailDeliveryStatus.pending
+        assert delivery.total_attempts == 0
 
     async def test_resend_open_agm_returns_409(
         self, client: AsyncClient, db_session: AsyncSession

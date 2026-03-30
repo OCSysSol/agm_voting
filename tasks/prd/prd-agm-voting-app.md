@@ -1023,6 +1023,51 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ---
 
+### US-EMAIL-01: Multi-choice voter listing in results report email
+
+**Description:** As a meeting host, I want the results report email to list which lots voted for each option on multi-choice motions, so I can see per-option voter breakdowns in the same format as yes/no motions.
+
+**Acceptance Criteria:**
+
+- [ ] For each option on a multi-choice motion, the email renders a voter list section (header in the option's label colour, one row per lot: lot number, voter email, entitlement) identical in structure to the "Voted Yes" / "Voted No" sections for yes/no motions
+- [ ] Abstained and Absent voter list sections continue to appear for multi-choice motions, matching existing yes/no motion behaviour
+- [ ] The existing yes/no motion voter listing is unchanged
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-EMAIL-02: Motion resolution type in results report email
+
+**Description:** As a meeting host, I want the results report email to label each motion as "General Resolution" or "Special Resolution" so the type of approval threshold required is immediately visible.
+
+**Acceptance Criteria:**
+
+- [ ] Each motion header in the email shows "General Resolution" or "Special Resolution" beneath the motion number / title, derived from `motion.motion_type`
+- [ ] Multi-choice motions also show the resolution type label
+- [ ] The label style is visually distinct from the motion title (smaller, subdued) and does not break the existing email layout at 600 px width
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-EMAIL-03: Resend summary email button on admin meeting detail page
+
+**Description:** As a meeting host, I want a "Resend Summary Email" button on the closed meeting detail page so I can re-trigger the results email at any time without having to wait for delivery failure.
+
+**Acceptance Criteria:**
+
+- [ ] A "Resend Summary Email" button is visible on the admin meeting detail page when `meeting.status === "closed"`
+- [ ] Clicking the button calls `POST /api/admin/general-meetings/{id}/resend-report` and shows a loading state while in flight
+- [ ] On success the button shows a transient "Queued for resend" confirmation message
+- [ ] On error the button shows an inline error message
+- [ ] The backend `resend_report` service function is updated to allow resend regardless of the current `EmailDelivery.status` (not just when status is `"failed"`) so hosts can re-trigger at will
+- [ ] The endpoint still returns 404 if the meeting does not exist and 409 if the meeting is not closed
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ## Non-Goals
 
 - No proxy voting

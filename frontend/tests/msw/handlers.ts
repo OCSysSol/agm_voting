@@ -566,6 +566,13 @@ export const adminHandlers = [
         email_delivery: { status: "failed", last_error: "SMTP error" },
       });
     }
+    if (params.meetingId === "agm-delivered-email") {
+      return HttpResponse.json({
+        ...ADMIN_MEETING_DETAIL_CLOSED,
+        id: "agm-delivered-email",
+        email_delivery: { status: "delivered", last_error: null },
+      });
+    }
     if (params.meetingId === "agm-pending") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
     }

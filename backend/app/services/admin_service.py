@@ -2021,13 +2021,7 @@ async def resend_report(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict
     if delivery is None:
         raise HTTPException(status_code=404, detail="Email delivery record not found")
 
-    if delivery.status != EmailDeliveryStatus.failed:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Email delivery status is '{delivery.status.value}', not 'failed'",
-        )
-
-    # Reset delivery
+    # Reset delivery regardless of current status to allow resend on demand
     delivery.status = EmailDeliveryStatus.pending
     delivery.total_attempts = 0
     delivery.last_error = None
