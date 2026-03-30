@@ -1,19 +1,19 @@
 ---
 name: orchestrate-feature-dev
-description: "Orchestrate feature development for the AGM voting app. Use when starting a new feature, bug fix, or task. Coordinates design → implement → test → cleanup agents across one or more branches. Invoked as /orchestrate-feature-dev."
+description: "Orchestrate feature development. Use when starting a new feature, bug fix, or task. Coordinates design → implement → test → cleanup agents across one or more branches. Invoked as /orchestrate-feature-dev."
 user-invocable: true
 ---
 
-# AGM Feature Dev Orchestrator
+# Feature Dev Orchestrator
 
-You are orchestrating feature development for the AGM voting app. You coordinate sub-agents using the `Agent` tool. All code changes, file reads, test runs, git operations, and CI monitoring must be delegated to sub-agents — never done inline in this session.
+You are orchestrating feature development. You coordinate sub-agents using the `Agent` tool. All code changes, file reads, test runs, git operations, and CI monitoring must be delegated to sub-agents — never done inline in this session.
 
 **Sub-agent types:** `design`, `implement`, `cleanup`, `test`
 
 - `design` — updates PRD and produces technical design doc
 - `implement` — writes code, runs local tests, pushes, monitors CI and E2E
 - `test` — post-merge monitoring only (Stages 4–5)
-- `cleanup` — removes worktree, deletes branches, Neon DB branch, Vercel env vars, test data
+- `cleanup` — removes worktree, deletes branches, DB branch, deployment-scoped env vars, test data
 
 All project-specific context (commands, paths, secrets, infrastructure IDs) is in `CLAUDE.md`. Pass the worktree path and task description to each agent — they read everything else from `CLAUDE.md` themselves.
 
@@ -41,7 +41,7 @@ Rules:
 
 Determine:
 - Is a design phase needed? (skip for trivial frontend-only changes or if implementing an existing complete design doc)
-- Does the feature require schema migrations? (flag for testing agent — Neon DB branch needed)
+- Does the feature require schema migrations? (flag for testing agent — DB branch needed)
 - Can the feature be split into parallel vertical slices?
 - Is this a **styling-only change**? (CSS class changes, layout tweaks, colour/spacing adjustments with no logic change) — if yes, skip E2E entirely. Run unit + integration tests only, then push and merge directly without spawning the testing agent.
 
@@ -52,7 +52,7 @@ Determine:
 Read `worktree_root`, `testing_branch`, and `production_branch` from CLAUDE.md `## Agent Configuration`. Spawn a sub-agent to create a worktree from the correct base branch. PRs always target `testing_branch` (user testing/staging). Only target `production_branch` with explicit user approval. When in doubt, use `testing_branch`.
 
 ```bash
-cd /Users/stevensun/personal/agm_survey
+cd <main-repo-path>   # read from CLAUDE.md ## Project Infrastructure — "Main repo path"
 git fetch origin
 git worktree add <worktree_root>/<slug> -b <branch-name> <base-branch>
 # Example (feature from master):
@@ -95,7 +95,7 @@ Use `subagent_type: "test"`. Provide:
 - The worktree path
 - The branch name
 - PR title and body
-- Whether schema migrations are involved (Neon DB branch needed)
+- Whether schema migrations are involved (DB branch needed)
 
 The agent reads `testing_branch` from CLAUDE.md `## Agent Configuration` and uses it as the PR base. It will push, create the PR, monitor CI and E2E, and release the slot.
 
@@ -117,8 +117,8 @@ The agent reads `testing_branch` from CLAUDE.md `## Agent Configuration` and use
 Immediately after merge, spawn `subagent_type: "cleanup"`. Provide:
 - Branch name
 - Worktree path
-- Whether a Neon DB branch was created
-- Whether Vercel env vars were set
+- Whether a DB branch was created
+- Whether deployment-scoped env vars were set
 
 Do NOT bundle cleanup into the merge agent — it gets skipped. Always a separate agent.
 
@@ -126,7 +126,7 @@ Do NOT bundle cleanup into the merge agent — it gets skipped. Always a separat
 
 After ALL branches for a PRD are merged to `preview`, spawn the testing agent to run the full E2E suite against the preview URL (derive from `preview_url_pattern` in Agent Configuration, using branch name `preview`).
 
-After the preview E2E run, spawn the cleanup agent in test-data-only mode to clean up test meetings and buildings.
+After the preview E2E run, spawn the cleanup agent in test-data-only mode to clean up test data entities.
 
 ---
 
