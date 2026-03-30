@@ -26,6 +26,17 @@ export interface FinancialPositionImportResult {
   skipped: number;
 }
 
+export interface MotionOptionCreate {
+  text: string;
+  display_order: number;
+}
+
+export interface MotionOptionOut {
+  id: string;
+  text: string;
+  display_order: number;
+}
+
 export interface MotionOut {
   id: string;
   title: string;
@@ -33,7 +44,10 @@ export interface MotionOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
 }
 
 export interface GeneralMeetingOut {
@@ -69,12 +83,21 @@ export interface TallyCategory {
   entitlement_sum: number;
 }
 
+export interface OptionTallyEntry {
+  option_id: string;
+  option_text: string;
+  display_order: number;
+  voter_count: number;
+  entitlement_sum: number;
+}
+
 export interface MotionTally {
   yes: TallyCategory;
   no: TallyCategory;
   abstained: TallyCategory;
   absent: TallyCategory;
   not_eligible: TallyCategory;
+  options: OptionTallyEntry[];
 }
 
 export interface MotionVoterLists {
@@ -83,6 +106,7 @@ export interface MotionVoterLists {
   abstained: VoterEntry[];
   absent: VoterEntry[];
   not_eligible: VoterEntry[];
+  options: Record<string, VoterEntry[]>;
 }
 
 export interface MotionDetail {
@@ -92,7 +116,10 @@ export interface MotionDetail {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
   tally: MotionTally;
   voter_lists: MotionVoterLists;
 }
@@ -109,6 +136,7 @@ export interface GeneralMeetingDetail {
   total_submitted: number;
   total_entitlement: number;
   motions: MotionDetail[];
+  email_delivery?: EmailDeliveryInfo | null;
 }
 
 export interface GeneralMeetingCloseOut {
@@ -195,6 +223,9 @@ export interface MotionCreateRequest {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export interface GeneralMeetingCreateRequest {
@@ -506,21 +537,30 @@ export interface MotionVisibilityOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
+  option_limit: number | null;
+  options: MotionOptionOut[];
 }
 
 export interface AddMotionRequest {
   title: string;
   description: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   motion_number?: string | null;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export interface UpdateMotionRequest {
   title?: string;
   description?: string | null;
   motion_type?: MotionType;
+  is_multi_choice?: boolean;
   motion_number?: string | null;
+  option_limit?: number | null;
+  options?: MotionOptionCreate[];
 }
 
 export async function addMotionToMeeting(

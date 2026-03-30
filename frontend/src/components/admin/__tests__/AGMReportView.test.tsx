@@ -13,12 +13,15 @@ const motions: MotionDetail[] = [
     motion_number: null,
     motion_type: "general" as const,
     is_visible: true,
+    option_limit: null,
+    options: [],
     tally: {
       yes: { voter_count: 2, entitlement_sum: 200 },
       no: { voter_count: 1, entitlement_sum: 100 },
       abstained: { voter_count: 0, entitlement_sum: 0 },
       absent: { voter_count: 2, entitlement_sum: 150 },
       not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      options: [],
     },
     voter_lists: {
       yes: [
@@ -32,6 +35,7 @@ const motions: MotionDetail[] = [
         { voter_email: "voter5@example.com", lot_number: "L5", entitlement: 50 },
       ],
       not_eligible: [],
+      options: {},
     },
   },
   {
@@ -42,12 +46,15 @@ const motions: MotionDetail[] = [
     motion_number: null,
     motion_type: "special" as const,
     is_visible: true,
+    option_limit: null,
+    options: [],
     tally: {
       yes: { voter_count: 1, entitlement_sum: 50 },
       no: { voter_count: 0, entitlement_sum: 0 },
       abstained: { voter_count: 2, entitlement_sum: 200 },
       absent: { voter_count: 0, entitlement_sum: 0 },
       not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      options: [],
     },
     voter_lists: {
       yes: [{ voter_email: "voter1@example.com", lot_number: "L1", entitlement: 50 }],
@@ -58,9 +65,52 @@ const motions: MotionDetail[] = [
       ],
       absent: [],
       not_eligible: [],
+      options: {},
     },
   },
 ];
+
+// Multi-choice motion fixture
+const mcMotionFixture: MotionDetail = {
+  id: "mc1",
+  title: "Board Election",
+  description: null,
+  display_order: 3,
+  motion_number: null,
+  motion_type: "multi_choice" as const,
+  is_multi_choice: true,
+  is_visible: true,
+  option_limit: 2,
+  options: [
+    { id: "opt-a", text: "Alice", display_order: 1 },
+    { id: "opt-b", text: "Bob", display_order: 2 },
+  ],
+  tally: {
+    yes: { voter_count: 0, entitlement_sum: 0 },
+    no: { voter_count: 0, entitlement_sum: 0 },
+    abstained: { voter_count: 1, entitlement_sum: 50 },
+    absent: { voter_count: 1, entitlement_sum: 75 },
+    not_eligible: { voter_count: 0, entitlement_sum: 0 },
+    options: [
+      { option_id: "opt-a", option_text: "Alice", display_order: 1, voter_count: 2, entitlement_sum: 200 },
+      { option_id: "opt-b", option_text: "Bob", display_order: 2, voter_count: 1, entitlement_sum: 100 },
+    ],
+  },
+  voter_lists: {
+    yes: [],
+    no: [],
+    abstained: [{ voter_email: "abstainer@example.com", lot_number: "L10", entitlement: 50 }],
+    absent: [{ voter_email: "absent@example.com", lot_number: "L11", entitlement: 75 }],
+    not_eligible: [],
+    options: {
+      "opt-a": [
+        { voter_email: "voter1@example.com", lot_number: "L1", entitlement: 100 },
+        { voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 },
+      ],
+      "opt-b": [{ voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 }],
+    },
+  },
+};
 
 // Helper to capture CSV text from a Blob created during export
 async function captureCSVFromExport(
@@ -371,6 +421,126 @@ describe("AGMReportView", () => {
     appendChildSpy.mockRestore();
     removeChildSpy.mockRestore();
     clickSpy.mockRestore();
+  });
+
+  // --- Multi-choice motion rendering ---
+
+  it("renders Multi-Choice badge for multi_choice motion", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const badge = screen.getByLabelText("Motion type: Multi-Choice");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass("motion-type-badge--multi_choice");
+  });
+
+  it("renders per-option tally rows for multi_choice motion", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+  });
+
+  it("does not render For/Against rows for multi_choice motion", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    // For and Against categories don't appear for MC motions
+    expect(screen.queryByText("For")).not.toBeInTheDocument();
+    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+  });
+
+  it("renders Abstained and Absent rows for multi_choice motion", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    expect(screen.getByText("Abstained")).toBeInTheDocument();
+    expect(screen.getByText("Absent")).toBeInTheDocument();
+  });
+
+  it("CSV export for multi_choice motion uses Option: prefix", async () => {
+    const csv = await captureCSVFromExport([mcMotionFixture]);
+    expect(csv).toContain("Option: Alice");
+    expect(csv).toContain("Option: Bob");
+  });
+
+  it("CSV export for multi_choice includes abstained/absent rows", async () => {
+    const csv = await captureCSVFromExport([mcMotionFixture]);
+    expect(csv).toContain("Abstained");
+    expect(csv).toContain("Absent");
+  });
+
+  it("CSV export for multi_choice does not include For/Against rows", async () => {
+    const csv = await captureCSVFromExport([mcMotionFixture]);
+    const rows = csv.split("\n").filter((r) => r.trim());
+    const forRow = rows.find((r) => r.includes(',"For",'));
+    const againstRow = rows.find((r) => r.includes(',"Against",'));
+    expect(forRow).toBeUndefined();
+    expect(againstRow).toBeUndefined();
+  });
+
+  it("CSV export for multi_choice option voter with proxy shows (proxy) suffix", async () => {
+    const mcWithProxy: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options: {
+          "opt-a": [
+            { voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" },
+          ],
+          "opt-b": [],
+        },
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithProxy]);
+    expect(csv).toContain("proxy@example.com (proxy)");
+  });
+
+  it("CSV export for multi_choice abstained voter with proxy shows (proxy) suffix", async () => {
+    const mcWithProxy: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        abstained: [
+          { voter_email: "abs_proxy@example.com", lot_number: "L10", entitlement: 50, proxy_email: "abs_proxy@example.com" },
+        ],
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithProxy]);
+    expect(csv).toContain("abs_proxy@example.com (proxy)");
+  });
+
+  // --- Fix 4: is_multi_choice flag governs MC rendering (not motion_type === "multi_choice") ---
+
+  it("renders MC table rows when is_multi_choice=true even with motion_type='general'", () => {
+    // Real-world scenario: motion_type is "general" but is_multi_choice is true.
+    // Before the fix, the component checked motion_type === "multi_choice" so this would
+    // render For/Against rows instead of per-option rows.
+    const realWorldMcMotion: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-real",
+      motion_type: "general" as const,  // NOT "multi_choice"
+      is_multi_choice: true,
+    };
+    render(<AGMReportView motions={[realWorldMcMotion]} />);
+    // Should render option rows (Alice, Bob) — not For/Against
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+    expect(screen.queryByText("For")).not.toBeInTheDocument();
+    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+  });
+
+  it("CSV export uses MC format when is_multi_choice=true and motion_type='general'", async () => {
+    const realWorldMcMotion: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-real2",
+      motion_type: "general" as const,
+      is_multi_choice: true,
+    };
+    const csv = await captureCSVFromExport([realWorldMcMotion]);
+    expect(csv).toContain("Option: Alice");
+    expect(csv).not.toContain(",\"For\",");
+  });
+
+  it("renders For/Against rows for general motion WITHOUT is_multi_choice flag", () => {
+    // Sanity check: a plain general motion with is_multi_choice=false (or absent)
+    // still renders For/Against rows.
+    render(<AGMReportView motions={[motions[0]]} />);
+    expect(screen.getByText("For")).toBeInTheDocument();
+    expect(screen.getByText("Against")).toBeInTheDocument();
   });
 
   it("CSV row with proxy_email containing double-quotes has them escaped", async () => {

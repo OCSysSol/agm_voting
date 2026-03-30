@@ -191,7 +191,7 @@ export default function GeneralMeetingListPage() {
           isLoading={isLoading}
         />
         {/* RR2-07: Show loading overlay while fetching page change */}
-        <div style={{ opacity: isLoading ? 0.5 : 1, transition: "opacity 0.15s" }}>
+        <div style={{ opacity: isLoading ? 0.5 : 1, transition: "opacity 0.15s", pointerEvents: isLoading ? "none" : "auto" }}>
           <GeneralMeetingTable
             meetings={meetings}
             isLoading={isLoading}

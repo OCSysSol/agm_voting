@@ -53,6 +53,12 @@ export interface SessionRestoreRequest {
   session_token?: string;
 }
 
+export interface MotionOptionOut {
+  id: string;
+  text: string;
+  display_order: number;
+}
+
 export interface MotionOut {
   id: string;
   title: string;
@@ -60,9 +66,13 @@ export interface MotionOut {
   display_order: number;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
   is_visible: boolean;
   already_voted: boolean;
   submitted_choice: VoteChoice | null;
+  submitted_option_ids?: string[];
+  option_limit: number | null;
+  options: MotionOptionOut[];
 }
 
 export interface DraftSaveRequest {
@@ -98,6 +108,9 @@ export interface BallotVoteItem {
   motion_number: string | null;
   choice: VoteChoice;
   eligible: boolean;
+  motion_type: MotionType;
+  is_multi_choice?: boolean;
+  selected_options: MotionOptionOut[];
 }
 
 export interface LotBallotSummary {
@@ -115,9 +128,15 @@ export interface MyBallotResponse {
   remaining_lot_owner_ids: string[];
 }
 
+export interface MultiChoiceVoteItem {
+  motion_id: string;
+  option_ids: string[];
+}
+
 export interface SubmitBallotRequest {
   lot_owner_ids: string[];
   votes: Array<{ motion_id: string; choice: VoteChoice }>;
+  multi_choice_votes?: MultiChoiceVoteItem[];
 }
 
 export interface ServerTimeResponse {

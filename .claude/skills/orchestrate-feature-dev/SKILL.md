@@ -8,7 +8,14 @@ user-invocable: true
 
 You are orchestrating feature development for the AGM voting app. You coordinate sub-agents using the `Agent` tool. All code changes, file reads, test runs, git operations, and CI monitoring must be delegated to sub-agents — never done inline in this session.
 
-**Sub-agent types available:** `agm-design`, `agm-implement`, `agm-test`, `agm-cleanup`
+**Sub-agent types:** `design`, `implement`, `cleanup`, `test`
+
+- `design` — updates PRD and produces technical design doc
+- `implement` — writes code, runs local tests, pushes, monitors CI and E2E
+- `test` — post-merge monitoring only (Stages 4–5)
+- `cleanup` — removes worktree, deletes branches, Neon DB branch, Vercel env vars, test data
+
+All project-specific context (commands, paths, secrets, infrastructure IDs) is in `CLAUDE.md`. Pass the worktree path and task description to each agent — they read everything else from `CLAUDE.md` themselves.
 
 **Infrastructure values** (Neon project ID, Vercel project ID, worktree root, preview URL pattern) are in CLAUDE.md `## Agent Configuration`. Pass that table to every sub-agent so they can read the values themselves — do not hardcode them in prompts.
 
@@ -42,7 +49,7 @@ Determine:
 
 **This step is mandatory before any design, code, or test work begins.**
 
-Read `worktree_root` from CLAUDE.md `## Agent Configuration`. Spawn a sub-agent to create a worktree from the correct base branch. The base is usually `master` for new features and `preview` for fixes/hotfixes — confirm with the user if unclear.
+Read `worktree_root`, `testing_branch`, and `production_branch` from CLAUDE.md `## Agent Configuration`. Spawn a sub-agent to create a worktree from the correct base branch. PRs always target `testing_branch` (user testing/staging). Only target `production_branch` with explicit user approval. When in doubt, use `testing_branch`.
 
 ```bash
 cd /Users/stevensun/personal/agm_survey
@@ -60,7 +67,7 @@ Worktree lives at: `<worktree_root>/<slug>` (read `worktree_root` from Agent Con
 
 ### Step b: Spawn the design agent
 
-Use `subagent_type: "agm-design"`. Provide:
+Use `subagent_type: "design"`. Provide:
 - The task description
 - The worktree path
 - The PRD file path **inside the worktree** (if implementing an existing PRD)
@@ -70,7 +77,7 @@ Wait for the design agent to report "Design complete" before proceeding.
 
 ### Step c: Spawn the implementation agent
 
-Use `subagent_type: "agm-implement"`. Provide:
+Use `subagent_type: "implement"`. Provide:
 - The worktree path
 - The design doc path
 - The PRD path
@@ -82,14 +89,15 @@ Wait for the implementation agent to report "Ready for push slot".
 
 Check if any other agent holds the push slot. If free, grant it. Otherwise, queue this branch.
 
-### Step e: Spawn the testing agent
+### Step e: Spawn the push/monitor agent
 
-Use `subagent_type: "agm-test"`. Provide:
+Use `subagent_type: "test"`. Provide:
 - The worktree path
 - The branch name
+- PR title and body
 - Whether schema migrations are involved (Neon DB branch needed)
 
-The testing agent will derive the preview URL from `preview_url_pattern` in Agent Configuration. It will push, create the PR, run E2E, and release the slot.
+The agent reads `testing_branch` from CLAUDE.md `## Agent Configuration` and uses it as the PR base. It will push, create the PR, monitor CI and E2E, and release the slot.
 
 ### Step f: After E2E results
 
@@ -106,7 +114,7 @@ The testing agent will derive the preview URL from `preview_url_pattern` in Agen
 
 ### Step g: Spawn the cleanup agent
 
-Immediately after merge, spawn `subagent_type: "agm-cleanup"`. Provide:
+Immediately after merge, spawn `subagent_type: "cleanup"`. Provide:
 - Branch name
 - Worktree path
 - Whether a Neon DB branch was created

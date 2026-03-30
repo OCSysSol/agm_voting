@@ -10,9 +10,12 @@ const motion = {
   display_order: 1,
   motion_number: null,
   motion_type: "general" as const,
+  is_multi_choice: false,
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
+  option_limit: null,
+  options: [],
 };
 
 const motionNoDesc = {
@@ -22,9 +25,12 @@ const motionNoDesc = {
   display_order: 2,
   motion_number: null,
   motion_type: "general" as const,
+  is_multi_choice: false,
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
+  option_limit: null,
+  options: [],
 };
 
 const motionSpecial = {
@@ -34,9 +40,12 @@ const motionSpecial = {
   display_order: 3,
   motion_number: null,
   motion_type: "special" as const,
+  is_multi_choice: false,
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
+  option_limit: null,
+  options: [],
 };
 
 const motionWithNumber = {
@@ -46,9 +55,31 @@ const motionWithNumber = {
   display_order: 4,
   motion_number: "SR-1",
   motion_type: "general" as const,
+  is_multi_choice: false,
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
+  option_limit: null,
+  options: [],
+};
+
+const motionMultiChoice = {
+  id: "mot-mc-001",
+  title: "Board Election",
+  description: "Choose board members",
+  display_order: 5,
+  motion_number: null,
+  motion_type: "general" as const,
+  is_multi_choice: true,
+  is_visible: true,
+  already_voted: false,
+  submitted_choice: null,
+  option_limit: 2,
+  options: [
+    { id: "opt-1", text: "Alice", display_order: 1 },
+    { id: "opt-2", text: "Bob", display_order: 2 },
+    { id: "opt-3", text: "Carol", display_order: 3 },
+  ],
 };
 
 describe("MotionCard", () => {
@@ -451,5 +482,96 @@ describe("MotionCard", () => {
     );
     const card = screen.getByTestId("motion-card-mot-001");
     expect(card).toHaveClass("motion-card--highlight");
+  });
+
+  // --- Multi-choice motion type ---
+
+  it("renders MultiChoiceOptionList instead of vote buttons for multi_choice motions", () => {
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        multiChoiceSelectedIds={[]}
+        onMultiChoiceChange={() => {}}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "For" })).not.toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+    expect(screen.getByText("Carol")).toBeInTheDocument();
+  });
+
+  it("shows Multi-Choice badge for multi_choice motion", () => {
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        multiChoiceSelectedIds={[]}
+        onMultiChoiceChange={() => {}}
+      />
+    );
+    const badge = screen.getByLabelText("Motion type: Multi-Choice");
+    expect(badge).toHaveClass("motion-type-badge--multi_choice");
+  });
+
+  it("calls onMultiChoiceChange when MC option is clicked", async () => {
+    const user = userEvent.setup();
+    const onMultiChoiceChange = vi.fn();
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        multiChoiceSelectedIds={[]}
+        onMultiChoiceChange={onMultiChoiceChange}
+      />
+    );
+    await user.click(screen.getByLabelText("Alice"));
+    expect(onMultiChoiceChange).toHaveBeenCalledWith("mot-mc-001", ["opt-1"]);
+  });
+
+  it("MC option list is disabled when motion is readOnly", () => {
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        readOnly={true}
+        multiChoiceSelectedIds={["opt-1"]}
+        onMultiChoiceChange={() => {}}
+      />
+    );
+    const checkboxes = screen.getAllByRole("checkbox");
+    checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+  });
+
+  it("MC counter shows correct selected count", () => {
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        multiChoiceSelectedIds={["opt-1", "opt-2"]}
+        onMultiChoiceChange={() => {}}
+      />
+    );
+    expect(screen.getByTestId("mc-counter")).toHaveTextContent("2 selected");
   });
 });

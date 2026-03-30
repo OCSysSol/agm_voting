@@ -940,6 +940,40 @@ class TestArchiveBuilding:
         # lo1 is in the archived building, but the email exists in b2 (active), so lo1 should NOT be archived
         assert lo1.is_archived is False
 
+    async def test_archive_building_shared_email_across_multiple_lot_owners_in_other_buildings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Archive succeeds when the same email is shared by multiple lot owners
+        in OTHER buildings — previously raised MultipleResultsFound because
+        the query used scalar_one_or_none() on a result set with multiple rows."""
+        b1 = Building(name="Archive MultiShared B1", manager_email="msb1@test.com")
+        b2 = Building(name="Archive MultiShared B2", manager_email="msb2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+
+        # lo1 is in the building we will archive
+        lo1 = LotOwner(building_id=b1.id, lot_number="MS1", unit_entitlement=100)
+        # lo2 and lo3 are TWO different lot owners in b2 that share the same email
+        lo2 = LotOwner(building_id=b2.id, lot_number="MS2A", unit_entitlement=50)
+        lo3 = LotOwner(building_id=b2.id, lot_number="MS2B", unit_entitlement=50)
+        db_session.add_all([lo1, lo2, lo3])
+        await db_session.flush()
+
+        shared_email = "multishared@test.com"
+        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email=shared_email))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email=shared_email))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo3.id, email=shared_email))
+        await db_session.commit()
+
+        # Must not raise MultipleResultsFound — must return HTTP 200
+        response = await client.post(f"/api/admin/buildings/{b1.id}/archive")
+        assert response.status_code == 200
+        assert response.json()["is_archived"] is True
+
+        # lo1's email exists in b2 (active), so lo1 must NOT be archived
+        await db_session.refresh(lo1)
+        assert lo1.is_archived is False
+
     # --- State / precondition errors ---
 
     async def test_archive_already_archived_building_returns_409(
@@ -970,6 +1004,28 @@ class TestArchiveBuilding:
         response = await client.post(f"/api/admin/buildings/{b.id}/archive")
         assert response.status_code == 200
         assert response.json()["is_archived"] is True
+
+    async def test_archive_building_lot_owners_with_no_emails(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Archive succeeds and archives lot owners when they have no LotOwnerEmail entries.
+
+        Regression test: db.refresh() after commit caused ORM lazy-load errors for
+        lot owners with zero email entries, resulting in HTTP 500.
+        """
+        b = Building(name="No Email Archive Bldg", manager_email="noemail_arc@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="NE1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 200
+        assert response.json()["is_archived"] is True
+
+        await db_session.refresh(lo)
+        assert lo.is_archived is True
 
 
 # ---------------------------------------------------------------------------

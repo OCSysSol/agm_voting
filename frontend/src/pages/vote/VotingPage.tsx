@@ -26,6 +26,9 @@ export function VotingPage() {
   const serverTime = useServerTime();
 
   const [choices, setChoices] = useState<Record<string, VoteChoice | null>>({});
+  // Multi-choice state: motion_id -> selected option_ids
+  // A motion is considered "answered" once the voter interacts (key exists in map, even if [])
+  const [multiChoiceSelections, setMultiChoiceSelections] = useState<Record<string, string[]>>({});
   const [showDialog, setShowDialog] = useState(false);
   const [showMixedWarning, setShowMixedWarning] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
@@ -166,6 +169,22 @@ export function VotingPage() {
       }
       return seeded;
     });
+    // Seed multiChoiceSelections for read-only multi-choice motions so previously
+    // selected options are shown when the voter returns to this page.
+    setMultiChoiceSelections((prev) => {
+      const seeded: Record<string, string[]> = { ...prev };
+      for (const m of motions) {
+        if (
+          m.is_multi_choice &&
+          isMotionReadOnly(m) &&
+          m.submitted_option_ids?.length &&
+          !(m.id in seeded)
+        ) {
+          seeded[m.id] = m.submitted_option_ids;
+        }
+      }
+      return seeded;
+    });
   }, [motions, isMotionReadOnly]);
 
   // --- Dynamic already-submitted derivation (BUG-NM-01-B fix) ---
@@ -236,7 +255,10 @@ export function VotingPage() {
       const votes = Object.entries(choices)
         .filter(([, choice]) => choice !== null)
         .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
-      return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes });
+      const multi_choice_votes = Object.entries(multiChoiceSelections).map(
+        ([motion_id, option_ids]) => ({ motion_id, option_ids })
+      );
+      return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes, multi_choice_votes });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
@@ -373,11 +395,23 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
+  const handleMultiChoiceChange = (motionId: string, optionIds: string[]) => {
+    setMultiChoiceSelections((prev) => ({ ...prev, [motionId]: optionIds }));
+  };
+
   // Only count motions the voter can still interact with towards the progress bar.
   const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
-  const answeredCount = unvotedMotions.filter((m) => !!choices[m.id]).length;
+  const answeredCount = unvotedMotions.filter((m) =>
+    m.is_multi_choice
+      ? m.id in multiChoiceSelections  // answered once any interaction recorded
+      : !!choices[m.id]
+  ).length;
 
-  const unansweredMotions = unvotedMotions.filter((m) => !choices[m.id]);
+  const unansweredMotions = unvotedMotions.filter((m) =>
+    m.is_multi_choice
+      ? !(m.id in multiChoiceSelections)
+      : !choices[m.id]
+  );
 
   // Check whether selected lots have mixed vote coverage (some have prior votes, others don't).
   // Returns true only when two or more lots have different voted_motion_ids sets.
@@ -693,8 +727,16 @@ export function VotingPage() {
                       choice={choices[motion.id] ?? null}
                       onChoiceChange={handleChoiceChange}
                       disabled={isClosed}
-                      highlight={highlightUnanswered && !isMotionReadOnly(motion) && !choices[motion.id]}
+                      highlight={
+                        highlightUnanswered &&
+                        !isMotionReadOnly(motion) &&
+                        (motion.is_multi_choice
+                          ? !(motion.id in multiChoiceSelections)
+                          : !choices[motion.id])
+                      }
                       readOnly={isMotionReadOnly(motion)}
+                      multiChoiceSelectedIds={multiChoiceSelections[motion.id] ?? []}
+                      onMultiChoiceChange={handleMultiChoiceChange}
                     />
                   ))}
                   {unvotedMotions.length === 0 && !isClosed && !showSidebar && (

@@ -20,6 +20,7 @@ class VoteChoice(str, enum.Enum):
     no = "no"
     abstained = "abstained"
     not_eligible = "not_eligible"
+    selected = "selected"
 
 
 class VoteStatus(str, enum.Enum):
@@ -29,12 +30,14 @@ class VoteStatus(str, enum.Enum):
 
 class Vote(Base):
     __tablename__ = "votes"
-    __table_args__ = (
-        UniqueConstraint(
-            "general_meeting_id", "motion_id", "lot_owner_id",
-            name="uq_votes_gm_motion_lot_owner",
-        ),
-    )
+    # The old unique constraint uq_votes_gm_motion_lot_owner has been replaced by two
+    # partial unique indexes defined in the migration:
+    #   uq_votes_non_multi_choice (WHERE motion_option_id IS NULL)
+    #   uq_votes_multi_choice     (WHERE motion_option_id IS NOT NULL)
+    # Partial indexes with WHERE clauses cannot be expressed as UniqueConstraint or
+    # Index(..., unique=True) in the SQLAlchemy ORM model — they are defined exclusively
+    # in the Alembic migration (same pattern as the motion_number partial index on motions).
+    __table_args__ = ()
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
@@ -75,10 +78,18 @@ class Vote(Base):
         nullable=False,
     )
 
+    motion_option_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("motion_options.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # Relationships
     general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
         "GeneralMeeting", back_populates="votes"
     )
     motion: Mapped["Motion"] = relationship(  # noqa: F821
         "Motion", back_populates="votes"
+    )
+    motion_option: Mapped["MotionOption | None"] = relationship(  # noqa: F821
+        "MotionOption",
     )

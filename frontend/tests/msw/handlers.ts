@@ -138,12 +138,15 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       motion_number: null,
       motion_type: "general" as const,
       is_visible: true,
+      option_limit: null,
+      options: [],
       tally: {
         yes: { voter_count: 2, entitlement_sum: 200 },
         no: { voter_count: 1, entitlement_sum: 100 },
         abstained: { voter_count: 0, entitlement_sum: 0 },
         absent: { voter_count: 2, entitlement_sum: 150 },
         not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
       },
       voter_lists: {
         yes: [
@@ -157,6 +160,7 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
           { voter_email: "voter5@example.com", entitlement: 50 },
         ],
         not_eligible: [],
+        options: {},
       },
     },
   ],
@@ -171,6 +175,7 @@ export const ADMIN_MEETING_DETAIL_CLOSED: GeneralMeetingDetail = {
   title: "2023 AGM",
   status: "closed",
   closed_at: "2023-06-01T13:00:00Z",
+  email_delivery: null,
 };
 
 export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {
@@ -195,14 +200,17 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
       motion_number: "M-42",
       motion_type: "general" as const,
       is_visible: false,
+      option_limit: null,
+      options: [],
       tally: {
         yes: { voter_count: 0, entitlement_sum: 0 },
         no: { voter_count: 0, entitlement_sum: 0 },
         abstained: { voter_count: 0, entitlement_sum: 0 },
         absent: { voter_count: 0, entitlement_sum: 0 },
         not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
       },
-      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [], options: {} },
     },
   ],
 };
@@ -559,6 +567,13 @@ export const adminHandlers = [
         email_delivery: { status: "failed", last_error: "SMTP error" },
       });
     }
+    if (params.meetingId === "agm-delivered-email") {
+      return HttpResponse.json({
+        ...ADMIN_MEETING_DETAIL_CLOSED,
+        id: "agm-delivered-email",
+        email_delivery: { status: "delivered", last_error: null },
+      });
+    }
     if (params.meetingId === "agm-pending") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
     }
@@ -658,7 +673,10 @@ export const adminHandlers = [
         display_order: idx + 1,
         motion_number: base?.motion_number ?? null,
         motion_type: base?.motion_type ?? "general",
+        is_multi_choice: base?.is_multi_choice ?? false,
         is_visible: base?.is_visible ?? true,
+        option_limit: null,
+        options: [],
       };
     });
     const result: MotionReorderOut = { motions: reordered };
@@ -686,7 +704,7 @@ export const adminHandlers = [
 
   // Add motion
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; is_multi_choice?: boolean; motion_number?: string | null; option_limit?: number | null; options?: Array<{ text: string; display_order: number }> };
     if (body?.title === "add-fail") {
       return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
     }
@@ -702,7 +720,10 @@ export const adminHandlers = [
       display_order: autoDisplayOrder,
       motion_number: motionNumber,
       motion_type: body?.motion_type ?? "general",
+      is_multi_choice: body?.is_multi_choice ?? false,
       is_visible: false,
+      option_limit: body?.option_limit ?? null,
+      options: body?.options ?? [],
     }, { status: 201 });
   }),
 
@@ -714,7 +735,7 @@ export const adminHandlers = [
     if (params.motionId === "motion-edit-fail") {
       return HttpResponse.json({ detail: "Server error" }, { status: 500 });
     }
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; is_multi_choice?: boolean; motion_number?: string | null; option_limit?: number | null; options?: Array<{ text: string; display_order: number }> };
     const motion = ADMIN_MEETING_DETAIL.motions[0];
     return HttpResponse.json({
       ...motion,
@@ -722,7 +743,10 @@ export const adminHandlers = [
       title: body?.title ?? motion.title,
       description: body?.description ?? motion.description,
       motion_type: body?.motion_type ?? motion.motion_type,
+      is_multi_choice: body?.is_multi_choice ?? false,
       motion_number: body?.motion_number !== undefined ? body.motion_number : motion.motion_number,
+      option_limit: body?.option_limit ?? null,
+      options: body?.options ?? [],
     });
   }),
 
@@ -820,6 +844,8 @@ export const agmClosedFixture = {
   voting_closes_at: "2023-06-01T12:00:00Z",
 };
 
+export const MOTION_ID_MC = "motion-mc-001";
+
 export const motionFixtures = [
   {
     id: MOTION_ID_1,
@@ -831,6 +857,8 @@ export const motionFixtures = [
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
+    option_limit: null,
+    options: [],
   },
   {
     id: MOTION_ID_2,
@@ -842,8 +870,29 @@ export const motionFixtures = [
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
+    option_limit: null,
+    options: [],
   },
 ];
+
+export const mcMotionFixtureVoter = {
+  id: MOTION_ID_MC,
+  title: "Board Election",
+  description: "Vote for board members",
+  display_order: 3,
+  motion_number: null,
+  motion_type: "general" as const,
+  is_multi_choice: true,
+  is_visible: true,
+  already_voted: false,
+  submitted_choice: null,
+  option_limit: 2,
+  options: [
+    { id: "opt-alice", text: "Alice", display_order: 1 },
+    { id: "opt-bob", text: "Bob", display_order: 2 },
+    { id: "opt-carol", text: "Carol", display_order: 3 },
+  ],
+};
 
 export const myBallotFixture = {
   voter_email: "owner@example.com",

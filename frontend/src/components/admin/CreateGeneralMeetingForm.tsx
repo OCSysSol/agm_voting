@@ -21,7 +21,7 @@ export default function CreateGeneralMeetingForm() {
   const [title, setTitle] = useState("");
   const [meetingAt, setMeetingAt] = useState("");
   const [votingClosesAt, setVotingClosesAt] = useState("");
-  const [motions, setMotions] = useState<MotionFormEntry[]>([{ title: "", description: "", motion_number: "", motion_type: "general" }]);
+  const [motions, setMotions] = useState<MotionFormEntry[]>([{ title: "", description: "", motion_number: "", motion_type: "general", is_multi_choice: false }]);
   const [formError, setFormError] = useState<string | null>(null);
 
   const mutation = useMutation<GeneralMeetingOut, Error, GeneralMeetingCreateRequest>({
@@ -48,6 +48,22 @@ export default function CreateGeneralMeetingForm() {
         setFormError(`Motion ${i + 1} title is required.`);
         return;
       }
+      if (motions[i].is_multi_choice) {
+        const validOpts = (motions[i].options ?? []).filter((o: { text: string }) => o.text.trim());
+        if (validOpts.length < 2) {
+          setFormError(`Motion ${i + 1}: multi-choice requires at least 2 options.`);
+          return;
+        }
+        const lim = parseInt(motions[i].option_limit ?? "1", 10);
+        if (isNaN(lim) || lim < 1) {
+          setFormError(`Motion ${i + 1}: option limit must be at least 1.`);
+          return;
+        }
+        if (lim > validOpts.length) {
+          setFormError(`Motion ${i + 1}: option limit cannot exceed option count.`);
+          return;
+        }
+      }
     }
 
     mutation.mutate({
@@ -55,13 +71,25 @@ export default function CreateGeneralMeetingForm() {
       title: title.trim(),
       meeting_at: new Date(meetingAt).toISOString(),
       voting_closes_at: new Date(votingClosesAt).toISOString(),
-      motions: motions.map((m, i) => ({
-        title: m.title.trim(),
-        description: m.description.trim() || null,
-        display_order: i + 1,
-        motion_number: m.motion_number?.trim() || null,
-        motion_type: m.motion_type,
-      })),
+      motions: motions.map((m, i) => {
+        const base = {
+          title: m.title.trim(),
+          description: m.description.trim() || null,
+          display_order: i + 1,
+          motion_number: m.motion_number?.trim() || null,
+          motion_type: m.motion_type,
+          is_multi_choice: m.is_multi_choice ?? false,
+        };
+        if (m.is_multi_choice) {
+          const validOpts = (m.options ?? []).filter((o: { text: string }) => o.text.trim());
+          return {
+            ...base,
+            option_limit: parseInt(m.option_limit ?? "1", 10),
+            options: validOpts.map((o: { text: string }, oi: number) => ({ text: o.text.trim(), display_order: oi + 1 })),
+          };
+        }
+        return base;
+      }),
     });
   }
 

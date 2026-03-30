@@ -606,6 +606,61 @@ button, input, select, textarea {
   border: 1px solid #fcd34d;
 }
 
+.motion-type-badge--multi_choice {
+  background: #E8F4FD;
+  color: var(--navy);
+  border: 1px solid #93C5FD;
+}
+
+/* Multi-choice option list */
+.multi-choice-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--white);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.multi-choice-option:has(input:checked) {
+  border-color: var(--navy);
+  background: #F0F4F8;
+}
+
+.multi-choice-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--navy);
+}
+
+.multi-choice-option input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.multi-choice-option--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.multi-choice-option__text {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.multi-choice-counter {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
 .motion-card__voted-badge {
   display: inline-block;
   font-size: 0.65rem;

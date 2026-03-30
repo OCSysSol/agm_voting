@@ -204,6 +204,10 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] Changing display order does NOT change any motion's `motion_number` — the labels are preserved exactly as set
 - [ ] A meeting with a single motion has no drag handle and no move buttons (nothing to reorder)
 - [ ] `PUT /api/admin/general-meetings/{id}/motions/reorder` returns 409 if the meeting is closed, 422 if the submitted list is incomplete or has duplicate positions, 404 if the meeting does not exist
+- [ ] Drag-and-drop reordering works on touch devices (iOS Safari, Android Chrome) — a 250 ms press-and-hold activates the drag; moving the finger more than 5 px during the delay cancels the drag and passes the gesture back to the browser as a scroll
+- [ ] The drag handle touch target is at least 44×44 CSS pixels (meets WCAG 2.5.8 minimum)
+- [ ] `touch-action: none` is applied to the drag handle element so the browser does not intercept the touch gesture as a scroll during an active drag
+- [ ] Vertical page scroll is not blocked when the user is not dragging (touch-action: none is scoped to the handle and the actively-dragged row only)
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
@@ -480,6 +484,66 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-LOE-01: Optional lot owner email
+
+**Description:** As an admin, I want to add a lot owner without an email address, so that buildings with owners who have no email can still be managed in the system.
+
+**Acceptance Criteria:**
+
+- [ ] The email field in the Add Lot Owner form is optional; the input shows hint text "Leave blank if no email address" (or placeholder "owner@example.com (optional)")
+- [ ] Leaving the email field blank is accepted — the form submits without error and the lot owner is created with zero email records
+- [ ] A non-blank email value is still validated for correct format; an invalid format (e.g. `notanemail`) shows the inline error "Please enter a valid email address."
+- [ ] All email addresses are normalised to lowercase before storage and before OTP lookup
+- [ ] CSV import accepts rows where the email cell is blank or the email column is absent entirely; those lot owners are created without email records
+- [ ] The EditModal's "Remove" button on the last email address is not blocked — removing the last email is permitted, leaving the owner with zero emails
+- [ ] Owners with no email are always recorded as absent at AGM close (they have no OTP entry point and cannot vote)
+- [ ] The absent tally and CSV export for an email-less owner show a blank "Voter Email" cell (not an error)
+- [ ] Lot owner table shows a blank email column for email-less owners (no broken UI)
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-SORT-01: Sortable admin table columns
+
+**Description:** As an admin, I want to sort the buildings, meetings, and lot owners tables by clicking column headers, so that I can find records quickly.
+
+**Acceptance Criteria:**
+
+- [ ] Buildings table column headers "Name" and "Created At" are clickable and trigger server-side sorting; clicking a header for the first time sorts ascending for text columns and descending for date columns; clicking again toggles direction
+- [ ] Meetings table column headers "Title" and "Created At" are clickable and trigger server-side sorting with the same toggle behaviour; "Status" and "Building" columns remain non-sortable
+- [ ] Lot owners table column headers "Lot Number", "Unit Entitlement", and "Financial Position" are sortable client-side (full dataset is in memory); "Email" and "Proxy" columns remain non-sortable
+- [ ] `GET /api/admin/buildings` accepts optional `sort_by` (`"name"` | `"created_at"`) and `sort_dir` (`"asc"` | `"desc"`) query parameters; invalid values return 422
+- [ ] `GET /api/admin/general-meetings` accepts the same `sort_by` (`"title"` | `"created_at"`) and `sort_dir` parameters; invalid values return 422
+- [ ] Sort state for buildings and meetings is persisted in URL search params (`sort_by`, `sort_dir`) so it survives page refresh and back navigation
+- [ ] Changing the sort column or direction resets pagination to page 1
+- [ ] Active sort column shows a directional indicator (▲ ascending, ▼ descending); inactive sortable columns show a neutral ⇅ indicator
+- [ ] Every sortable `<th>` has an `aria-sort` attribute (`"ascending"` | `"descending"` | `"none"`); non-sortable `<th>` elements do not have `aria-sort`
+- [ ] Sort buttons inside column headers have `type="button"` and are keyboard-accessible
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-UX-01: Mobile and form usability fixes
+
+**Description:** As an admin or voter, I want the interface to work correctly on mobile devices and validate email inputs consistently, so that I can manage and vote from any device without layout or input errors.
+
+**Acceptance Criteria:**
+
+- [ ] On the Buildings admin page, the "Show archived" toggle and "+ New Building" button wrap to the next line on narrow viewports (≤ 375 px) instead of overflowing or causing horizontal scroll
+- [ ] The Sign out button renders in white/off-white on both mobile (inside the nav drawer) and desktop (inside the sidebar); the colour is set explicitly and does not rely on CSS inheritance from the container
+- [ ] The Add Lot Owner form validates email format on submit: a non-empty email that fails the basic format check (missing `@`, missing domain, etc.) shows the inline error "Please enter a valid email address." and prevents the API call
+- [ ] The New Building modal validates manager email format on submit with the same inline error and same prevention of the API call
+- [ ] Empty email in the Add Lot Owner form is separately permitted (see US-LOE-01); the format check only fires when the field is non-empty
+- [ ] Email format validation uses the shared `isValidEmail` utility (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) consistently across all admin forms
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ### US-006: Sync lot owner data from PropertyIQ
 
 **Description:** As a meeting host, I want to sync lot owner data from PropertyIQ so I don't have to manually export/import CSVs.
@@ -514,7 +578,12 @@ A web application for body corporates to run voting during Annual General Meetin
   - [ ] Total Abstained: voter count and total weighted unit entitlements (submitted ballots where the motion was explicitly abstained or left unanswered)
   - [ ] Total Absent: voter count and total weighted unit entitlements (voters who never submitted or whose draft was discarded on close)
   - [ ] Voter lists show **lot numbers and individual entitlements** (not email addresses) to protect privacy; one row per lot
-  - [ ] Host can export the full voter breakdown as a CSV file (columns: Motion, Category, Lot Number, Entitlement) via an "Export voter lists (CSV)" button
+  - [ ] Host can export the full voter breakdown as a CSV file via an "Export voter lists (CSV)" button; columns: Motion, Category, Lot Number, Entitlement (UOE), Voter Email
+  - [ ] The exported CSV includes a "Voter Email" column on every row:
+    - For direct votes: shows the email address that authenticated and submitted the ballot (`BallotSubmission.voter_email`)
+    - For proxy votes: shows the authenticated proxy email in the format `proxy@example.com (proxy: proxy@example.com)` so the proxy relationship is clearly indicated
+    - For absent lots: shows all registered owner emails and the proxy email (if any), comma-separated, as snapshotted at meeting close time
+    - For absent lots with no registered email: shows an empty cell (not an error)
 - [ ] Typecheck/lint passes
 
 ---
@@ -566,6 +635,8 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-15: The server exposes the current server UTC time via an API endpoint. The voting page fetches this on load, computes the offset from client time, and uses the corrected time for the countdown timer and 5-minute warning to eliminate client clock skew.
 - FR-16: Each motion has a `motion_number` (VARCHAR). When explicitly provided by the admin, it is a free-text display label (e.g. "5", "5a", "Special Resolution 1"). When omitted on creation or add-motion, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3"), ensuring every motion always has a non-null number. Whitespace-only input is treated as blank and stored as `NULL`. `motion_number` is unique per AGM (partial unique index `WHERE motion_number IS NOT NULL`) — a duplicate non-null value returns 409. `motion_number` has no effect on display order; reordering motions never modifies `motion_number`. On the voter-facing voting page, every motion card always renders `"MOTION {motion_number}"` as its label. On the confirmation/SubmitDialog, the same `"MOTION {motion_number}"` label is used. A NULL `motion_number` (legacy motions predating the auto-assign feature) causes the UI to fall back to a positional label based on `display_order`.
 - FR-17: Motions have a `display_order` (INTEGER, 1-based, unique per meeting) that determines the sequence in which they are rendered on the voting page, public summary, and admin detail pages. The admin can reorder motions via `PUT /api/admin/general-meetings/{id}/motions/reorder` which accepts the complete ordered list of motion IDs and atomically renormalises `display_order` values to 1, 2, 3, ... Reordering is only permitted on open or pending meetings. Changing `display_order` never modifies `motion_number`, and changing `motion_number` never modifies `display_order`.
+- FR-18: A third motion type — `multi_choice` — is supported alongside `general` and `special`. A multi-choice motion has a list of options (`motion_options` table) and an `option_limit` (integer, 1 to N options). The voter selects 0 to `option_limit` options; each selected option receives the voter's full UOE (not split). Selecting zero options is recorded as `abstained`. In-arrear lots are recorded as `not_eligible` for multi-choice motions (same rule as `general`). The `votes` table stores one row per selected option per lot per motion with `choice = "selected"` and `motion_option_id` set; a single row with `choice = "abstained"` or `not_eligible"` covers the unselected cases.
+- FR-19: Multi-choice motion tally is computed per option: for each option, the `voter_count` is the number of lots that selected it and `entitlement_sum` is the sum of their snapshotted UOE. A lot may appear in multiple option tallies. The `yes` and `no` tally categories are not applicable to multi-choice motions (returned as zero). `abstained` and `absent` tallies continue to apply and are computed as for other motion types. The results report and CSV export include per-option rows for multi-choice motions.
 
 ---
 
@@ -854,6 +925,146 @@ No backend or database changes are required. The `order_index` field remains 0-b
 - [ ] The seed row is only inserted if the table is empty (idempotent — re-running the migration does not duplicate the row)
 - [ ] `GET /api/config` returns the seed values on a fresh deployment before any admin has edited settings
 - [ ] All tests pass at 100% coverage
+
+---
+
+### US-MC-01: Admin creates a multi-choice motion
+
+**Description:** As a meeting host, I want to create a motion where voters select from a list of custom options (e.g., candidates, proposals) so I can run elections or preference votes within the AGM ballot.
+
+**Acceptance Criteria:**
+
+- [ ] The motion type selector in the Add Motion modal and the AGM creation form includes a "Multi-Choice" option
+- [ ] When "Multi-Choice" is selected, the form shows: an "Option limit" number input (label: "Max selections per voter", min 1, required) and a dynamic list of option text inputs with add/remove buttons
+- [ ] At least 2 options are required; attempting to save with fewer shows an inline error: "At least 2 options are required"
+- [ ] Option limit must be between 1 and the number of options inclusive; saving with limit > option count shows: "Option limit cannot exceed the number of options"
+- [ ] Each option text must be non-empty (max 200 characters); blank option text blocks save with an inline error
+- [ ] Options have an explicit display order; the form provides simple up/down buttons to reorder options within the modal
+- [ ] Saved multi-choice motions appear in the motion management table with a "Multi-Choice (N options)" badge
+- [ ] `POST /api/admin/general-meetings` and `POST /api/admin/general-meetings/{id}/motions` accept `option_limit` and `options` when `motion_type = "multi_choice"`; missing or invalid fields return 422
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-02: Admin edits a multi-choice motion
+
+**Description:** As a meeting host, I want to update the options and option limit of a hidden multi-choice motion so I can correct mistakes before making it visible.
+
+**Acceptance Criteria:**
+
+- [ ] The Edit Motion modal for a hidden multi-choice motion shows the current option list and option limit, fully editable
+- [ ] Admin can add, remove, rename, and reorder options; changes are reflected immediately in the modal UI
+- [ ] Saving a multi-choice motion with fewer than 2 options or an out-of-range option limit is blocked with inline errors (same rules as creation)
+- [ ] `PATCH /api/admin/motions/{id}` accepts `options` (replaces all existing options atomically) and `option_limit`; returns 422 on invalid input
+- [ ] Changing `motion_type` away from `multi_choice` during edit deletes all options and clears `option_limit`
+- [ ] A visible multi-choice motion cannot be edited (must be hidden first — existing rule unchanged)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-03: Voter votes on a multi-choice motion
+
+**Description:** As a lot owner, I want to select from a list of options on a multi-choice motion so I can participate in elections or preference votes within my AGM ballot.
+
+**Acceptance Criteria:**
+
+- [ ] Multi-choice motions render a checkbox list instead of For/Against/Abstain buttons on the voting page
+- [ ] A counter shows "Select up to N option(s) — X selected" and updates in real time as the voter checks/unchecks options
+- [ ] Once the option limit is reached, unchecked checkboxes become disabled; checked boxes remain interactive (can be unchecked)
+- [ ] Unchecking a box re-enables other boxes when the selection drops below the limit
+- [ ] Selecting zero options on a multi-choice motion counts as "answered" for progress bar purposes (will be recorded as Abstained on submit)
+- [ ] Multi-choice motions are included in the unanswered-motions list in the submit confirmation dialog when the voter has not interacted with them at all (same as binary motions left blank)
+- [ ] On submission, each selected option is sent as `multi_choice_votes: [{motion_id, option_ids: [...]}]` in the ballot request body
+- [ ] Backend records one `Vote` row per selected option (`choice = "selected"`, `motion_option_id = option.id`); a voter who selects zero options receives a single `Vote` row with `choice = "abstained"`
+- [ ] An in-arrear lot's multi-choice motion is recorded as `not_eligible` (same rule as General motions); the checkboxes are rendered disabled with a "Not eligible" indicator
+- [ ] Backend enforces option limit: selecting more options than `option_limit` returns 422; invalid option IDs return 400
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-04: Voter confirmation screen shows multi-choice selections
+
+**Description:** As a lot owner, I want the confirmation screen to show which options I selected for multi-choice motions so I have an accurate record of my ballot.
+
+**Acceptance Criteria:**
+
+- [ ] The confirmation screen lists each multi-choice motion with the text of each selected option (e.g., "Candidate A, Candidate C")
+- [ ] If the voter abstained (selected zero options), the screen shows "Abstained" for that motion
+- [ ] If the lot is in arrear for a multi-choice motion, the screen shows "Not eligible"
+- [ ] `GET /api/general-meeting/{id}/my-ballot` returns `BallotVoteItem` with `motion_type = "multi_choice"` and `selected_options: [{id, text, display_order}]` populated from the voter's submitted `Vote` rows
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MC-05: Admin views multi-choice motion results
+
+**Description:** As a meeting host, I want to see per-option vote tallies for multi-choice motions in the results report so I can determine the outcome of elections and preference votes.
+
+**Acceptance Criteria:**
+
+- [ ] The admin AGM detail page results section shows a per-option breakdown for multi-choice motions instead of yes/no/abstained rows
+- [ ] Each option row shows: option text, voter count (number of lots that selected it), total UOE sum, and percentage of total building UOE
+- [ ] A voter can appear in multiple option rows (their UOE counts for each option they selected)
+- [ ] Abstained (zero selections submitted) and Absent (never submitted) rows still appear below the option list
+- [ ] Not-eligible rows appear for in-arrear lots
+- [ ] `GET /api/admin/general-meetings/{id}` returns `tally.options: [{option_id, option_text, display_order, voter_count, entitlement_sum}]` for multi-choice motions; `tally.yes` and `tally.no` are zero for multi-choice motions
+- [ ] The CSV export includes one row per option per voter: `Motion, Option: {option_text}, Lot Number, Entitlement`
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-EMAIL-01: Multi-choice voter listing in results report email
+
+**Description:** As a meeting host, I want the results report email to list which lots voted for each option on multi-choice motions, so I can see per-option voter breakdowns in the same format as yes/no motions.
+
+**Acceptance Criteria:**
+
+- [ ] For each option on a multi-choice motion, the email renders a voter list section (header in the option's label colour, one row per lot: lot number, voter email, entitlement) identical in structure to the "Voted Yes" / "Voted No" sections for yes/no motions
+- [ ] Abstained and Absent voter list sections continue to appear for multi-choice motions, matching existing yes/no motion behaviour
+- [ ] The existing yes/no motion voter listing is unchanged
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-EMAIL-02: Motion resolution type in results report email
+
+**Description:** As a meeting host, I want the results report email to label each motion as "General Resolution" or "Special Resolution" so the type of approval threshold required is immediately visible.
+
+**Acceptance Criteria:**
+
+- [ ] Each motion header in the email shows "General Resolution" or "Special Resolution" beneath the motion number / title, derived from `motion.motion_type`
+- [ ] Multi-choice motions also show the resolution type label
+- [ ] The label style is visually distinct from the motion title (smaller, subdued) and does not break the existing email layout at 600 px width
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-EMAIL-03: Resend summary email button on admin meeting detail page
+
+**Description:** As a meeting host, I want a "Resend Summary Email" button on the closed meeting detail page so I can re-trigger the results email at any time without having to wait for delivery failure.
+
+**Acceptance Criteria:**
+
+- [ ] A "Resend Summary Email" button is visible on the admin meeting detail page when `meeting.status === "closed"`
+- [ ] Clicking the button calls `POST /api/admin/general-meetings/{id}/resend-report` and shows a loading state while in flight
+- [ ] On success the button shows a transient "Queued for resend" confirmation message
+- [ ] On error the button shows an inline error message
+- [ ] The backend `resend_report` service function is updated to allow resend regardless of the current `EmailDelivery.status` (not just when status is `"failed"`) so hosts can re-trigger at will
+- [ ] The endpoint still returns 404 if the meeting does not exist and 409 if the meeting is not closed
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
 
 ---
 

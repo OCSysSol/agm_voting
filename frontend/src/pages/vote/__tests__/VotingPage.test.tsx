@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { VotingPage } from "../VotingPage";
-import { AGM_ID, BUILDING_ID, MOTION_ID_1, MOTION_ID_2 } from "../../../../tests/msw/handlers";
+import { AGM_ID, BUILDING_ID, MOTION_ID_1, MOTION_ID_2, MOTION_ID_MC, mcMotionFixtureVoter } from "../../../../tests/msw/handlers";
 import * as voterApi from "../../../api/voter";
 
 const BASE = "http://localhost:8000";
@@ -2398,6 +2398,219 @@ describe("VotingPage", () => {
     await waitFor(() => {
       expect(screen.getAllByText("You are voting for 1 lot.")[0]).toBeInTheDocument();
     });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  // --- Multi-choice motion type ---
+
+  it("renders multi-choice motion checkboxes when motion_type is multi_choice", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([mcMotionFixtureVoter])
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+      expect(screen.getByLabelText("Bob")).toBeInTheDocument();
+      expect(screen.getByLabelText("Carol")).toBeInTheDocument();
+    });
+  });
+
+  it("counts multi-choice motion as answered when user interacts with it", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([mcMotionFixtureVoter])
+      )
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+    sessionStorage.setItem(
+      `meeting_lots_${AGM_ID}`,
+      JSON.stringify(["lo-e2e"])
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-e2e", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    });
+    // Initially 0/1 answered
+    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+    // Click Alice checkbox
+    await user.click(screen.getByLabelText("Alice"));
+    // Now 1/1 answered
+    await waitFor(() => {
+      expect(screen.getByText("1 / 1")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("highlights multi-choice motion as unanswered when submit clicked without answering", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([mcMotionFixtureVoter])
+      )
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+    sessionStorage.setItem(
+      `meeting_lots_${AGM_ID}`,
+      JSON.stringify(["lo-e2e"])
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-e2e", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    });
+    // Click submit without selecting any MC option
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // The submit dialog should appear (we haven't answered the MC motion — treated as unanswered)
+    // The dialog appears because unvotedMotions.length > 0
+    await waitFor(() => {
+      // Either the dialog shows or the unanswered highlight appears
+      const highlightedCard = document.querySelector(".motion-card--highlight");
+      expect(highlightedCard).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("seeds multiChoiceSelections from submitted_option_ids when MC motion is read-only", async () => {
+    // Fix 2: when the voter returns to the page and the MC motion is already voted,
+    // submitted_option_ids should restore the option checkboxes in read-only state.
+    const votedMcMotion = {
+      ...mcMotionFixtureVoter,
+      already_voted: true,
+      submitted_choice: "selected" as const,
+      submitted_option_ids: ["opt-alice", "opt-bob"],
+    };
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([votedMcMotion])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo-e2e",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: true,
+          is_proxy: false,
+          voted_motion_ids: [MOTION_ID_MC],
+        },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      // Alice and Bob checkboxes should be checked (seeded from submitted_option_ids)
+      expect(screen.getByLabelText("Alice")).toBeChecked();
+      expect(screen.getByLabelText("Bob")).toBeChecked();
+    });
+    // Carol should not be checked
+    expect(screen.getByLabelText("Carol")).not.toBeChecked();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("does not seed multiChoiceSelections when MC motion is not read-only", async () => {
+    // When the lot has not yet voted on the MC motion, submitted_option_ids
+    // should NOT pre-populate checkboxes even if the field is present.
+    const unvotedMcMotion = {
+      ...mcMotionFixtureVoter,
+      already_voted: false,
+      submitted_choice: null,
+      submitted_option_ids: ["opt-alice"],  // should be ignored (motion not read-only)
+    };
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([unvotedMcMotion])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo-e2e",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: false,
+          is_proxy: false,
+          voted_motion_ids: [],
+        },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    });
+    // Alice checkbox should NOT be pre-checked since the motion is interactive
+    expect(screen.getByLabelText("Alice")).not.toBeChecked();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("includes multi_choice_votes in submit payload", async () => {
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([mcMotionFixtureVoter])
+      )
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+    sessionStorage.setItem(
+      `meeting_lots_${AGM_ID}`,
+      JSON.stringify(["lo-e2e"])
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-e2e", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    });
+    // Select Alice
+    await user.click(screen.getByLabelText("Alice"));
+    // Now submit
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // Confirm dialog — the dialog submit button is also "Submit ballot"
+    await waitFor(() => {
+      const buttons = screen.getAllByRole("button", { name: "Submit ballot" });
+      expect(buttons.length).toBeGreaterThanOrEqual(1);
+    });
+    // Click the last "Submit ballot" button (inside the dialog)
+    const submitButtons = screen.getAllByRole("button", { name: "Submit ballot" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalledWith(
+        AGM_ID,
+        expect.objectContaining({
+          multi_choice_votes: expect.arrayContaining([
+            expect.objectContaining({
+              motion_id: MOTION_ID_MC,
+              option_ids: ["opt-alice"],
+            }),
+          ]),
+        })
+      );
+    });
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 });

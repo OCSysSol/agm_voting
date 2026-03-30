@@ -33,12 +33,34 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
     const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE),Voter Email"];
     for (const motion of motions) {
       const motionLabel = `${motion.motion_number?.trim() || String(motion.display_order)}. ${motion.title.replace(/"/g, '""')}`;
-      for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
-        for (const v of motion.voter_lists[cat]) {
-          const emailCell = v.proxy_email
-            ? `${v.voter_email || ""} (proxy)`
-            : (v.voter_email || "");
-          rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
+      if (motion.is_multi_choice === true) {
+        // Per-option rows for multi-choice
+        for (const optTally of (motion.tally.options ?? [])) {
+          const optionVoters = motion.voter_lists.options?.[optTally.option_id] ?? [];
+          for (const v of optionVoters) {
+            const emailCell = v.proxy_email
+              ? `${v.voter_email || ""} (proxy)`
+              : (v.voter_email || "");
+            rows.push(`"${motionLabel}","Option: ${optTally.option_text.replace(/"/g, '""')}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
+          }
+        }
+        // Abstained / absent / not_eligible rows
+        for (const cat of ["abstained", "absent", "not_eligible"] as const) {
+          for (const v of motion.voter_lists[cat]) {
+            const emailCell = v.proxy_email
+              ? `${v.voter_email || ""} (proxy)`
+              : (v.voter_email || "");
+            rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
+          }
+        }
+      } else {
+        for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
+          for (const v of motion.voter_lists[cat]) {
+            const emailCell = v.proxy_email
+              ? `${v.voter_email || ""} (proxy)`
+              : (v.voter_email || "");
+            rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement},"${emailCell.replace(/"/g, '""')}"`);
+          }
         }
       }
     }
@@ -72,10 +94,10 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               {motion.motion_number?.trim() || String(motion.display_order)}. {motion.title}
             </h3>
             <span
-              className={`motion-type-badge${motion.motion_type === "special" ? " motion-type-badge--special" : " motion-type-badge--general"}`}
-              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
+              className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
+              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : motion.is_multi_choice === true ? "Multi-Choice" : "General"}`}
             >
-              {motion.motion_type === "special" ? "Special" : "General"}
+              {motion.motion_type === "special" ? "Special" : motion.is_multi_choice === true ? "Multi-Choice" : "General"}
             </span>
             {!motion.is_visible && (
               <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
@@ -98,33 +120,70 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               </tr>
             </thead>
             <tbody>
-              {(["yes", "no", "abstained", "absent", "not_eligible"] as const).map((cat) => (
-                <tr key={cat}>
-                  <td>
-                    <span style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 7,
-                      fontWeight: cat === "yes" || cat === "no" ? 600 : undefined,
-                    }}>
+              {motion.is_multi_choice === true ? (
+                <>
+                  {(motion.tally.options ?? []).map((optTally) => (
+                    <tr key={optTally.option_id}>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--navy)", flexShrink: 0 }} />
+                          {optTally.option_text}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                        {optTally.voter_count}
+                      </td>
+                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                        {formatEntitlementPct(optTally.entitlement_sum, totalEntitlement)}
+                      </td>
+                    </tr>
+                  ))}
+                  {(["abstained", "absent", "not_eligible"] as const).map((cat) => (
+                    <tr key={cat}>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: CATEGORY_COLORS[cat], flexShrink: 0 }} />
+                          {CATEGORY_LABELS[cat]}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                        {motion.tally[cat].voter_count}
+                      </td>
+                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                        {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              ) : (
+                (["yes", "no", "abstained", "absent", "not_eligible"] as const).map((cat) => (
+                  <tr key={cat}>
+                    <td>
                       <span style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: CATEGORY_COLORS[cat],
-                        flexShrink: 0,
-                      }} />
-                      {CATEGORY_LABELS[cat]}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                    {motion.tally[cat].voter_count}
-                  </td>
-                  <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                    {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
-                  </td>
-                </tr>
-              ))}
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 7,
+                        fontWeight: cat === "yes" || cat === "no" ? 600 : undefined,
+                      }}>
+                        <span style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: CATEGORY_COLORS[cat],
+                          flexShrink: 0,
+                        }} />
+                        {CATEGORY_LABELS[cat]}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                      {motion.tally[cat].voter_count}
+                    </td>
+                    <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                      {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
           </div>

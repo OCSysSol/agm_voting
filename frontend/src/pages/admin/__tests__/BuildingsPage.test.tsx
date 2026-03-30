@@ -41,6 +41,20 @@ describe("BuildingsPage", () => {
     expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
   });
 
+  it("loading overlay has pointer-events none while loading and auto after load", async () => {
+    renderPage();
+    // During loading the overlay div should block pointer events
+    const loadingOverlay = screen.getByText("Loading buildings...").closest("div[style]")!;
+    expect(loadingOverlay).toHaveStyle({ pointerEvents: "none" });
+
+    // After load the overlay should allow pointer events
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    const loadedOverlay = screen.getByText("Alpha Tower").closest("div[style]")!;
+    expect(loadedOverlay).toHaveStyle({ pointerEvents: "auto" });
+  });
+
   it("renders building table after loading", async () => {
     renderPage();
     await waitFor(() => {

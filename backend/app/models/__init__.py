@@ -5,6 +5,7 @@ from app.models.lot_owner import LotOwner, FinancialPosition
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.motion import Motion, MotionType
+from app.models.motion_option import MotionOption
 from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
 from app.models.vote import Vote, VoteChoice, VoteStatus
 from app.models.ballot_submission import BallotSubmission
@@ -28,6 +29,7 @@ __all__ = [
     "get_effective_status",
     "Motion",
     "MotionType",
+    "MotionOption",
     "GeneralMeetingLotWeight",
     "FinancialPositionSnapshot",
     "Vote",

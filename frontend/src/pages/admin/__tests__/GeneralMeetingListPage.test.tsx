@@ -41,6 +41,20 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.getByText("Loading General Meetings...")).toBeInTheDocument();
   });
 
+  it("loading overlay has pointer-events none while loading and auto after load", async () => {
+    renderPage();
+    // During loading the overlay div should block pointer events
+    const loadingOverlay = screen.getByText("Loading General Meetings...").closest("div[style]")!;
+    expect(loadingOverlay).toHaveStyle({ pointerEvents: "none" });
+
+    // After load the overlay should allow pointer events
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    const loadedOverlay = screen.getByText("2024 AGM").closest("div[style]")!;
+    expect(loadedOverlay).toHaveStyle({ pointerEvents: "auto" });
+  });
+
   it("renders meeting table after loading", async () => {
     renderPage();
     await waitFor(() => {

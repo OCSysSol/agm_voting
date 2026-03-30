@@ -31,6 +31,7 @@ from app.models import (
     LotOwnerEmail,
     LotProxy,
     Motion,
+    MotionOption,
     Vote,
     VoteChoice,
     VoteStatus,
@@ -53,6 +54,11 @@ def _sanitise_description(desc: str | None) -> str | None:
     if desc is None:
         return None
     return bleach.clean(desc, tags=[], strip=True).strip() or None
+
+
+def _sanitise_option_text(text: str) -> str:
+    """Strip all HTML tags from a motion option text."""
+    return bleach.clean(text, tags=[], strip=True).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -332,8 +338,9 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
                     LotOwner.building_id != building_id,
                     Building.is_archived == False,  # noqa: E712
                 )
+                .limit(1)
             )
-            other = other_result.scalar_one_or_none()
+            other = other_result.scalars().first()
             if other is not None:
                 found_in_other = True
                 break
@@ -342,7 +349,10 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
             owner.is_archived = True
 
     await db.commit()
-    await db.refresh(building)
+    result = await db.execute(
+        select(Building).where(Building.id == building_id)
+    )
+    building = result.scalar_one()
     return building
 
 
@@ -1067,8 +1077,18 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
             display_order=position,
             motion_number=motion_number,
             motion_type=motion_data.motion_type,
+            is_multi_choice=motion_data.is_multi_choice,
+            option_limit=motion_data.option_limit if motion_data.is_multi_choice else None,
         )
         db.add(motion)
+        await db.flush()  # get motion.id for option FK
+        if motion_data.is_multi_choice:
+            for opt in motion_data.options:
+                db.add(MotionOption(
+                    motion_id=motion.id,
+                    text=_sanitise_option_text(opt.text),
+                    display_order=opt.display_order,
+                ))
 
     # Snapshot lot weights (include financial_position_snapshot)
     lot_owners_result = await db.execute(
@@ -1096,6 +1116,18 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     )
     loaded_motions = list(motions_result.scalars().all())
 
+    # Load motion options for multi-choice motions
+    multi_choice_motion_ids = [m.id for m in loaded_motions if m.is_multi_choice]
+    options_by_motion: dict[uuid.UUID, list] = {}
+    if multi_choice_motion_ids:
+        opts_result = await db.execute(
+            select(MotionOption)
+            .where(MotionOption.motion_id.in_(multi_choice_motion_ids))
+            .order_by(MotionOption.display_order)
+        )
+        for opt in opts_result.scalars().all():
+            options_by_motion.setdefault(opt.motion_id, []).append(opt)
+
     _ = building  # used for 404 check
 
     # Return as dict to avoid triggering lazy relationship loads during serialization
@@ -1114,6 +1146,12 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
                 "display_order": m.display_order,
                 "motion_number": m.motion_number,
                 "motion_type": m.motion_type.value if hasattr(m.motion_type, "value") else m.motion_type,
+                "is_multi_choice": m.is_multi_choice,
+                "option_limit": m.option_limit,
+                "options": [
+                    {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+                    for opt in options_by_motion.get(m.id, [])
+                ],
             }
             for m in loaded_motions
         ],
@@ -1235,6 +1273,18 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     )
     motions = list(motions_result.scalars().all())
 
+    # Load options for multi-choice motions
+    mc_motion_ids = [m.id for m in motions if m.is_multi_choice]
+    motion_options_map: dict[uuid.UUID, list] = {}
+    if mc_motion_ids:
+        opts_result = await db.execute(
+            select(MotionOption)
+            .where(MotionOption.motion_id.in_(mc_motion_ids))
+            .order_by(MotionOption.display_order)
+        )
+        for opt in opts_result.scalars().all():
+            motion_options_map.setdefault(opt.motion_id, []).append(opt)
+
     # Load lot weights joined with lot_owner to get lot numbers
     weights_result = await db.execute(
         select(GeneralMeetingLotWeight, LotOwner.lot_number.label("lot_number"))
@@ -1337,66 +1387,152 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 })
         return result_list
 
+    is_closed = get_effective_status(general_meeting) == GeneralMeetingStatus.closed
+    absent_ids_global: set[uuid.UUID] = set(absent_submissions.keys()) if is_closed else set()
+
     motion_details = []
     for motion in motions:
-        # Group votes for this motion by lot_owner_id
-        motion_votes: dict[uuid.UUID, str] = {}
-        for vote in submitted_votes:
-            if vote.motion_id == motion.id:
-                lot_id = vote.lot_owner_id
-                if lot_id is not None and lot_id in submitted_lot_owner_ids:
-                    choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
-                    motion_votes[lot_id] = choice or "abstained"
+        motion_type_str = motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type
+        motion_opts = motion_options_map.get(motion.id, [])
 
-        yes_ids: set[uuid.UUID] = set()
-        no_ids: set[uuid.UUID] = set()
-        abstained_ids: set[uuid.UUID] = set()
-        not_eligible_ids: set[uuid.UUID] = set()
+        if motion.is_multi_choice:
+            # Multi-choice: per-option tallying
+            # Collect votes for this motion
+            motion_vote_rows = [v for v in submitted_votes if v.motion_id == motion.id and v.lot_owner_id in submitted_lot_owner_ids]
 
-        for lot_id in submitted_lot_owner_ids:
-            choice = motion_votes.get(lot_id, "abstained")
-            if choice == "yes":
-                yes_ids.add(lot_id)
-            elif choice == "no":
-                no_ids.add(lot_id)
-            elif choice == "not_eligible":
-                not_eligible_ids.add(lot_id)
-            else:
-                abstained_ids.add(lot_id)
+            # not_eligible lots
+            not_eligible_ids: set[uuid.UUID] = {
+                v.lot_owner_id for v in motion_vote_rows
+                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "not_eligible"
+            }
 
-        if get_effective_status(general_meeting) == GeneralMeetingStatus.closed:
-            # Absent lots are those with is_absent BallotSubmissions created at close time
-            absent_ids: set[uuid.UUID] = set(absent_submissions.keys())
-        else:
-            absent_ids: set[uuid.UUID] = set()
+            # lots with at least one selected vote
+            selected_lot_ids: set[uuid.UUID] = {
+                v.lot_owner_id for v in motion_vote_rows
+                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "selected"
+            }
 
-        motion_details.append(
-            {
+            # abstained = submitted but no selected and not not_eligible
+            # Derived from this motion's own vote rows to avoid incorrectly including
+            # lots that simply didn't have a vote row for this motion (e.g. not yet submitted).
+            abstained_ids: set[uuid.UUID] = {
+                v.lot_owner_id for v in motion_vote_rows
+                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "abstained"
+            }
+
+            # Per-option tally
+            option_tallies = []
+            option_voter_lists: dict[str, list] = {}
+            for opt in motion_opts:
+                opt_lot_ids = {
+                    v.lot_owner_id for v in motion_vote_rows
+                    if v.motion_option_id == opt.id
+                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "selected"
+                }
+                option_tallies.append({
+                    "option_id": opt.id,
+                    "option_text": opt.text,
+                    "display_order": opt.display_order,
+                    "voter_count": len(opt_lot_ids),
+                    "entitlement_sum": sum(lot_entitlement.get(lid, 0) for lid in opt_lot_ids),
+                })
+                option_voter_lists[str(opt.id)] = _lots(opt_lot_ids, "selected")
+
+            motion_details.append({
                 "id": motion.id,
                 "title": motion.title,
                 "description": motion.description,
                 "display_order": motion.display_order,
                 "motion_number": motion.motion_number,
-                "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+                "motion_type": motion_type_str,
+                "is_multi_choice": motion.is_multi_choice,
                 "is_visible": motion.is_visible,
+                "option_limit": motion.option_limit,
+                "options": [
+                    {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+                    for opt in motion_opts
+                ],
                 "tally": {
-                    "yes": _tally(yes_ids),
-                    "no": _tally(no_ids),
+                    "yes": {"voter_count": 0, "entitlement_sum": 0},
+                    "no": {"voter_count": 0, "entitlement_sum": 0},
                     "abstained": _tally(abstained_ids),
-                    "absent": _tally(absent_ids),
+                    "absent": _tally(absent_ids_global),
                     "not_eligible": _tally(not_eligible_ids),
+                    "options": option_tallies,
                 },
                 "voter_lists": {
-                    "yes": _lots(yes_ids, "yes"),
-                    "no": _lots(no_ids, "no"),
+                    "yes": [],
+                    "no": [],
                     "abstained": _lots(abstained_ids, "abstained"),
-                    "absent": _lots(absent_ids, "absent"),
+                    "absent": _lots(absent_ids_global, "absent"),
                     "not_eligible": _lots(not_eligible_ids, "not_eligible"),
+                    "options": option_voter_lists,
                 },
-            }
-        )
+            })
+        else:
+            # General / Special: existing yes/no/abstained/not_eligible logic
+            motion_votes: dict[uuid.UUID, str] = {}
+            for vote in submitted_votes:
+                if vote.motion_id == motion.id:
+                    lot_id = vote.lot_owner_id
+                    if lot_id is not None and lot_id in submitted_lot_owner_ids:
+                        choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
+                        motion_votes[lot_id] = choice or "abstained"
+
+            yes_ids: set[uuid.UUID] = set()
+            no_ids: set[uuid.UUID] = set()
+            abstained_ids: set[uuid.UUID] = set()
+            not_eligible_ids: set[uuid.UUID] = set()
+
+            for lot_id in submitted_lot_owner_ids:
+                choice = motion_votes.get(lot_id, "abstained")
+                if choice == "yes":
+                    yes_ids.add(lot_id)
+                elif choice == "no":
+                    no_ids.add(lot_id)
+                elif choice == "not_eligible":
+                    not_eligible_ids.add(lot_id)
+                else:
+                    abstained_ids.add(lot_id)
+
+            motion_details.append(
+                {
+                    "id": motion.id,
+                    "title": motion.title,
+                    "description": motion.description,
+                    "display_order": motion.display_order,
+                    "motion_number": motion.motion_number,
+                    "motion_type": motion_type_str,
+                    "is_multi_choice": motion.is_multi_choice,
+                    "is_visible": motion.is_visible,
+                    "option_limit": None,
+                    "options": [],
+                    "tally": {
+                        "yes": _tally(yes_ids),
+                        "no": _tally(no_ids),
+                        "abstained": _tally(abstained_ids),
+                        "absent": _tally(absent_ids_global),
+                        "not_eligible": _tally(not_eligible_ids),
+                        "options": [],
+                    },
+                    "voter_lists": {
+                        "yes": _lots(yes_ids, "yes"),
+                        "no": _lots(no_ids, "no"),
+                        "abstained": _lots(abstained_ids, "abstained"),
+                        "absent": _lots(absent_ids_global, "absent"),
+                        "not_eligible": _lots(not_eligible_ids, "not_eligible"),
+                        "options": {},
+                    },
+                }
+            )
 
     total_entitlement = sum(lot_entitlement.values())
+
+    # Load email delivery record for this meeting
+    email_delivery_result = await db.execute(
+        select(EmailDelivery).where(EmailDelivery.general_meeting_id == general_meeting_id)
+    )
+    email_delivery_obj = email_delivery_result.scalar_one_or_none()
 
     effective = get_effective_status(general_meeting)
     return {
@@ -1411,6 +1547,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         "total_submitted": total_submitted,
         "total_entitlement": total_entitlement,
         "motions": motion_details,
+        "email_delivery": {
+            "status": email_delivery_obj.status.value if hasattr(email_delivery_obj.status, "value") else email_delivery_obj.status,
+            "last_error": email_delivery_obj.last_error,
+        } if email_delivery_obj else None,
     }
 
 
@@ -1463,6 +1603,14 @@ async def toggle_motion_visibility(
     await db.flush()
     await db.commit()
 
+    # Load options for this motion
+    opts_result = await db.execute(
+        select(MotionOption)
+        .where(MotionOption.motion_id == motion.id)
+        .order_by(MotionOption.display_order)
+    )
+    motion_options = list(opts_result.scalars().all())
+
     return {
         "id": motion.id,
         "title": motion.title,
@@ -1470,13 +1618,20 @@ async def toggle_motion_visibility(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
+        "option_limit": motion.option_limit,
+        "options": [
+            {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+            for opt in motion_options
+        ],
         "tally": {
             "yes": {"voter_count": 0, "entitlement_sum": 0},
             "no": {"voter_count": 0, "entitlement_sum": 0},
             "abstained": {"voter_count": 0, "entitlement_sum": 0},
             "absent": {"voter_count": 0, "entitlement_sum": 0},
             "not_eligible": {"voter_count": 0, "entitlement_sum": 0},
+            "options": [],
         },
         "voter_lists": {
             "yes": [],
@@ -1484,6 +1639,7 @@ async def toggle_motion_visibility(
             "abstained": [],
             "absent": [],
             "not_eligible": [],
+            "options": {},
         },
     }
 
@@ -1551,6 +1707,8 @@ async def add_motion_to_meeting(
         display_order=next_index,
         motion_number=assigned_motion_number,
         motion_type=data.motion_type,
+        is_multi_choice=data.is_multi_choice,
+        option_limit=data.option_limit if data.is_multi_choice else None,
         is_visible=False,
     )
     db.add(motion)
@@ -1564,8 +1722,24 @@ async def add_motion_to_meeting(
                 detail="A motion with this number already exists in this meeting",
             ) from exc
         raise  # pragma: no cover — re-raise unexpected integrity errors
+
+    # Create motion options for multi-choice motions
+    created_options = []
+    if data.is_multi_choice:
+        for opt in data.options:
+            new_opt = MotionOption(
+                motion_id=motion.id,
+                text=_sanitise_option_text(opt.text),
+                display_order=opt.display_order,
+            )
+            db.add(new_opt)
+            created_options.append(new_opt)
+        await db.flush()
+
     await db.commit()
     await db.refresh(motion)
+    for opt in created_options:
+        await db.refresh(opt)
 
     return {
         "id": motion.id,
@@ -1574,7 +1748,13 @@ async def add_motion_to_meeting(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
+        "option_limit": motion.option_limit,
+        "options": [
+            {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+            for opt in created_options
+        ],
     }
 
 
@@ -1614,13 +1794,43 @@ async def update_motion(
         motion.description = _sanitise_description(data.description)
     if data.motion_type is not None:
         motion.motion_type = data.motion_type
+    if data.is_multi_choice is not None:
+        # When changing away from multi_choice, clear options and option_limit
+        if not data.is_multi_choice and motion.is_multi_choice:
+            await db.execute(
+                delete(MotionOption).where(MotionOption.motion_id == motion.id)
+            )
+            motion.option_limit = None
+        motion.is_multi_choice = data.is_multi_choice
     if data.motion_number is not None:
         stripped = data.motion_number.strip()
         motion.motion_number = stripped if stripped else None
+    if data.option_limit is not None:
+        motion.option_limit = data.option_limit
+    if data.options is not None:
+        # Replace all existing options atomically
+        await db.execute(
+            delete(MotionOption).where(MotionOption.motion_id == motion.id)
+        )
+        await db.flush()
+        for opt in data.options:
+            db.add(MotionOption(
+                motion_id=motion.id,
+                text=_sanitise_option_text(opt.text),
+                display_order=opt.display_order,
+            ))
 
     await db.flush()
     await db.commit()
     await db.refresh(motion)
+
+    # Load updated options
+    opts_result = await db.execute(
+        select(MotionOption)
+        .where(MotionOption.motion_id == motion.id)
+        .order_by(MotionOption.display_order)
+    )
+    updated_options = list(opts_result.scalars().all())
 
     return {
         "id": motion.id,
@@ -1629,7 +1839,13 @@ async def update_motion(
         "display_order": motion.display_order,
         "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
+        "option_limit": motion.option_limit,
+        "options": [
+            {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+            for opt in updated_options
+        ],
     }
 
 
@@ -1819,13 +2035,7 @@ async def resend_report(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict
     if delivery is None:
         raise HTTPException(status_code=404, detail="Email delivery record not found")
 
-    if delivery.status != EmailDeliveryStatus.failed:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Email delivery status is '{delivery.status.value}', not 'failed'",
-        )
-
-    # Reset delivery
+    # Reset delivery regardless of current status to allow resend on demand
     delivery.status = EmailDeliveryStatus.pending
     delivery.total_attempts = 0
     delivery.last_error = None
@@ -1923,6 +2133,18 @@ async def reorder_motions(
     )
     final_motions = list(final_result.scalars().all())
 
+    # Load options for multi-choice motions in the final result
+    final_mc_ids = [m.id for m in final_motions if m.is_multi_choice]
+    final_opts_map: dict[uuid.UUID, list] = {}
+    if final_mc_ids:
+        final_opts_result = await db.execute(
+            select(MotionOption)
+            .where(MotionOption.motion_id.in_(final_mc_ids))
+            .order_by(MotionOption.display_order)
+        )
+        for opt in final_opts_result.scalars().all():
+            final_opts_map.setdefault(opt.motion_id, []).append(opt)
+
     return {
         "motions": [
             {
@@ -1932,6 +2154,11 @@ async def reorder_motions(
                 "display_order": m.display_order,
                 "motion_number": m.motion_number,
                 "motion_type": m.motion_type.value if hasattr(m.motion_type, "value") else m.motion_type,
+                "option_limit": m.option_limit,
+                "options": [
+                    {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+                    for opt in final_opts_map.get(m.id, [])
+                ],
             }
             for m in final_motions
         ]

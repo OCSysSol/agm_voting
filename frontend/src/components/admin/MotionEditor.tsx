@@ -5,6 +5,9 @@ export interface MotionFormEntry {
   description: string;
   motion_number: string | null;
   motion_type: MotionType;
+  is_multi_choice?: boolean;
+  option_limit?: string;
+  options?: Array<{ text: string }>;
 }
 
 interface MotionEditorProps {
@@ -14,7 +17,7 @@ interface MotionEditorProps {
 
 export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
   function addMotion() {
-    onChange([...motions, { title: "", description: "", motion_number: "", motion_type: "general" }]);
+    onChange([...motions, { title: "", description: "", motion_number: "", motion_type: "general", is_multi_choice: false, option_limit: "1", options: [{ text: "" }, { text: "" }] }]);
   }
 
   function removeMotion(index: number) {
@@ -23,6 +26,37 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
 
   function updateMotion(index: number, field: keyof MotionFormEntry, value: string) {
     onChange(motions.map((m, i) => i === index ? { ...m, [field]: value } : m));
+  }
+
+  function updateIsMultiChoice(index: number, checked: boolean) {
+    onChange(motions.map((m, i) => i === index ? { ...m, is_multi_choice: checked } : m));
+  }
+
+  function updateOption(motionIndex: number, optionIndex: number, text: string) {
+    const updated = motions.map((m, i) => {
+      if (i !== motionIndex) return m;
+      const opts = [...(m.options ?? [{ text: "" }, { text: "" }])];
+      opts[optionIndex] = { text };
+      return { ...m, options: opts };
+    });
+    onChange(updated);
+  }
+
+  function addOption(motionIndex: number) {
+    const updated = motions.map((m, i) => {
+      if (i !== motionIndex) return m;
+      return { ...m, options: [...(m.options ?? []), { text: "" }] };
+    });
+    onChange(updated);
+  }
+
+  function removeOption(motionIndex: number, optionIndex: number) {
+    const updated = motions.map((m, i) => {
+      if (i !== motionIndex) return m;
+      const opts = (m.options ?? []).filter((_, oi) => oi !== optionIndex);
+      return { ...m, options: opts };
+    });
+    onChange(updated);
   }
 
   return (
@@ -75,6 +109,64 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
               <option value="special">Special</option>
             </select>
           </div>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label className="field__label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                id={`motion-is-multi-choice-${index}`}
+                type="checkbox"
+                checked={motion.is_multi_choice ?? false}
+                onChange={(e) => updateIsMultiChoice(index, e.target.checked)}
+              />
+              Multi-choice question format
+            </label>
+          </div>
+          {motion.is_multi_choice && (
+            <>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label className="field__label" htmlFor={`motion-option-limit-${index}`}>Max selections per voter</label>
+                <input
+                  id={`motion-option-limit-${index}`}
+                  className="field__input"
+                  type="number"
+                  min={1}
+                  value={motion.option_limit ?? "1"}
+                  onChange={(e) => updateMotion(index, "option_limit", e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <p className="field__label" style={{ marginBottom: 6 }}>Options (min 2)</p>
+                {(motion.options ?? [{ text: "" }, { text: "" }]).map((opt, oi) => (
+                  <div key={oi} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <input
+                      aria-label={`Motion ${index + 1} option ${oi + 1}`}
+                      className="field__input"
+                      type="text"
+                      value={opt.text}
+                      onChange={(e) => updateOption(index, oi, e.target.value)}
+                      placeholder={`Option ${oi + 1}`}
+                    />
+                    {(motion.options ?? []).length > 2 && (
+                      <button
+                        type="button"
+                        className="btn btn--danger btn--sm"
+                        aria-label={`Remove motion ${index + 1} option ${oi + 1}`}
+                        onClick={() => removeOption(index, oi)}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  onClick={() => addOption(index)}
+                >
+                  + Add option
+                </button>
+              </div>
+            </>
+          )}
           <button
             type="button"
             className="btn btn--danger"
