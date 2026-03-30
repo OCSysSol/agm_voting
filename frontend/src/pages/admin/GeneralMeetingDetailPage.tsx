@@ -459,13 +459,9 @@ export default function GeneralMeetingDetailPage() {
   /* c8 ignore next -- unreachable: error handling above covers all falsy data cases */
   if (!meeting) return <p className="state-message">General Meeting not found</p>;
 
-  const meetingExtended = meeting as GeneralMeetingDetail & {
-    email_delivery?: { status: string; last_error: string | null };
-  };
-
   const showEmailBanner =
     meeting.status === "closed" &&
-    meetingExtended.email_delivery?.status === "failed";
+    meeting.email_delivery?.status === "failed";
 
   // Use optimistic motions for the reorder panel; fall back to server data
   const displayMotions = optimisticMotions ?? meeting.motions;
@@ -552,7 +548,7 @@ export default function GeneralMeetingDetailPage() {
       {showEmailBanner && (
         <EmailStatusBanner
           meetingId={meetingId!}
-          lastError={meetingExtended.email_delivery?.last_error ?? null}
+          lastError={meeting.email_delivery?.last_error ?? null}
           onRetrySuccess={handleRetrySuccess}
         />
       )}
