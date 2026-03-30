@@ -17,7 +17,7 @@ You are orchestrating feature development. You coordinate sub-agents using the `
 
 All project-specific context (commands, paths, secrets, infrastructure IDs) is in `CLAUDE.md`. Pass the worktree path and task description to each agent — they read everything else from `CLAUDE.md` themselves.
 
-**Infrastructure values** (Neon project ID, Vercel project ID, worktree root, preview URL pattern) are in CLAUDE.md `## Agent Configuration`. Pass that table to every sub-agent so they can read the values themselves — do not hardcode them in prompts.
+**Infrastructure values** (DB provider project ID, deployment platform project ID, worktree root, preview URL pattern, branch names) are in CLAUDE.md `## Agent Configuration`. Pass that table to every sub-agent so they can read the values themselves — do not hardcode them in prompts.
 
 ---
 
@@ -55,10 +55,10 @@ Read `worktree_root`, `testing_branch`, and `production_branch` from CLAUDE.md `
 cd <main-repo-path>   # read from CLAUDE.md ## Project Infrastructure — "Main repo path"
 git fetch origin
 git worktree add <worktree_root>/<slug> -b <branch-name> <base-branch>
-# Example (feature from master):
-git worktree add <worktree_root>/my-feature -b feat/my-feature master
-# Example (fix from preview):
-git worktree add <worktree_root>/my-fix -b fix/my-fix preview
+# Example (feature from production_branch):
+git worktree add <worktree_root>/my-feature -b feat/my-feature <production_branch>
+# Example (fix from testing_branch):
+git worktree add <worktree_root>/my-fix -b fix/my-fix <testing_branch>
 ```
 
 Worktree lives at: `<worktree_root>/<slug>` (read `worktree_root` from Agent Configuration).
@@ -122,9 +122,9 @@ Immediately after merge, spawn `subagent_type: "cleanup"`. Provide:
 
 Do NOT bundle cleanup into the merge agent — it gets skipped. Always a separate agent.
 
-### Step h: Full preview E2E (multi-branch only)
+### Step h: Full testing branch E2E (multi-branch only)
 
-After ALL branches for a PRD are merged to `preview`, spawn the testing agent to run the full E2E suite against the preview URL (derive from `preview_url_pattern` in Agent Configuration, using branch name `preview`).
+After ALL branches for a PRD are merged to `testing_branch`, spawn the testing agent to run the full E2E suite against the preview URL (derive from `preview_url_pattern` in Agent Configuration, using `testing_branch` as the branch name).
 
 After the preview E2E run, spawn the cleanup agent in test-data-only mode to clean up test data entities.
 
@@ -149,5 +149,5 @@ Keep the user informed of:
 - When a PR is ready to merge
 - Any failures that need attention
 
-**Merges to `preview`**: autonomous (no user approval needed) once E2E passes.
-**Merges to `master`**: always require explicit user approval before proceeding.
+**Merges to `testing_branch`**: autonomous (no user approval needed) once E2E passes.
+**Merges to `production_branch`**: always require explicit user approval before proceeding.
