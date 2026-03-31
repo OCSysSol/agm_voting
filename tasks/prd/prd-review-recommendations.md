@@ -731,10 +731,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** regressions in visibility state transitions are caught automatically.
 
 **Acceptance criteria:**
-- [ ] Unit tests for `toggle_motion_visibility()` in `admin_service.py` cover: show hidden motion (success), hide visible motion without votes (success), hide visible motion with votes (409), toggle on closed meeting (409), motion not found (404)
-- [ ] Integration tests for `PATCH /api/admin/motions/{id}/visibility` cover the same states against a real test DB
-- [ ] Frontend unit tests for the visibility toggle in `MotionManagementTable.tsx` cover: initial state (hidden/visible), clicking toggle triggers API call, optimistic update on click, revert on API error, disabled when meeting is closed
-- [ ] All new tests pass at 100% coverage
+- [x] Unit tests for `toggle_motion_visibility()` in `admin_service.py` cover: show hidden motion (success), hide visible motion without votes (success), hide visible motion with votes (409), toggle on closed meeting (409), motion not found (404)
+- [x] Integration tests for `PATCH /api/admin/motions/{id}/visibility` cover the same states against a real test DB
+- [x] Frontend unit tests for the visibility toggle in `MotionManagementTable.tsx` cover: initial state (hidden/visible), clicking toggle triggers API call, optimistic update on click, revert on API error, disabled when meeting is closed
+- [x] All new tests pass at 100% coverage
 
 **Technical notes:** `backend/tests/test_admin_service.py`, `backend/tests/test_routers_admin.py`, `frontend/src/components/admin/__tests__/MotionManagementTable.test.tsx`.
 
@@ -767,10 +767,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** the admin error banner and retry mechanism work as designed.
 
 **Acceptance criteria:**
-- [ ] An integration test mocks the email service to raise an exception during `close_general_meeting`
-- [ ] The test verifies: the meeting status is still set to `closed`, an `EmailDelivery` record is created with `status = failed`, the API returns 200 (close succeeds even if email fails)
-- [ ] A second test verifies that `POST /api/admin/general-meetings/{id}/resend-report` transitions the delivery back to `pending` and re-queues the send
-- [ ] All new tests pass
+- [x] An integration test mocks the email service to raise an exception during `close_general_meeting`
+- [x] The test verifies: the meeting status is still set to `closed`, an `EmailDelivery` record is created with `status = failed`, the API returns 200 (close succeeds even if email fails)
+- [x] A second test verifies that `POST /api/admin/general-meetings/{id}/resend-report` transitions the delivery back to `pending` and re-queues the send
+- [x] All new tests pass
 
 **Technical notes:** `backend/tests/test_admin_service.py` or `test_routers_admin.py`.
 
@@ -785,11 +785,11 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** the "already closed" routing to confirmation page is verified in a real browser.
 
 **Acceptance criteria:**
-- [ ] A Playwright test covers: voter navigates to auth page for a closed meeting → enters email → enters OTP → is routed to confirmation page showing "This meeting is closed" or the confirmation screen depending on whether they voted
-- [ ] The test seeds a closed meeting via API before running
-- [ ] The test covers both sub-cases: voter who submitted before close (sees their votes) and voter who did not submit (sees absent message)
-- [ ] The existing Voter persona E2E spec (`e2e/voter.spec.ts` or equivalent) is updated — not just supplemented with a separate file
-- [ ] All E2E tests pass
+- [x] A Playwright test covers: voter navigates to auth page for a closed meeting → enters email → enters OTP → is routed to confirmation page showing "This meeting is closed" or the confirmation screen depending on whether they voted
+- [x] The test seeds a closed meeting via API before running
+- [x] The test covers both sub-cases: voter who submitted before close (sees their votes) and voter who did not submit (sees absent message)
+- [x] The existing Voter persona E2E spec (`e2e/voter.spec.ts` or equivalent) is updated — not just supplemented with a separate file
+- [x] All E2E tests pass
 
 **Technical notes:** `frontend/e2e/` — update voter spec. Follows the pattern in CLAUDE.md: "When a change affects an existing journey, update the existing tests for that journey."
 
@@ -822,10 +822,10 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 **So that** the team has visibility into untested scenarios and can prioritise test additions.
 
 **Acceptance criteria:**
-- [ ] A `docs/test-gaps.md` document lists all known untested scenarios identified in the review, with: scenario description, level (unit/integration/E2E), current status (not implemented/partial/complete), and assigned priority
-- [ ] The document includes at minimum the scenarios identified in the review: motion visibility toggle edge cases, concurrent ballot submission, email failure during close, closed meeting auth flow, lot owner list N+1 performance
-- [ ] The document is maintained as a living checklist — items are checked off when tests are added
-- [ ] The document is linked from `CLAUDE.md` under the Testing Standards section
+- [x] A `docs/test-gaps.md` document lists all known untested scenarios identified in the review, with: scenario description, level (unit/integration/E2E), current status (not implemented/partial/complete), and assigned priority
+- [x] The document includes at minimum the scenarios identified in the review: motion visibility toggle edge cases, concurrent ballot submission, email failure during close, closed meeting auth flow, lot owner list N+1 performance
+- [x] The document is maintained as a living checklist — items are checked off when tests are added
+- [x] The document is linked from `CLAUDE.md` under the Testing Standards section
 
 **Technical notes:** `docs/test-gaps.md` — new document.
 
@@ -1526,9 +1526,9 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** I am not left with a blank meeting header and no indication of what went wrong.
 
 **Acceptance criteria:**
-- [ ] If all `fetchGeneralMeetings` calls complete without finding the `meetingId`, `VotingPage` renders an error state: "Meeting not found — please check the link and try again"
-- [ ] The error state is shown instead of a blank/undefined meeting header
-- [ ] A unit test mocks all building queries returning empty results and verifies the error state renders
+- [x] If all `fetchGeneralMeetings` calls complete without finding the `meetingId`, `VotingPage` renders an error state: "Meeting not found — please check the link and try again"
+- [x] The error state is shown instead of a blank/undefined meeting header
+- [x] A unit test mocks all building queries returning empty results and verifies the error state renders
 
 **Technical notes:** `frontend/src/pages/vote/VotingPage.tsx:94-113`.
 
@@ -1543,9 +1543,9 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** the browser validates format, provides the correct mobile keyboard, and autocomplete works correctly.
 
 **Acceptance criteria:**
-- [ ] `LotOwnerForm.tsx` email input uses `type="email"` instead of `type="text"`
-- [ ] Browser native validation is not suppressed (no `noValidate` on the parent form without a replacement)
-- [ ] Existing unit tests for the form pass after the change
+- [x] `LotOwnerForm.tsx` email input uses `type="email"` instead of `type="text"`
+- [x] Browser native validation is not suppressed (no `noValidate` on the parent form without a replacement)
+- [x] Existing unit tests for the form pass after the change
 
 **Technical notes:** `frontend/src/components/admin/LotOwnerForm.tsx:527`.
 
@@ -1560,9 +1560,9 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** a single slow network request does not block the voting UI indefinitely.
 
 **Acceptance criteria:**
-- [ ] `useServerTime.ts` wraps the fetch in `AbortController` with a 5-second timeout
-- [ ] On timeout or network error, the hook falls back to `Date.now()` and logs a warning
-- [ ] A unit test verifies the fallback is used when the fetch times out
+- [x] `useServerTime.ts` wraps the fetch in `AbortController` with a 5-second timeout
+- [x] On timeout or network error, the hook falls back to `Date.now()` and logs a warning
+- [x] A unit test verifies the fallback is used when the fetch times out
 
 **Technical notes:** `frontend/src/hooks/useServerTime.ts:13-24`.
 
@@ -1577,9 +1577,9 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** the partial-then-complete submission path does not corrupt the ballot.
 
 **Acceptance criteria:**
-- [ ] Integration test: voter submits motion 1 of 2 → simulate session expiry → voter re-authenticates → voter submits motion 1 + motion 2 → verify motion 1 is not duplicated, motion 2 is added, total vote count correct
-- [ ] The test uses the real test DB, not mocks
-- [ ] All new tests pass
+- [x] Integration test: voter submits motion 1 of 2 → simulate session expiry → voter re-authenticates → voter submits motion 1 + motion 2 → verify motion 1 is not duplicated, motion 2 is added, total vote count correct
+- [x] The test uses the real test DB, not mocks
+- [x] All new tests pass
 
 **Technical notes:** `backend/tests/test_phase2_api.py`.
 
@@ -1594,9 +1594,9 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** I can fix the import file without manually hunting for duplicates.
 
 **Acceptance criteria:**
-- [ ] `import_lot_owners()` 422 response body lists each duplicate lot number and the rows it appeared on: e.g., `"Lot 42 appears on rows 3 and 7"`
-- [ ] Existing integration test for duplicate lots is updated to assert the detail message contains the lot number
-- [ ] Response format matches the existing error array pattern in `admin_service.py`
+- [x] `import_lot_owners()` 422 response body lists each duplicate lot number and the rows it appeared on: e.g., `"Lot 42 appears on rows 3 and 7"`
+- [x] Existing integration test for duplicate lots is updated to assert the detail message contains the lot number
+- [x] Response format matches the existing error array pattern in `admin_service.py`
 
 **Technical notes:** `backend/app/services/admin_service.py` — lot owner import validation.
 
@@ -1611,8 +1611,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 **So that** a regression where email is skipped on an empty meeting is caught automatically.
 
 **Acceptance criteria:**
-- [ ] `test_close_agm_with_no_lot_weights_no_absent_records` adds: query `EmailDelivery` for the meeting after close → assert exactly one row exists with `status` in (`pending`, `sent`)
-- [ ] The test passes on the current codebase
+- [x] `test_close_agm_with_no_lot_weights_no_absent_records` adds: query `EmailDelivery` for the meeting after close → assert exactly one row exists with `status` in (`pending`, `sent`)
+- [x] The test passes on the current codebase
 
 **Technical notes:** `backend/tests/test_admin_meetings_api.py:2864`.
 
@@ -1633,10 +1633,10 @@ Medium-priority issues are grouped by theme. All are P1 or P2.
 **So that** a flood of requests cannot exhaust the DB connection pool or enumerate all meetings.
 
 **Acceptance criteria:**
-- [ ] `POST /api/agm/{id}/submit` is rate-limited per session (e.g., 5 requests per minute per `voter_email`) — returns 429 on excess
-- [ ] `GET /api/buildings`, `GET /api/general-meeting/{id}/summary` are rate-limited per IP (e.g., 60 requests per minute) — returns 429 on excess
-- [ ] Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`) are included in 429 responses
-- [ ] A unit test verifies 429 is returned on the N+1th request within the window
+- [x] `POST /api/agm/{id}/submit` is rate-limited per session (e.g., 5 requests per minute per `voter_email`) — returns 429 on excess
+- [x] `GET /api/buildings`, `GET /api/general-meeting/{id}/summary` are rate-limited per IP (e.g., 60 requests per minute) — returns 429 on excess
+- [x] Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`) are included in 429 responses
+- [x] A unit test verifies 429 is returned on the N+1th request within the window
 
 **Technical notes:** `backend/app/routers/voting.py`, `backend/app/routers/public.py`. Use `slowapi` or a custom middleware.
 
@@ -1651,9 +1651,9 @@ Medium-priority issues are grouped by theme. All are P1 or P2.
 **So that** a malicious or accidental large upload cannot exhaust Lambda memory and operational details are not freely visible.
 
 **Acceptance criteria:**
-- [ ] All `UploadFile` endpoints (`buildings/import`, `lot-owners/import`, `import-proxies`, `import-financial-positions`) reject files over 5 MB with 413 before reading the content
-- [ ] Debug endpoints (`/debug/meeting-status`, `/debug/email-deliveries`, `/debug/db-health`) require a `testing_mode=True` check or a separate `X-Debug-Key` header in addition to admin auth
-- [ ] `/debug/email-deliveries` adds `limit: int = 100` query parameter (default 100, max 500)
+- [x] All `UploadFile` endpoints (`buildings/import`, `lot-owners/import`, `import-proxies`, `import-financial-positions`) reject files over 5 MB with 413 before reading the content
+- [x] Debug endpoints (`/debug/meeting-status`, `/debug/email-deliveries`, `/debug/db-health`) require a `testing_mode=True` check or a separate `X-Debug-Key` header in addition to admin auth
+- [x] `/debug/email-deliveries` adds `limit: int = 100` query parameter (default 100, max 500)
 
 **Technical notes:** `backend/app/routers/admin.py:149,745`.
 
@@ -1668,10 +1668,10 @@ Medium-priority issues are grouped by theme. All are P1 or P2.
 **So that** a misconfigured production deploy is caught before it accepts real traffic.
 
 **Acceptance criteria:**
-- [ ] `config.py` startup validator raises `ValueError` if `session_secret == "change_me_to_a_random_secret"` and `environment != "development"`
-- [ ] Same check applies to `admin_password == "admin"` or any value that does not start with `$2b$` or `$2a$` (complementing RR3-17)
-- [ ] Preview deployments (`environment == "preview"`) are treated as non-development and are subject to the same checks
-- [ ] Session middleware on preview sets `https_only=True` — the current `environment == "production"` guard is widened to `environment != "development"`
+- [x] `config.py` startup validator raises `ValueError` if `session_secret == "change_me_to_a_random_secret"` and `environment != "development"`
+- [x] Same check applies to `admin_password == "admin"` or any value that does not start with `$2b$` or `$2a$` (complementing RR3-17)
+- [x] Preview deployments (`environment == "preview"`) are treated as non-development and are subject to the same checks
+- [x] Session middleware on preview sets `https_only=True` — the current `environment == "production"` guard is widened to `environment != "development"`
 
 **Technical notes:** `backend/app/config.py:22-24`, `backend/app/main.py:66-71`.
 
@@ -1686,10 +1686,10 @@ Medium-priority issues are grouped by theme. All are P1 or P2.
 **So that** a future developer is not misled into thinking sessions last 24 hours.
 
 **Acceptance criteria:**
-- [ ] `SESSION_DURATION_HOURS = 24` constant is removed from `auth_service.py`
-- [ ] `_TOKEN_MAX_AGE_SECONDS` is set to `int(SESSION_DURATION.total_seconds())` (1800) — token signature cannot outlive the DB session
-- [ ] The voter session cookie `SameSite` is changed from `strict` to `lax` so the cookie is sent on first navigation from the OTP email link — `auth.py:421`
-- [ ] A unit test verifies the token max age matches the session duration
+- [x] `SESSION_DURATION_HOURS = 24` constant is removed from `auth_service.py`
+- [x] `_TOKEN_MAX_AGE_SECONDS` is set to `int(SESSION_DURATION.total_seconds())` (1800) — token signature cannot outlive the DB session
+- [x] The voter session cookie `SameSite` is changed from `strict` to `lax` so the cookie is sent on first navigation from the OTP email link — `auth.py:421`
+- [x] A unit test verifies the token max age matches the session duration
 
 **Technical notes:** `backend/app/services/auth_service.py:16-22`, `backend/app/routers/auth.py:421`.
 

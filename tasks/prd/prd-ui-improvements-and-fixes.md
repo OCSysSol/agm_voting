@@ -245,13 +245,13 @@ A set of UI improvements and correctness fixes for the voting application:
 **Description:** As a voter, I should never see a blank page when I click the "Back" button on the voting page or use the browser's native back button.
 
 **Acceptance Criteria:**
-- [ ] The in-page "← Back" button on `VotingPage` navigates to `/vote/:meetingId/auth` (the auth page), not `/vote/:meetingId`
-- [ ] Clicking Back lands on a fully rendered page (the auth email-entry form is visible)
-- [ ] The browser native back button from `/vote/:meetingId/voting` also returns to a rendered page (the auth page)
-- [ ] No blank or empty page is shown at any point during backward navigation in the voter flow
-- [ ] Typecheck/lint passes
-- [ ] All existing tests continue to pass at 100% coverage
-- [ ] Verify in browser using dev-browser skill
+- [x] The in-page "← Back" button on `VotingPage` navigates to `/vote/:meetingId/auth` (the auth page), not `/vote/:meetingId`
+- [x] Clicking Back lands on a fully rendered page (the auth email-entry form is visible)
+- [x] The browser native back button from `/vote/:meetingId/voting` also returns to a rendered page (the auth page)
+- [x] No blank or empty page is shown at any point during backward navigation in the voter flow
+- [x] Typecheck/lint passes
+- [x] All existing tests continue to pass at 100% coverage
+- [x] Verify in browser using dev-browser skill
 
 ---
 

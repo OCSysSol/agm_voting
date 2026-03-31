@@ -40,6 +40,7 @@ export function VotingPage() {
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [meetingNotFound, setMeetingNotFound] = useState(false);
 
   // Current meeting metadata
   const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingOut | null>(null);
@@ -99,11 +100,15 @@ export function VotingPage() {
 
   useEffect(() => {
     if (!buildings || !meetingId) return;
+    // Reset not-found state when buildings list changes
+    setMeetingNotFound(false);
 
     const findBuilding = async () => {
+      let anyQuerySucceeded = false;
       for (const building of buildings) {
         try {
           const meetings = await fetchGeneralMeetings(building.id);
+          anyQuerySucceeded = true;
           const found = meetings.find((a) => a.id === meetingId);
           if (found) {
             setCurrentMeeting(found);
@@ -111,8 +116,13 @@ export function VotingPage() {
             return;
           }
         } catch {
-          // continue
+          // continue searching other buildings — don't treat fetch errors as "not found"
         }
+      }
+      // Only show error when at least one query succeeded but meeting was not found (RR3-27)
+      // If all queries failed (network error), silently fall through — may be transient
+      if (anyQuerySucceeded) {
+        setMeetingNotFound(true);
       }
     };
     void findBuilding();
@@ -626,6 +636,24 @@ export function VotingPage() {
       </div>
     </>
   ) : null;
+
+  // Error state: meeting not found after all queries complete (RR3-27)
+  if (meetingNotFound) {
+    return (
+      <main className="voter-content">
+        <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/auth`)}>
+          ← Back
+        </button>
+        <p
+          className="state-message state-message--error"
+          role="alert"
+          data-testid="meeting-not-found-error"
+        >
+          Meeting not found — please check the link and try again.
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main className="voter-content">

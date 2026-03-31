@@ -1708,3 +1708,39 @@ class TestListBuildingsSort:
         assert response.status_code == 200
         emails = [b["manager_email"].lower() for b in response.json()]
         assert emails == sorted(emails)
+
+
+# ---------------------------------------------------------------------------
+# RR3-34: File upload size limits (buildings import)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildingImportFileSizeLimit:
+    """File uploads over 5 MB must be rejected with 413 (RR3-34)."""
+
+    async def test_csv_over_5mb_returns_413(self, client: AsyncClient):
+        """Buildings CSV over 5 MB is rejected with HTTP 413."""
+        oversized = b"building_name,manager_email\n" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={"file": ("big.csv", oversized, "text/csv")},
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]
+
+    async def test_excel_over_5mb_returns_413(self, client: AsyncClient):
+        """Buildings Excel over 5 MB is rejected with HTTP 413."""
+        # Build a minimal .xlsx header + pad to exceed 5 MB
+        oversized = b"PK\x03\x04" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={
+                "file": (
+                    "big.xlsx",
+                    oversized,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]

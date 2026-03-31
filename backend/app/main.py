@@ -137,7 +137,8 @@ def create_app() -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,
-        https_only=settings.environment == "production",
+        # https_only in all non-development environments (production + preview) — RR3-35
+        https_only=settings.environment != "development",
         same_site="lax",
     )
     # SecurityHeadersMiddleware runs after CORS (Starlette runs middleware in

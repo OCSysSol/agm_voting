@@ -2903,7 +2903,8 @@ class TestCloseAGMAbsentRecords:
     async def test_close_agm_with_no_lot_weights_no_absent_records(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Closing a GeneralMeeting with no GeneralMeetingLotWeight snapshot creates no absent records."""
+        """Closing a GeneralMeeting with no GeneralMeetingLotWeight snapshot creates no absent records
+        but still triggers an email delivery record (RR3-32)."""
         b = Building(name="NoWeights Building", manager_email="nw@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -2924,6 +2925,14 @@ class TestCloseAGMAbsentRecords:
             select(BallotSubmission).where(BallotSubmission.general_meeting_id == agm.id)
         )
         assert list(subs_result.scalars().all()) == []
+
+        # Email delivery record must be created even when there are no lot weights (RR3-32)
+        delivery_result = await db_session.execute(
+            select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm.id)
+        )
+        delivery = delivery_result.scalar_one_or_none()
+        assert delivery is not None
+        assert delivery.status in (EmailDeliveryStatus.pending, EmailDeliveryStatus.failed)
 
     async def test_close_agm_total_submitted_excludes_absent_lots(
         self, client: AsyncClient, db_session: AsyncSession

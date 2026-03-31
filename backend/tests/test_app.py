@@ -44,10 +44,16 @@ class TestConfig:
         assert settings.test_database_url != ""
 
     def test_production_with_testing_mode_false_starts_ok(self):
-        """ENV=production + TESTING_MODE=false is allowed — settings loads without error."""
+        """ENV=production + TESTING_MODE=false + strong secrets is allowed."""
         from app.config import Settings
 
-        s = Settings(environment="production", testing_mode=False)
+        # Production requires a strong session_secret (>=32 chars) and bcrypt admin_password
+        s = Settings(
+            environment="production",
+            testing_mode=False,
+            session_secret="a" * 32,
+            admin_password="$2b$12$examplehashforproductiontestAAAAAAAAAA",
+        )
         assert s.environment == "production"
         assert s.testing_mode is False
 
@@ -380,6 +386,135 @@ class TestAdminPasswordValidator:
 
         with pytest.raises(ValidationError):
             Settings(admin_password="changeme")
+
+
+# ---------------------------------------------------------------------------
+# app.config — RR3-35: Reject weak SESSION_SECRET and admin_password outside development
+# ---------------------------------------------------------------------------
+
+
+class TestWeakSecretsValidator:
+    """Tests for reject_weak_secrets_outside_development validator (RR3-35)."""
+
+    _STRONG_SECRET = "a" * 32
+    _BCRYPT_HASH = "$2b$12$examplehashforproductiontestAAAAAAAAAA"
+
+    # --- Happy path (development) ---
+
+    def test_development_allows_weak_session_secret(self):
+        """In development, the default weak session_secret is accepted."""
+        from app.config import Settings
+
+        s = Settings(environment="development", session_secret="change_me_to_a_random_secret")
+        assert s.session_secret == "change_me_to_a_random_secret"
+
+    def test_development_allows_admin_password(self):
+        """In development, the default 'admin' password is accepted."""
+        from app.config import Settings
+
+        s = Settings(environment="development", admin_password="admin")
+        assert s.admin_password == "admin"
+
+    def test_production_with_strong_secrets_starts_ok(self):
+        """Production environment with strong secrets starts without error."""
+        from app.config import Settings
+
+        s = Settings(
+            environment="production",
+            testing_mode=False,
+            session_secret=self._STRONG_SECRET,
+            admin_password=self._BCRYPT_HASH,
+        )
+        assert s.environment == "production"
+
+    def test_preview_with_strong_secrets_starts_ok(self):
+        """Preview environment with strong secrets starts without error."""
+        from app.config import Settings
+
+        s = Settings(
+            environment="preview",
+            testing_mode=False,
+            session_secret=self._STRONG_SECRET,
+            admin_password=self._BCRYPT_HASH,
+        )
+        assert s.environment == "preview"
+
+    # --- State / precondition errors ---
+
+    def test_production_with_weak_session_secret_raises(self):
+        """Production rejects the default weak SESSION_SECRET."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                environment="production",
+                testing_mode=False,
+                session_secret="change_me_to_a_random_secret",
+                admin_password=self._BCRYPT_HASH,
+            )
+        assert "SESSION_SECRET is too weak" in str(exc_info.value)
+
+    def test_production_with_short_session_secret_raises(self):
+        """Production rejects a session_secret shorter than 32 characters."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                environment="production",
+                testing_mode=False,
+                session_secret="short",
+                admin_password=self._BCRYPT_HASH,
+            )
+        assert "SESSION_SECRET is too weak" in str(exc_info.value)
+
+    def test_preview_with_weak_session_secret_raises(self):
+        """Preview environment also rejects weak SESSION_SECRET."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                environment="preview",
+                testing_mode=False,
+                session_secret="change_me_to_a_random_secret",
+                admin_password=self._BCRYPT_HASH,
+            )
+        assert "SESSION_SECRET is too weak" in str(exc_info.value)
+
+    def test_production_with_dev_admin_password_raises(self):
+        """Production rejects the 'admin' placeholder password."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                environment="production",
+                testing_mode=False,
+                session_secret=self._STRONG_SECRET,
+                admin_password="admin",
+            )
+        assert "ADMIN_PASSWORD must be a bcrypt hash" in str(exc_info.value)
+
+    def test_session_secret_exactly_32_chars_is_accepted(self):
+        """A session_secret of exactly 32 characters is accepted in non-development."""
+        from app.config import Settings
+
+        s = Settings(
+            environment="production",
+            testing_mode=False,
+            session_secret="a" * 32,
+            admin_password=self._BCRYPT_HASH,
+        )
+        assert len(s.session_secret) == 32
+
+    def test_auth_service_token_max_age_matches_session_duration(self):
+        """_TOKEN_MAX_AGE_SECONDS equals SESSION_DURATION in seconds (RR3-36)."""
+        from app.services.auth_service import _TOKEN_MAX_AGE_SECONDS, SESSION_DURATION
+
+        assert _TOKEN_MAX_AGE_SECONDS == int(SESSION_DURATION.total_seconds())
+        assert _TOKEN_MAX_AGE_SECONDS == 1800
 
 
 # ---------------------------------------------------------------------------

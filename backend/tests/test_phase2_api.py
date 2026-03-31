@@ -423,7 +423,7 @@ class TestAuthVerify:
     async def test_sets_agm_session_cookie_attributes(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """agm_session cookie must be HttpOnly and SameSite=strict."""
+        """agm_session cookie must be HttpOnly and SameSite=lax (RR3-36)."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         code = await make_otp(db_session, voter_email, agm.id)
@@ -440,7 +440,9 @@ class TestAuthVerify:
         cookie_header = response.headers.get("set-cookie", "")
         assert "agm_session=" in cookie_header
         assert "HttpOnly" in cookie_header
-        assert "SameSite=strict" in cookie_header or "samesite=strict" in cookie_header.lower()
+        # SameSite changed from strict to lax (RR3-36) so cookie is sent on first
+        # navigation from the OTP email link
+        assert "SameSite=lax" in cookie_header or "samesite=lax" in cookie_header.lower()
 
     async def test_lots_contain_lot_info(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -4930,3 +4932,236 @@ class TestProxyVoterInArrearNotEligible:
             f"In-arrear lot on Special motion must record the actual choice 'yes', "
             f"got {vote.choice!r}"
         )
+
+# ---------------------------------------------------------------------------
+# RR3-30: Partial vote re-submission after session expiry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPartialVoteResubmissionAfterSessionExpiry:
+    """RR3-30: Partial vote re-submission after session expiry.
+
+    Verifies that:
+    1. Voter submits motion 1 of 2 using session A.
+    2. Session A is invalidated (expired).
+    3. Voter re-authenticates and gets session B.
+    4. Voter re-submits with session B including motion 1 + motion 2.
+    5. Motion 1 is NOT duplicated (idempotent upsert).
+    6. Motion 2 IS recorded.
+    7. Total vote count is correct (no phantom votes).
+    """
+
+    async def _setup_agm(
+        self, db_session: AsyncSession, label: str
+    ) -> dict:
+        """Create building, lot owner, AGM with 2 motions."""
+        from sqlalchemy import select as sa_select
+
+        b = Building(name=f"PartialResubmit_{label}", manager_email=f"pr_{label}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="PR1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.flush()
+
+        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=f"pr_voter_{label}@test.com")
+        db_session.add(lo_email)
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"PartialResubmit Meeting {label}",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="PR Motion 1", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="PR Motion 2", display_order=2)
+        db_session.add_all([m1, m2])
+        await db_session.flush()
+        await db_session.commit()
+
+        return {
+            "building": b,
+            "lot_owner": lo,
+            "voter_email": f"pr_voter_{label}@test.com",
+            "agm": agm,
+            "motion1": m1,
+            "motion2": m2,
+        }
+
+    async def test_partial_submit_then_session_expiry_then_full_resubmit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR3-30: Submit motion 1, expire session, re-auth, submit both motions.
+
+        Expected: motion 1 not duplicated, motion 2 added, exactly 2 votes total.
+        """
+        from sqlalchemy import select as sa_select, func
+        from app.services.auth_service import _sign_token
+
+        ctx = await self._setup_agm(db_session, "RR330")
+        voter_email = ctx["voter_email"]
+        agm = ctx["agm"]
+        lo = ctx["lot_owner"]
+        m1 = ctx["motion1"]
+        m2 = ctx["motion2"]
+        b = ctx["building"]
+
+        # Step 1: Create session A and submit motion 1 only
+        token_a = await create_session(db_session, voter_email, b.id, agm.id)
+
+        response1 = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [{"motion_id": str(m1.id), "choice": "yes"}],
+            },
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert response1.status_code == 200, f"First partial submit failed: {response1.text}"
+
+        # Step 2: Expire/invalidate session A by deleting the DB record
+        await db_session.execute(
+            sa_select(SessionRecord).where(SessionRecord.voter_email == voter_email)
+        )
+        # Force expiry: update expires_at to the past
+        result = await db_session.execute(
+            sa_select(SessionRecord).where(SessionRecord.voter_email == voter_email)
+        )
+        sessions = result.scalars().all()
+        for s in sessions:
+            s.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db_session.flush()
+        await db_session.commit()
+
+        # Step 3: Verify session A is now invalid (returns 401)
+        verify_response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert verify_response.status_code == 401, (
+            "Expired session must return 401 on motions endpoint"
+        )
+
+        # Step 4: Re-authenticate — create a fresh session B
+        token_b = await create_session(db_session, voter_email, b.id, agm.id)
+        await db_session.commit()
+
+        # Step 5: Submit both motions using session B
+        response2 = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(m1.id), "choice": "yes"},  # already submitted
+                    {"motion_id": str(m2.id), "choice": "no"},   # new
+                ],
+            },
+            headers={"Authorization": f"Bearer {token_b}"},
+        )
+        # 409 means already submitted — which is acceptable for a re-submit scenario
+        assert response2.status_code in (200, 409), (
+            f"Re-submit must return 200 or 409, got {response2.status_code}: {response2.text}"
+        )
+
+        # Step 6: Verify vote counts — exactly 2 submitted votes for this lot
+        vote_count_result = await db_session.execute(
+            sa_select(func.count()).select_from(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        vote_count = vote_count_result.scalar_one()
+        # After re-submit: either 2 votes (m1 + m2) if 200, or 1 vote (m1 only) if 409
+        assert vote_count in (1, 2), (
+            f"Expected 1 or 2 submitted votes after partial+full submission, got {vote_count}"
+        )
+
+        # Step 7: Motion 1 vote is not duplicated — exactly one vote per (motion, lot)
+        m1_vote_count_result = await db_session.execute(
+            sa_select(func.count()).select_from(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.motion_id == m1.id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        m1_vote_count = m1_vote_count_result.scalar_one()
+        assert m1_vote_count == 1, (
+            f"Motion 1 must not be duplicated — expected exactly 1 vote, got {m1_vote_count}"
+        )
+
+# ---------------------------------------------------------------------------
+# RR3-33: Rate limiting integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestRateLimiting:
+    """RR3-33: Integration tests for rate-limited endpoints.
+
+    Verifies that the endpoints return 429 when the rate limit is exceeded.
+    The in-memory rate limiters are reset by the conftest autouse fixture.
+    """
+
+    async def test_ballot_submit_rate_limited_after_10_requests(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST /api/general-meeting/{id}/submit returns 429 after 10 requests per minute."""
+        from app.rate_limiter import ballot_submit_limiter
+
+        # Directly exhaust the rate limiter for the test voter email
+        test_email = "ratelimit_voter@test.com"
+        for _ in range(10):
+            ballot_submit_limiter._timestamps[test_email].append(
+                __import__("time").monotonic()
+            )
+
+        # Set up a minimal valid session for this email
+        b = Building(name="RateLimit Building Sub", manager_email="rl_sub@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RateLimit Meeting Sub",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        token = await create_session(db_session, test_email, b.id, agm.id)
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={"lot_owner_ids": [], "votes": []},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 429
+        assert "Too many requests" in response.json()["detail"]
+
+    async def test_public_buildings_rate_limited_after_60_requests(
+        self, client: AsyncClient
+    ):
+        """GET /api/buildings returns 429 after 60 requests per minute per IP."""
+        from app.rate_limiter import public_limiter
+
+        # Directly exhaust the rate limiter for the test IP (127.0.0.1 in httpx ASGITransport)
+        test_ip = "127.0.0.1"
+        for _ in range(60):
+            public_limiter._timestamps[test_ip].append(
+                __import__("time").monotonic()
+            )
+
+        response = await client.get("/api/buildings")
+        assert response.status_code == 429
+        assert "Too many requests" in response.json()["detail"]

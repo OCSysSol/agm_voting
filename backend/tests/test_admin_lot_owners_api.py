@@ -169,10 +169,13 @@ class TestImportLotOwners:
         assert data["imported"] == 2
         assert data["emails"] == 2
 
-    async def test_import_multi_email_same_lot(
+    async def test_import_multi_email_same_lot_returns_422_since_rr3_31(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
-        """Multiple rows with same lot_number → multiple emails for one lot."""
+        """Multiple rows with same lot_number → 422 with duplicate row detail (RR3-31).
+
+        Use semicolons to specify multiple emails for one lot in a single row.
+        """
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement"],
             [
@@ -184,17 +187,11 @@ class TestImportLotOwners:
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["imported"] == 1  # one lot
-        assert data["emails"] == 2    # two email rows
-
-        owners_response = await client.get(
-            f"/api/admin/buildings/{building.id}/lot-owners"
-        )
-        owners = owners_response.json()
-        assert len(owners) == 1
-        assert len(owners[0]["emails"]) == 2
+        # Since RR3-31, duplicate lot numbers are an error (use semicolons for multi-email)
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert isinstance(detail, list)
+        assert any("101" in e for e in detail)
 
     async def test_import_semicolon_separated_emails(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
@@ -378,11 +375,11 @@ class TestImportLotOwners:
         )
         assert response.status_code == 422
 
-    async def test_duplicate_lot_numbers_in_csv(
+    async def test_duplicate_lot_numbers_in_csv_returns_422_with_row_detail(
         self, client: AsyncClient, building: Building
     ):
-        """Two rows with same lot_number but different emails → merged into one lot with both emails.
-        The unit_entitlement from the first row is used; the second email is added."""
+        """Two rows with the same lot_number → 422 with row-level detail (RR3-31).
+        The error detail must identify the duplicate lot number and both row numbers."""
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement"],
             [["DUP1", "a@test.com", "100"], ["DUP1", "b@test.com", "100"]],
@@ -391,11 +388,13 @@ class TestImportLotOwners:
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
-        assert response.status_code == 200
-        data = response.json()
-        # One lot owner upserted (DUP1), two email addresses imported
-        assert data["imported"] == 1
-        assert data["emails"] == 2
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # detail is a list of error strings; find the duplicate error
+        assert isinstance(detail, list)
+        duplicate_errors = [e for e in detail if "DUP1" in e]
+        assert len(duplicate_errors) == 1
+        assert "rows" in duplicate_errors[0].lower() or "row" in duplicate_errors[0].lower()
 
     async def test_negative_unit_entitlement(
         self, client: AsyncClient, building: Building
@@ -1439,6 +1438,42 @@ class TestImportLotOwnersExcel:
         assert response.status_code == 200
         assert response.json()["imported"] == 2
 
+    async def test_xlsx_duplicate_lot_numbers_returns_422_with_row_detail(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel import with duplicate lot numbers → 422 with row detail (RR3-31)."""
+        b = Building(name="Dup Excel Bldg", manager_email="dupxl@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Lot#", "Email", "UOE2"])
+        ws.append(["DUP-XL1", "a@test.com", 100])
+        ws.append(["DUP-XL1", "b@test.com", 100])  # duplicate row
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        excel_data = buf.read()
+
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert isinstance(detail, list)
+        # Must identify the duplicate lot number and the rows it appeared on
+        dup_errors = [e for e in detail if "DUP-XL1" in e]
+        assert len(dup_errors) == 1
+        assert "row" in dup_errors[0].lower()
+
 
 
 
@@ -1678,3 +1713,68 @@ class TestRemoveLotOwnerProxy:
 
 # ---------------------------------------------------------------------------
 # get_effective_status helper — unit tests (US-CD01)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# RR3-34: File upload size limits (lot owner, proxy, financial position imports)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestImportFileSizeLimits:
+    """Import endpoints reject files over 5 MB with 413 (RR3-34)."""
+
+    async def test_lot_owner_csv_over_5mb_returns_413(
+        self, client: AsyncClient, building: Building
+    ):
+        """Lot owner CSV over 5 MB is rejected with HTTP 413."""
+        oversized = b"lot_number,unit_entitlement\n" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("big.csv", oversized, "text/csv")},
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]
+
+    async def test_proxy_csv_over_5mb_returns_413(
+        self, client: AsyncClient, building: Building
+    ):
+        """Proxy import CSV over 5 MB is rejected with HTTP 413."""
+        oversized = b"lot_number,proxy_email\n" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import-proxies",
+            files={"file": ("big.csv", oversized, "text/csv")},
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]
+
+    async def test_financial_position_csv_over_5mb_returns_413(
+        self, client: AsyncClient, building: Building
+    ):
+        """Financial position CSV over 5 MB is rejected with HTTP 413."""
+        oversized = b"Lot#,Closing Balance\n" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import-financial-positions",
+            files={"file": ("big.csv", oversized, "text/csv")},
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]
+
+    async def test_lot_owner_excel_over_5mb_returns_413(
+        self, client: AsyncClient, building: Building
+    ):
+        """Lot owner Excel over 5 MB is rejected with HTTP 413."""
+        oversized = b"PK\x03\x04" + b"x" * (5 * 1024 * 1024 + 1)
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={
+                "file": (
+                    "big.xlsx",
+                    oversized,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 413
+        assert "5 MB" in response.json()["detail"]

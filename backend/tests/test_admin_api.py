@@ -629,10 +629,13 @@ class TestImportLotOwners:
         assert data["imported"] == 2
         assert data["emails"] == 2
 
-    async def test_import_multi_email_same_lot(
+    async def test_import_multi_email_same_lot_returns_422_since_rr3_31(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
-        """Multiple rows with same lot_number → multiple emails for one lot."""
+        """Multiple rows with same lot_number → 422 with duplicate row detail (RR3-31).
+
+        Use semicolons (single row) to specify multiple emails for one lot.
+        """
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement"],
             [
@@ -644,17 +647,11 @@ class TestImportLotOwners:
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["imported"] == 1  # one lot
-        assert data["emails"] == 2    # two email rows
-
-        owners_response = await client.get(
-            f"/api/admin/buildings/{building.id}/lot-owners"
-        )
-        owners = owners_response.json()
-        assert len(owners) == 1
-        assert len(owners[0]["emails"]) == 2
+        # Since RR3-31, duplicate lot numbers are an error
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert isinstance(detail, list)
+        assert any("101" in e for e in detail)
 
     async def test_import_semicolon_separated_emails(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
@@ -816,11 +813,10 @@ class TestImportLotOwners:
         )
         assert response.status_code == 422
 
-    async def test_duplicate_lot_numbers_in_csv(
+    async def test_duplicate_lot_numbers_in_csv_returns_422_with_row_detail(
         self, client: AsyncClient, building: Building
     ):
-        """Two rows with same lot_number but different emails → merged into one lot with both emails.
-        The unit_entitlement from the first row is used; the second email is added."""
+        """Two rows with the same lot_number → 422 with row-level detail (RR3-31)."""
         csv_data = make_csv(
             ["lot_number", "email", "unit_entitlement"],
             [["DUP1", "a@test.com", "100"], ["DUP1", "b@test.com", "100"]],
@@ -829,11 +825,12 @@ class TestImportLotOwners:
             f"/api/admin/buildings/{building.id}/lot-owners/import",
             files={"file": ("owners.csv", csv_data, "text/csv")},
         )
-        assert response.status_code == 200
-        data = response.json()
-        # One lot owner upserted (DUP1), two email addresses imported
-        assert data["imported"] == 1
-        assert data["emails"] == 2
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert isinstance(detail, list)
+        duplicate_errors = [e for e in detail if "DUP1" in e]
+        assert len(duplicate_errors) == 1
+        assert "rows" in duplicate_errors[0].lower() or "row" in duplicate_errors[0].lower()
 
     async def test_negative_unit_entitlement(
         self, client: AsyncClient, building: Building

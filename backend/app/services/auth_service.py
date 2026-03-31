@@ -19,9 +19,9 @@ logger = get_logger(__name__)
 SESSION_DURATION_HOURS = 24  # kept for backward compatibility
 SESSION_DURATION = timedelta(minutes=30)
 
-# Maximum age for a signed session token — slightly longer than SESSION_DURATION
-# so that the DB expiry check is the authoritative guard, not the signature age.
-_TOKEN_MAX_AGE_SECONDS = 86400  # 24 hours
+# Maximum age for a signed session token — matches SESSION_DURATION exactly
+# so that a token cannot outlive the DB session record (RR3-36).
+_TOKEN_MAX_AGE_SECONDS = int(SESSION_DURATION.total_seconds())  # 1800
 
 
 def _get_serializer() -> URLSafeTimedSerializer:

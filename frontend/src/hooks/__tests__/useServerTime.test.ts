@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/msw/server";
@@ -7,7 +7,12 @@ import { useServerTime } from "../useServerTime";
 const BASE = "http://localhost:8000";
 
 describe("useServerTime", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -24,6 +29,7 @@ describe("useServerTime", () => {
   });
 
   it("applies server offset after fetch", async () => {
+    vi.useRealTimers(); // use real timers for this test to avoid timing issues
     // Server time is 1 hour ahead of client
     const serverAhead = new Date(Date.now() + 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
     server.use(
@@ -42,6 +48,7 @@ describe("useServerTime", () => {
   });
 
   it("falls back to client time on fetch error", async () => {
+    vi.useRealTimers();
     server.use(
       http.get(`${BASE}/api/server-time`, () => HttpResponse.error())
     );
@@ -56,5 +63,51 @@ describe("useServerTime", () => {
       expect(now).toBeGreaterThanOrEqual(before);
       expect(now).toBeLessThanOrEqual(after + 100);
     });
+  });
+
+  it("falls back to client time when server returns non-OK status", async () => {
+    vi.useRealTimers();
+    server.use(
+      http.get(`${BASE}/api/server-time`, () =>
+        HttpResponse.json({ error: "Server Error" }, { status: 500 })
+      )
+    );
+
+    const before = Date.now();
+    const { result } = renderHook(() => useServerTime());
+
+    await waitFor(() => {
+      const now = result.current.getServerNow();
+      const after = Date.now();
+      // Offset should be 0 (fallback), so getServerNow ~= Date.now()
+      expect(now).toBeGreaterThanOrEqual(before);
+      expect(now).toBeLessThanOrEqual(after + 100);
+    });
+  });
+
+  // ── RR3-29: AbortController timeout ──────────────────────────────────────
+
+  it("RR3-29: AbortController is cleaned up on unmount", () => {
+    vi.useRealTimers();
+    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+
+    const { unmount } = renderHook(() => useServerTime());
+    unmount();
+
+    // abort() must have been called during cleanup
+    expect(abortSpy).toHaveBeenCalled();
+    abortSpy.mockRestore();
+  });
+
+  it("RR3-29: timeout clears on unmount (no memory leak)", () => {
+    vi.useRealTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    const { unmount } = renderHook(() => useServerTime());
+    unmount();
+
+    // clearTimeout must have been called as part of cleanup
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
   });
 });
