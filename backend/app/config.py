@@ -116,7 +116,7 @@ class Settings(BaseSettings):
         # Reject plaintext admin password outside development
         _DEV_ADMIN_PASSWORD = "admin"
         _BCRYPT_PREFIXES = ("$2b$", "$2a$")
-        if self.admin_password == _DEV_ADMIN_PASSWORD or (
+        if self.admin_password == _DEV_ADMIN_PASSWORD or (  # nosemgrep: no-plaintext-password-compare
             self.admin_password
             and not any(self.admin_password.startswith(p) for p in _BCRYPT_PREFIXES)
         ):

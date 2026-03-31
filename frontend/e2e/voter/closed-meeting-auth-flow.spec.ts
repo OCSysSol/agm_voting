@@ -38,6 +38,7 @@ const TCG04_VOTER_SUBMITTED = `tcg04-submitted-${RUN_SUFFIX}@test.com`;
 
 let tcg04MeetingId = "";
 let tcg04BuildingId = "";
+let tcg04SubmittedLotOwnerId = "";
 
 test.describe("US-TCG-04: Closed meeting auth flow", () => {
   test.describe.configure({ mode: "serial" });
@@ -65,7 +66,7 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     });
 
     // Lot for voter who DOES submit
-    await seedLotOwner(api, tcg04BuildingId, {
+    tcg04SubmittedLotOwnerId = await seedLotOwner(api, tcg04BuildingId, {
       lotNumber: "TCG04-SUBMITTED",
       emails: [TCG04_VOTER_SUBMITTED],
       unitEntitlement: 10,
@@ -87,11 +88,15 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     );
 
     // Submit ballot for the "submitted" voter before closing
+    const detailRes = await api.get(`/api/admin/general-meetings/${tcg04MeetingId}`);
+    const detail = await detailRes.json() as { motions: { id: string }[] };
+    const motionId = detail.motions[0]?.id;
     await submitBallotViaApi(
       api,
-      baseURL,
       TCG04_VOTER_SUBMITTED,
-      tcg04MeetingId
+      tcg04MeetingId,
+      [tcg04SubmittedLotOwnerId],
+      [{ motion_id: motionId, choice: "yes" }]
     );
 
     // Close the meeting
