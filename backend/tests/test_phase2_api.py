@@ -2758,13 +2758,11 @@ class TestSubmitBallot:
         async def _flush():
             nonlocal flush_count
             flush_count += 1
-            # The service calls flush in this order:
-            #   flush 1: after delete draft votes by lot
-            #   flush 2: (inside per-lot loop) before BallotSubmission insert add — actually
-            #            the first per-lot flush is at line 358 "await db.flush()"
-            #   flush 3: the BallotSubmission insert flush at line 415 "await db.flush()"
-            # Raise on flush 3 to simulate the concurrent duplicate.
-            if flush_count >= 3:
+            # The service calls flush in this order after the C-8 fix:
+            #   flush 1: after delete draft votes (line 338)
+            #   flush 2: combined BallotSubmission + all Vote rows (single atomic flush)
+            # Raise on flush 2 to simulate the concurrent duplicate.
+            if flush_count >= 2:
                 raise SAIntegrityError(None, None, Exception("duplicate key value"))
 
         execute_call_count = 0
@@ -2819,12 +2817,12 @@ class TestSubmitBallot:
     async def test_vote_flush_integrity_error_raises_409(
         self, db_session: AsyncSession, building_with_agm: dict
     ):
-        """IntegrityError on the Vote-row flush (line 447) is caught and re-raised as HTTP 409.
+        """IntegrityError on the combined BallotSubmission+Vote flush is caught and re-raised as HTTP 409.
 
-        This exercises the second IntegrityError guard in submit_ballot — the one wrapping
-        the per-lot Vote flush that happens before the BallotSubmission insert.  A concurrent
-        request that sneaks in between the draft-delete flush and the Vote insert can cause a
-        unique-constraint violation on (general_meeting_id, motion_id, lot_owner_id).
+        After the C-8 fix, the BallotSubmission and all Vote rows are added to the session
+        and flushed atomically in a single flush call.  An IntegrityError on that combined
+        flush (e.g. duplicate BallotSubmission from a concurrent request) must be caught and
+        converted to HTTP 409, not a 500.
         """
         import pytest
         from unittest.mock import AsyncMock, MagicMock
@@ -2879,7 +2877,7 @@ class TestSubmitBallot:
             nonlocal flush_count
             flush_count += 1
             # flush 1: delete-draft flush (line 338)
-            # flush 2: Vote-row flush inside the per-lot loop (line 446) — raise here
+            # flush 2: combined BallotSubmission + Vote rows atomic flush — raise here
             if flush_count == 2:
                 raise SAIntegrityError(None, None, Exception("duplicate key value"))
 
@@ -2920,6 +2918,213 @@ class TestSubmitBallot:
                 inline_votes={},
             )
         assert exc_info.value.status_code == 409
+
+    async def test_concurrent_real_submissions_no_orphaned_votes(
+        self, test_engine
+    ):
+        """Integration test: two concurrent submissions for the same lot.
+
+        Uses real committed transactions (not the savepoint-wrapped db_session) so
+        that two concurrent sessions on separate connections both see the test data.
+
+        Asserts:
+        - Exactly one request succeeds (no exception)
+        - The other raises HTTP 409
+        - The DB has exactly one BallotSubmission for the lot
+        - The DB Vote count equals the number of motions (no orphaned rows)
+        """
+        import asyncio
+        from fastapi import HTTPException
+        from sqlalchemy import select, func, delete as sa_delete
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        from app.services.voting_service import submit_ballot
+
+        session_factory = async_sessionmaker(
+            bind=test_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        # Use a unique suffix to avoid building name conflicts across runs
+        run_suffix = str(uuid.uuid4())[:8]
+
+        # --- Seed test data in a committed transaction ---
+        voter_email = f"c8test_{run_suffix}@c8test.com"
+        async with session_factory() as setup_session:
+            async with setup_session.begin():
+                building = Building(
+                    name=f"C8 Concurrent Test Building {run_suffix}",
+                    manager_email=f"mgr_{run_suffix}@c8test.com",
+                )
+                setup_session.add(building)
+                await setup_session.flush()
+
+                lot_owner = LotOwner(
+                    building_id=building.id,
+                    lot_number="C8-1",
+                    unit_entitlement=100,
+                )
+                setup_session.add(lot_owner)
+                await setup_session.flush()
+
+                lot_owner_email = LotOwnerEmail(
+                    lot_owner_id=lot_owner.id,
+                    email=voter_email,
+                )
+                setup_session.add(lot_owner_email)
+
+                agm = GeneralMeeting(
+                    building_id=building.id,
+                    title=f"C8 Concurrent Test AGM {run_suffix}",
+                    status=GeneralMeetingStatus.open,
+                    meeting_at=meeting_dt(),
+                    voting_closes_at=closing_dt(),
+                )
+                setup_session.add(agm)
+                await setup_session.flush()
+
+                motion1 = Motion(
+                    general_meeting_id=agm.id,
+                    title="C8 Motion 1",
+                    display_order=1,
+                    description="First motion",
+                )
+                motion2 = Motion(
+                    general_meeting_id=agm.id,
+                    title="C8 Motion 2",
+                    display_order=2,
+                    description="Second motion",
+                )
+                setup_session.add_all([motion1, motion2])
+                await setup_session.flush()
+
+                lot_owner_id = lot_owner.id
+                general_meeting_id = agm.id
+                expected_motion_count = 2
+
+        # --- Fire two concurrent submissions using separate sessions ---
+        # Use a barrier so both coroutines have opened their sessions and
+        # issued the SELECT FOR UPDATE before either proceeds to the INSERT,
+        # maximising the chance that both transactions are in-flight simultaneously.
+        #
+        # Replicate how the router uses the session: call submit_ballot, then
+        # commit on success.  The service itself calls db.rollback() on IntegrityError
+        # before raising HTTPException, so we do NOT wrap in session.begin().
+        barrier = asyncio.Barrier(2)
+        results: list[Exception | None] = []
+
+        # Patch submit_ballot at the session level: after the SELECT FOR UPDATE
+        # (the 3rd execute call), pause at the barrier so both coroutines have
+        # reached that point before either continues to the INSERT.
+        async def run_submit_with_barrier() -> None:
+            async with session_factory() as session:
+                execute_count = 0
+                original_exec = session.execute
+
+                async def patched_execute(stmt, *args, **kwargs):
+                    nonlocal execute_count
+                    execute_count += 1
+                    result = await original_exec(stmt, *args, **kwargs)
+                    # After the SELECT FOR UPDATE (call #3), synchronise both
+                    # coroutines so they are both past the duplicate check before
+                    # either proceeds to the INSERT phase.
+                    if execute_count == 3:
+                        await barrier.wait()
+                    return result
+
+                session.execute = patched_execute  # type: ignore[method-assign]
+                try:
+                    await submit_ballot(
+                        db=session,
+                        general_meeting_id=general_meeting_id,
+                        voter_email=voter_email,
+                        lot_owner_ids=[lot_owner_id],
+                        inline_votes={},
+                    )
+                    await session.commit()
+                    results.append(None)  # success
+                except HTTPException as exc:
+                    results.append(exc)
+                except Exception as exc:
+                    await session.rollback()
+                    results.append(exc)
+
+        await asyncio.gather(
+            run_submit_with_barrier(),
+            run_submit_with_barrier(),
+        )
+
+        # --- Assertions ---
+        success_count = sum(1 for r in results if r is None)
+        error_409_count = sum(
+            1 for r in results if isinstance(r, HTTPException) and r.status_code == 409
+        )
+        assert success_count == 1, (
+            f"Expected 1 success, got {success_count}; results={results}"
+        )
+        assert error_409_count == 1, (
+            f"Expected 1×409, got {error_409_count}; results={results}"
+        )
+
+        # Verify exactly 1 BallotSubmission and correct Vote count (no orphans)
+        async with session_factory() as verify_session:
+            sub_count_result = await verify_session.execute(
+                select(func.count()).select_from(BallotSubmission).where(
+                    BallotSubmission.general_meeting_id == general_meeting_id,
+                    BallotSubmission.lot_owner_id == lot_owner_id,
+                    BallotSubmission.is_absent == False,  # noqa: E712
+                )
+            )
+            assert sub_count_result.scalar_one() == 1, "Expected exactly 1 BallotSubmission"
+
+            vote_count_result = await verify_session.execute(
+                select(func.count()).select_from(Vote).where(
+                    Vote.general_meeting_id == general_meeting_id,
+                    Vote.lot_owner_id == lot_owner_id,
+                    Vote.status == VoteStatus.submitted,
+                )
+            )
+            actual_vote_count = vote_count_result.scalar_one()
+            assert actual_vote_count == expected_motion_count, (
+                f"Expected {expected_motion_count} Vote rows (no orphans), "
+                f"got {actual_vote_count}"
+            )
+
+        # --- Cleanup: delete test data ---
+        async with session_factory() as cleanup_session:
+            async with cleanup_session.begin():
+                await cleanup_session.execute(
+                    sa_delete(Vote).where(
+                        Vote.general_meeting_id == general_meeting_id,
+                    )
+                )
+                await cleanup_session.execute(
+                    sa_delete(BallotSubmission).where(
+                        BallotSubmission.general_meeting_id == general_meeting_id,
+                    )
+                )
+                await cleanup_session.execute(
+                    sa_delete(Motion).where(
+                        Motion.general_meeting_id == general_meeting_id,
+                    )
+                )
+                await cleanup_session.execute(
+                    sa_delete(GeneralMeeting).where(
+                        GeneralMeeting.id == general_meeting_id,
+                    )
+                )
+                await cleanup_session.execute(
+                    sa_delete(LotOwnerEmail).where(
+                        LotOwnerEmail.lot_owner_id == lot_owner_id,
+                    )
+                )
+                await cleanup_session.execute(
+                    sa_delete(LotOwner).where(LotOwner.id == lot_owner_id)
+                )
+                await cleanup_session.execute(
+                    sa_delete(Building).where(Building.id == building.id)
+                )
 
 
 # ---------------------------------------------------------------------------

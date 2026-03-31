@@ -354,6 +354,13 @@ async def submit_ballot(
         motions_needing_not_eligible: list[Motion] = []
         vote_items: list[VoteSummaryItem] = []
 
+        # Votes are built in memory first (no db.add yet) so they can all be
+        # flushed atomically together with the BallotSubmission row.  This
+        # prevents orphaned Vote rows if a concurrent request causes the
+        # BallotSubmission INSERT to raise IntegrityError after some votes
+        # have already been flushed (C-8 race condition).
+        votes_to_add: list[Vote] = []
+
         # Multi-choice votes for this lot — keyed by motion_id
         mc_votes_for_lot = mc_votes_map
 
@@ -391,9 +398,9 @@ async def submit_ballot(
                                 status_code=422,
                                 detail=f"Selected {len(selected_option_ids)} options but limit is {mc_motion.option_limit}",
                             )
-                    # Insert one Vote per selected option
+                    # Build one Vote per selected option (deferred — no db.add yet)
                     for opt_id in selected_option_ids:
-                        new_submitted = Vote(
+                        votes_to_add.append(Vote(
                             general_meeting_id=general_meeting_id,
                             motion_id=motion.id,
                             voter_email=voter_email,
@@ -401,8 +408,7 @@ async def submit_ballot(
                             choice=VoteChoice.selected,
                             motion_option_id=opt_id,
                             status=VoteStatus.submitted,
-                        )
-                        db.add(new_submitted)
+                        ))
                     # Add a summary item (use 'selected' as the choice)
                     vote_items.append(VoteSummaryItem(
                         motion_id=motion.id,
@@ -419,15 +425,14 @@ async def submit_ballot(
             # Use the inline choice if provided; otherwise mark as unanswered (→ abstained)
             choice = choice_by_motion.get(motion.id)
             if choice is not None:
-                new_submitted = Vote(
+                votes_to_add.append(Vote(
                     general_meeting_id=general_meeting_id,
                     motion_id=motion.id,
                     voter_email=voter_email,
                     lot_owner_id=lot_owner_id,
                     choice=choice,
                     status=VoteStatus.submitted,
-                )
-                db.add(new_submitted)
+                ))
                 vote_items.append(VoteSummaryItem(
                     motion_id=motion.id,
                     motion_title=motion.title,
@@ -436,29 +441,16 @@ async def submit_ballot(
             else:
                 motions_needing_new_vote.append(motion)
 
-        # Flush before inserting not_eligible / abstained rows.
-        # Catch IntegrityError here: a concurrent submission may have already
-        # inserted Vote rows for this (meeting, lot) pair, causing a unique
-        # constraint violation on (general_meeting_id, motion_id, lot_owner_id).
-        # Treat this as a duplicate-submission signal identical to the
-        # BallotSubmission-level race guard below (US-OPS-08 / US-TCG-02).
-        try:
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
-
-        # Now insert not_eligible votes for in-arrear general motions
+        # Build not_eligible votes for in-arrear general motions (deferred — no db.add yet)
         for motion in motions_needing_not_eligible:
-            not_eligible_vote = Vote(
+            votes_to_add.append(Vote(
                 general_meeting_id=general_meeting_id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lot_owner_id,
                 choice=VoteChoice.not_eligible,
                 status=VoteStatus.submitted,
-            )
-            db.add(not_eligible_vote)
+            ))
             vote_items.append(
                 VoteSummaryItem(
                     motion_id=motion.id,
@@ -468,15 +460,14 @@ async def submit_ballot(
             )
 
         for motion in motions_needing_new_vote:
-            new_vote = Vote(
+            votes_to_add.append(Vote(
                 general_meeting_id=general_meeting_id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lot_owner_id,
                 choice=VoteChoice.abstained,
                 status=VoteStatus.submitted,
-            )
-            db.add(new_vote)
+            ))
             vote_items.append(
                 VoteSummaryItem(
                     motion_id=motion.id,
@@ -490,9 +481,11 @@ async def submit_ballot(
         vote_items.sort(key=lambda v: motion_order.get(v.motion_id, 0))
 
         # Reuse existing BallotSubmission if present; otherwise create one.
-        # Catch IntegrityError from a concurrent submission that beat us through the
-        # SELECT FOR UPDATE window and convert it to an already-submitted response
-        # rather than a 500 so the client gets a clean 409-equivalent signal.
+        # The BallotSubmission row and all its Vote rows are added to the session
+        # and flushed in a single batch so they are committed or rolled back
+        # atomically.  This eliminates the C-8 orphaned-vote race: if a concurrent
+        # request's BallotSubmission INSERT raises IntegrityError, the rollback
+        # covers the votes too because they haven't been flushed yet.
         if lot_owner_id not in existing_subs_by_lot:
             try:
                 submission = BallotSubmission(
@@ -503,11 +496,21 @@ async def submit_ballot(
                     submitted_at=datetime.now(UTC),
                 )
                 db.add(submission)
+                for vote in votes_to_add:
+                    db.add(vote)
                 await db.flush()
             except IntegrityError:
                 # Concurrent submission beat this request — treat as already submitted
                 await db.rollback()
                 raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
+        else:
+            # Re-entry: BallotSubmission already exists.  Add any newly visible
+            # motion Vote rows (votes_to_add only contains motions not yet answered,
+            # as already_voted_for_lot filters out already-submitted motions above).
+            if votes_to_add:
+                for vote in votes_to_add:
+                    db.add(vote)
+                await db.flush()
 
         lot_results.append(LotBallotResult(
             lot_owner_id=lot_owner_id,
