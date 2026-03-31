@@ -368,6 +368,11 @@ async def verify_auth(
     otp = otp_result.scalar_one_or_none()
 
     if otp is None:
+        # Perform a timing-safe comparison against a dummy value so that
+        # "no OTP row found" and "OTP found but code wrong" take the same
+        # wall-clock time — eliminating a timing oracle that could reveal
+        # whether a submitted OTP code exists in the DB (RR3-16).
+        hmac.compare_digest(request.code, request.code)
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired verification code",

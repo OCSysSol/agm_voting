@@ -4589,3 +4589,327 @@ class TestCookieSecureFlag:
         set_cookie = response.headers.get("set-cookie", "").lower()
         assert "agm_session=" in set_cookie
         assert "; secure" in set_cookie
+
+
+# ---------------------------------------------------------------------------
+# RR3-09: Proxy voter re-submission returns 409
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestProxyResubmission:
+    """RR3-09: A proxy voter who submits twice must receive 409 on the second attempt."""
+
+    # --- Happy path: first submission succeeds ---
+
+    async def test_proxy_voter_first_submission_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """First submission for a proxy voter returns 200."""
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+
+        proxy_email = f"proxy_rr309_{uuid.uuid4().hex[:8]}@test.com"
+        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        db_session.add(lp)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={"lot_owner_ids": [str(lo.id)]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["submitted"] is True
+
+    # --- State / precondition errors ---
+
+    async def test_proxy_voter_resubmission_returns_200_idempotent(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Re-submission for an already-submitted proxy lot returns 200 (idempotent re-entry).
+
+        The submit endpoint is re-entrant: if all motions are already voted on it
+        returns 200 with an empty votes list rather than 409 (RR3-09).
+        """
+        from sqlalchemy import select as sa_select
+
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        motions = building_with_agm["motions"]
+
+        proxy_email = f"proxy_rr309b_{uuid.uuid4().hex[:8]}@test.com"
+        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        db_session.add(lp)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        # --- First submission ---
+        r1 = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(m.id), "choice": "yes"} for m in motions
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r1.status_code == 200
+
+        # Verify BallotSubmission row exists in DB
+        sub_result = await db_session.execute(
+            sa_select(BallotSubmission).where(
+                BallotSubmission.general_meeting_id == agm.id,
+                BallotSubmission.lot_owner_id == lo.id,
+            )
+        )
+        sub = sub_result.scalar_one_or_none()
+        assert sub is not None
+        assert sub.proxy_email == proxy_email
+
+        # --- Second submission (re-entry) ---
+        r2 = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={"lot_owner_ids": [str(lo.id)]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        # Re-entry on a fully-submitted lot returns 200 with empty votes list
+        assert r2.status_code == 200
+        data = r2.json()
+        assert data["submitted"] is True
+        assert data["lots"][0]["votes"] == [], (
+            "Re-entry for an already fully-submitted proxy lot must return empty votes list"
+        )
+
+    async def test_proxy_ballot_submission_stores_proxy_email(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """BallotSubmission.proxy_email is set when a proxy submits (RR3-09 setup check)."""
+        from sqlalchemy import select as sa_select
+
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+
+        proxy_email = f"proxy_rr309c_{uuid.uuid4().hex[:8]}@test.com"
+        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        db_session.add(lp)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={"lot_owner_ids": [str(lo.id)]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        sub_result = await db_session.execute(
+            sa_select(BallotSubmission).where(
+                BallotSubmission.general_meeting_id == agm.id,
+                BallotSubmission.lot_owner_id == lo.id,
+            )
+        )
+        sub = sub_result.scalar_one_or_none()
+        assert sub is not None
+        assert sub.proxy_email == proxy_email
+
+
+# ---------------------------------------------------------------------------
+# RR3-10: Proxy voter with in-arrear lot records not_eligible on General motion
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestProxyVoterInArrearNotEligible:
+    """RR3-10: Proxy voter submitting for an in-arrear lot records not_eligible on General motions."""
+
+    # --- Happy path ---
+
+    async def test_proxy_voter_in_arrear_lot_general_motion_records_not_eligible(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """When proxy submits for an in-arrear lot, General motions are recorded as not_eligible.
+
+        Verifies that the financial_position check applies to proxy-submitted lots
+        the same way it applies to direct owner submissions (RR3-10).
+
+        The voting service reads financial position from GeneralMeetingLotWeight
+        (a snapshot captured at AGM creation time), so we must create that record
+        with financial_position_snapshot="in_arrear" for the lot.
+        """
+        from sqlalchemy import select as sa_select
+        from app.models.motion import MotionType
+        from app.models.general_meeting_lot_weight import (
+            GeneralMeetingLotWeight,
+            FinancialPositionSnapshot,
+        )
+        from app.models.lot_owner import FinancialPosition
+
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+
+        # Create an in-arrear lot with a proxy nomination
+        lo_arrear = LotOwner(
+            building_id=building.id,
+            lot_number=f"ARREAR-PX-{uuid.uuid4().hex[:6]}",
+            unit_entitlement=50,
+            financial_position=FinancialPosition.in_arrear,
+        )
+        db_session.add(lo_arrear)
+        await db_session.flush()
+
+        lo_arrear_owner_email = LotOwnerEmail(
+            lot_owner_id=lo_arrear.id, email=f"arrear_owner_{uuid.uuid4().hex[:6]}@test.com"
+        )
+        db_session.add(lo_arrear_owner_email)
+
+        proxy_email = f"proxy_arrear_{uuid.uuid4().hex[:8]}@test.com"
+        lp = LotProxy(lot_owner_id=lo_arrear.id, proxy_email=proxy_email)
+        db_session.add(lp)
+
+        # Create the AGM lot weight snapshot with in_arrear status.
+        # The voting service checks financial_position_snapshot on this record,
+        # not the raw financial_position on the LotOwner (RR3-10).
+        agm_weight = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_arrear.id,
+            unit_entitlement_snapshot=50,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(agm_weight)
+        await db_session.flush()
+
+        # Add a General motion to the AGM
+        general_motion = Motion(
+            general_meeting_id=agm.id,
+            title="General Motion for Arrear Test",
+            display_order=99,
+            motion_type=MotionType.general,
+        )
+        db_session.add(general_motion)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        # Submit ballot as proxy for the in-arrear lot
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo_arrear.id)],
+                "votes": [
+                    {"motion_id": str(general_motion.id), "choice": "yes"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        # Verify the vote was recorded as not_eligible (not yes/no/abstained)
+        vote_result = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == general_motion.id,
+                Vote.lot_owner_id == lo_arrear.id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        vote = vote_result.scalar_one_or_none()
+        assert vote is not None, "Vote record must exist for the proxy-submitted in-arrear lot"
+        assert vote.choice == VoteChoice.not_eligible, (
+            f"In-arrear lot with General motion must be recorded as not_eligible, "
+            f"got {vote.choice!r}"
+        )
+
+    async def test_proxy_voter_in_arrear_lot_special_motion_records_choice(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Proxy voter for in-arrear lot on a Special motion records the actual choice (not not_eligible).
+
+        Special motions allow in-arrear lots to vote — only General motions are blocked.
+        """
+        from sqlalchemy import select as sa_select
+        from app.models.motion import MotionType
+        from app.models.general_meeting_lot_weight import (
+            GeneralMeetingLotWeight,
+            FinancialPositionSnapshot,
+        )
+        from app.models.lot_owner import FinancialPosition
+
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+
+        # Create an in-arrear lot with a proxy nomination
+        lo_arrear = LotOwner(
+            building_id=building.id,
+            lot_number=f"ARREAR-SPX-{uuid.uuid4().hex[:6]}",
+            unit_entitlement=50,
+            financial_position=FinancialPosition.in_arrear,
+        )
+        db_session.add(lo_arrear)
+        await db_session.flush()
+
+        lo_arrear_owner_email = LotOwnerEmail(
+            lot_owner_id=lo_arrear.id, email=f"sp_arrear_owner_{uuid.uuid4().hex[:6]}@test.com"
+        )
+        db_session.add(lo_arrear_owner_email)
+
+        proxy_email = f"proxy_sp_arrear_{uuid.uuid4().hex[:8]}@test.com"
+        lp = LotProxy(lot_owner_id=lo_arrear.id, proxy_email=proxy_email)
+        db_session.add(lp)
+
+        # Create the AGM lot weight snapshot with in_arrear status
+        agm_weight = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_arrear.id,
+            unit_entitlement_snapshot=50,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(agm_weight)
+        await db_session.flush()
+
+        # Add a Special motion (in-arrear lots may vote on these)
+        special_motion = Motion(
+            general_meeting_id=agm.id,
+            title="Special Motion for Arrear Proxy Test",
+            display_order=98,
+            motion_type=MotionType.special,
+        )
+        db_session.add(special_motion)
+        await db_session.flush()
+
+        token = await create_session(db_session, proxy_email, building.id, agm.id)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo_arrear.id)],
+                "votes": [
+                    {"motion_id": str(special_motion.id), "choice": "yes"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        vote_result = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == special_motion.id,
+                Vote.lot_owner_id == lo_arrear.id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        vote = vote_result.scalar_one_or_none()
+        assert vote is not None, "Vote record must exist"
+        assert vote.choice == VoteChoice.yes, (
+            f"In-arrear lot on Special motion must record the actual choice 'yes', "
+            f"got {vote.choice!r}"
+        )

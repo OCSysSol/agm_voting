@@ -28,6 +28,22 @@ _LOGIN_MAX_FAILURES = 5
 _LOGIN_WINDOW_SECONDS = 900  # 15 minutes
 
 
+def get_client_ip(request: Request) -> str:
+    """Return the real client IP address, honouring X-Forwarded-For from Vercel proxy.
+
+    Vercel sets X-Forwarded-For to the originating client IP before forwarding the
+    request to the Lambda.  Reading request.client.host would return the Vercel proxy
+    IP instead of the real client, causing all rate-limit records to share a single
+    IP and making rate-limiting ineffective (RR3-15).
+
+    Falls back to request.client.host when X-Forwarded-For is absent (e.g. local dev).
+    """
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _verify_admin_password(plain: str, stored: str) -> bool:
     """Verify a plaintext password against a bcrypt-hashed stored value.
 
@@ -59,14 +75,18 @@ async def admin_login(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    ip = request.client.host if request.client else "unknown"  # pragma: no cover — client is always set in tests and production
+    ip = get_client_ip(request)
 
-    # --- Rate-limit check ---
+    # --- Rate-limit check (atomic: SELECT FOR UPDATE + write in same transaction) ---
+    # SELECT FOR UPDATE locks the row so concurrent login requests for the same IP
+    # cannot both pass the rate-limit check before either records a failure (RR3-13).
     now = datetime.now(UTC)
     window_start = now - timedelta(seconds=_LOGIN_WINDOW_SECONDS)
 
     attempt_result = await db.execute(
-        select(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == ip)
+        select(AdminLoginAttempt)
+        .where(AdminLoginAttempt.ip_address == ip)
+        .with_for_update()
     )
     attempt_record = attempt_result.scalar_one_or_none()
 
@@ -98,7 +118,8 @@ async def admin_login(
     valid = valid_username and valid_password
 
     if not valid:
-        # Record the failed attempt
+        # Record the failed attempt — in the same transaction as the SELECT FOR UPDATE
+        # above, so the check and the record creation are atomic (RR3-13).
         if attempt_record is None:
             db.add(
                 AdminLoginAttempt(

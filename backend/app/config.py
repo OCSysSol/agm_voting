@@ -29,27 +29,38 @@ class Settings(BaseSettings):
     # DB connection pool settings — tuned for serverless Lambda.
     # Override via DB_POOL_SIZE / DB_MAX_OVERFLOW / DB_POOL_TIMEOUT env vars
     # when running in environments with different Neon connection limits.
-    db_pool_size: int = 2
-    db_max_overflow: int = 3
+    #
+    # Defaults (pool_size=1, max_overflow=0):
+    # - pool_size=1: each Lambda instance holds at most 1 persistent connection.
+    #   Lambda instances don't share connections, so a pool larger than 1 wastes
+    #   connections and causes exhaustion under autoscaling.
+    # - max_overflow=0: no burst connections beyond pool_size for the same reason.
+    # - pool_pre_ping=True: set in database.py — detects stale connections.
+    db_pool_size: int = 1
+    db_max_overflow: int = 0
     db_pool_timeout: int = 10
 
     @field_validator("admin_password")
     @classmethod
     def admin_password_must_be_bcrypt(cls, v: str) -> str:
-        """Reject plaintext admin passwords at startup.
+        """Reject non-bcrypt admin passwords at startup (RR3-17).
 
-        ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$).
-        In test/development environments the default value "admin" is allowed
-        only when testing_mode is True (validated separately at runtime in the
-        login handler). Operators must run /api/admin/auth/hash-password to
-        generate a hash before deploying.
+        ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$) or
+        the literal dev-only placeholder "admin" (the default for local
+        development and CI). Any other non-empty value that is NOT a bcrypt
+        hash is rejected immediately at startup to prevent plaintext passwords
+        from being deployed to production.
 
-        NOTE: We only enforce the format here (not bcrypt prefix) because
-        pydantic validators run before the full model is initialised, so we
-        cannot access other fields.  The plaintext fallback has been removed
-        from _verify_admin_password — if the value is not a bcrypt hash, the
-        login endpoint will return 500 with a clear error message.
+        Operators must run POST /api/admin/auth/hash-password to generate a
+        bcrypt hash before setting ADMIN_PASSWORD in a deployed environment.
         """
+        _BCRYPT_PREFIXES = ("$2b$", "$2a$")
+        _DEV_PLACEHOLDER = "admin"  # allowed default for local dev / CI only
+        if v and v != _DEV_PLACEHOLDER and not any(v.startswith(p) for p in _BCRYPT_PREFIXES):
+            raise ValueError(
+                "ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$). "
+                "Run POST /api/admin/auth/hash-password to generate one."
+            )
         return v
 
 

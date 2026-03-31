@@ -4,6 +4,7 @@ Tests for app.config, app.database, and app.main modules.
 These tests exercise the module-level code (settings loading, engine creation,
 FastAPI app factory, and the health endpoint) to satisfy 100% coverage.
 """
+import asyncio
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -55,20 +56,24 @@ class TestDatabase:
         assert engine is not None
 
     def test_engine_pool_configuration(self):
-        """Verify the engine is configured with serverless-appropriate pool settings."""
+        """Verify the engine is configured with serverless-appropriate pool settings (RR3-05)."""
         from app.database import engine
 
         pool = engine.pool
         # NullPool is used in some test configurations and has no size() method.
         if hasattr(pool, "size"):
-            assert pool.size() == 2
+            assert pool.size() == 1
 
     def test_config_pool_settings_defaults(self):
-        """DB pool settings have correct serverless defaults."""
+        """DB pool settings have correct serverless Lambda defaults (RR3-05).
+
+        pool_size=1: each Lambda instance holds at most 1 persistent connection.
+        max_overflow=0: no burst connections — Lambda serves one request at a time.
+        """
         from app.config import settings
 
-        assert settings.db_pool_size == 2
-        assert settings.db_max_overflow == 3
+        assert settings.db_pool_size == 1
+        assert settings.db_max_overflow == 0
         assert settings.db_pool_timeout == 10
 
     def test_session_factory_created(self):
@@ -205,3 +210,139 @@ class TestMain:
 
         middleware_classes = [m.cls for m in app.user_middleware if hasattr(m, "cls")]
         assert SessionMiddleware in middleware_classes
+
+    async def test_security_middleware_catches_unhandled_exception_returns_500(self):
+        """Unhandled exceptions return 500 {"detail": "An internal error occurred"} (RR3-11).
+
+        SecurityHeadersMiddleware catches unhandled exceptions from route handlers
+        and returns a safe generic 500 response to prevent raw error details reaching
+        the client.  Tests by registering a temporary route that raises an unhandled exception.
+        """
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        # Register a temporary test endpoint that raises an unhandled exception
+        @app_instance.get("/api/test-unhandled-exception-rr311")
+        async def raise_unhandled():
+            raise RuntimeError("internal explosion — must not reach client")
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/test-unhandled-exception-rr311")
+        assert response.status_code == 500
+        data = response.json()
+        assert data["detail"] == "An internal error occurred"
+        # Raw exception message must NOT appear in the response body
+        assert "explosion" not in response.text
+
+    async def test_global_exception_handler_function_directly(self):
+        """global_exception_handler returns 500 with generic message when called directly (RR3-11).
+
+        Tests the @app.exception_handler(Exception) registration which acts as a
+        belt-and-suspenders fallback when exceptions bypass SecurityHeadersMiddleware.
+        """
+        from unittest.mock import MagicMock
+        from fastapi.responses import JSONResponse
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        # Find the global_exception_handler from the exception handlers
+        # and invoke it directly to exercise lines 114-115
+        handler = app_instance.exception_handlers.get(Exception)
+        assert handler is not None, "global_exception_handler must be registered"
+
+        mock_request = MagicMock()
+        exc = RuntimeError("direct call test — must not reach client")
+
+        response = await handler(mock_request, exc)
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 500
+        import json
+        body = json.loads(response.body)
+        assert body["detail"] == "An internal error occurred"
+
+    async def test_global_exception_handler_does_not_catch_http_exception(self):
+        """HTTPException is not swallowed by the security middleware (RR3-11).
+
+        FastAPI processes HTTPException before it reaches the middleware, so existing
+        4xx/5xx HTTP responses from route handlers are unaffected.
+        """
+        from app.main import app
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # /api/nonexistent-endpoint raises 404 HTTPException, not a generic 500
+            response = await client.get("/api/nonexistent-xyz-endpoint")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# app.config — RR3-17: admin_password bcrypt format validator
+# ---------------------------------------------------------------------------
+
+
+class TestAdminPasswordValidator:
+    # --- Happy path ---
+
+    def test_bcrypt_hash_starting_with_2b_is_accepted(self):
+        """ADMIN_PASSWORD starting with $2b$ is a valid bcrypt hash and must be accepted."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        # A real bcrypt hash starts with $2b$
+        s = Settings(admin_password="$2b$12$abcdefghijklmnopqrstuvuPQRSTUVWXYZ0123456789ABCDEFGHIJKL")
+        assert s.admin_password.startswith("$2b$")
+
+    def test_bcrypt_hash_starting_with_2a_is_accepted(self):
+        """ADMIN_PASSWORD starting with $2a$ (older bcrypt variant) is also accepted."""
+        from app.config import Settings
+
+        s = Settings(admin_password="$2a$12$abcdefghijklmnopqrstuvuPQRSTUVWXYZ0123456789ABCDEFGHIJKL")
+        assert s.admin_password.startswith("$2a$")
+
+    def test_dev_placeholder_admin_is_accepted(self):
+        """The dev-only placeholder 'admin' is accepted (allows local dev and CI to work)."""
+        from app.config import Settings
+
+        s = Settings(admin_password="admin")
+        assert s.admin_password == "admin"
+
+    # --- State / precondition errors ---
+
+    def test_plaintext_password_raises_value_error(self):
+        """A plaintext password that is not a bcrypt hash raises ValueError at startup (RR3-17)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(admin_password="mysecretpassword")
+        assert "bcrypt hash" in str(exc_info.value).lower() or "$2b$" in str(exc_info.value)
+
+    def test_empty_admin_password_is_accepted(self):
+        """Empty ADMIN_PASSWORD is allowed (e.g. unconfigured env — caught at runtime login)."""
+        from app.config import Settings
+
+        s = Settings(admin_password="")
+        assert s.admin_password == ""
+
+    # --- Boundary values ---
+
+    def test_password_starting_with_wrong_prefix_rejected(self):
+        """A value that looks like a hash but has wrong prefix is rejected."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(admin_password="$1$md5hashedvalue")
+
+    def test_random_string_rejected(self):
+        """A random non-bcrypt string other than 'admin' is rejected."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(admin_password="changeme")

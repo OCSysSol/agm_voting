@@ -1,13 +1,15 @@
 import asyncio
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.requests import Request
 
 from app.config import settings
 from app.logging_config import configure_logging
@@ -16,25 +18,48 @@ from app.routers.admin_auth import router as admin_auth_router
 
 configure_logging()
 
+logger = logging.getLogger(__name__)
+
+
+_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.live; "  # unsafe-inline required for Vite module preload polyfill; vercel.live required for Vercel preview feedback widget
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; "  # vercel.live WSS and wildcard subdomains required for Vercel preview feedback widget
+        "frame-src https://vercel.live https://*.vercel.live; "  # allows Vercel preview toolbar to load iframes
+        "frame-ancestors 'none'"
+    ),
+}
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.live; "  # unsafe-inline required for Vite module preload polyfill; vercel.live required for Vercel preview feedback widget
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; "  # vercel.live WSS and wildcard subdomains required for Vercel preview feedback widget
-            "frame-src https://vercel.live https://*.vercel.live; "  # allows Vercel preview toolbar to load iframes
-            "frame-ancestors 'none'"
-        )
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Catch unhandled exceptions that propagate through call_next (RR3-11).
+            # BaseHTTPMiddleware re-raises route exceptions via call_next, bypassing
+            # FastAPI's app.exception_handler(Exception) registration.  We catch them
+            # here to: (a) log the full traceback server-side, and (b) return a safe
+            # generic 500 response so internal details never reach the client.
+            logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
+            error_response = JSONResponse(
+                status_code=500,
+                content={"detail": "An internal error occurred"},
+            )
+            for header, value in _SECURITY_HEADERS.items():
+                error_response.headers[header] = value
+            return error_response
+        for header, value in _SECURITY_HEADERS.items():
+            response.headers[header] = value
         return response
 
 
@@ -74,6 +99,23 @@ def create_app() -> FastAPI:
     # on the way in / last on the way out — ensuring headers are set on every
     # response including CORS preflight responses).
     app.add_middleware(SecurityHeadersMiddleware)
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Catch-all handler that prevents raw exception messages reaching the client.
+
+        Logs the full traceback server-side and returns a generic 500 response so
+        that stack traces and internal error details are never exposed to callers
+        (RR3-11).
+
+        HTTPException is intentionally not caught here — FastAPI handles it
+        before this handler runs, so it only fires for truly unhandled exceptions.
+        """
+        logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal error occurred"},
+        )
 
     from app.routers.public import router as public_router
     from app.routers.auth import router as auth_router
