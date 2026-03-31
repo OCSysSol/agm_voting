@@ -49,4 +49,27 @@ describe("VoteButton", () => {
     await user.click(screen.getByRole("button", { name: "For" }));
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  // --- RR3-25: VoteButton accessible name ---
+
+  it("yes button has accessible name 'For' independent of icon", () => {
+    render(<VoteButton choice="yes" selected={false} disabled={false} onClick={() => {}} />);
+    // accessible name is derived from the visible text label, not the icon
+    expect(screen.getByRole("button", { name: "For" })).toBeInTheDocument();
+  });
+
+  it("no button has accessible name 'Against'", () => {
+    render(<VoteButton choice="no" selected={false} disabled={false} onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Against" })).toBeInTheDocument();
+  });
+
+  it("abstained button has accessible name 'Abstain'", () => {
+    render(<VoteButton choice="abstained" selected={false} disabled={false} onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Abstain" })).toBeInTheDocument();
+  });
+
+  it("not_eligible button has accessible name 'Not Eligible'", () => {
+    render(<VoteButton choice="not_eligible" selected={false} disabled={false} onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Not Eligible" })).toBeInTheDocument();
+  });
 });

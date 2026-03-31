@@ -37,8 +37,13 @@ export default function BuildingForm({ onSuccess, onCancel }: BuildingFormProps)
         <h3 className="admin-card__title">Create Building</h3>
       </div>
       <form onSubmit={handleSubmit} className="admin-form">
+        {/* US-ACC-08: required field legend */}
+        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+          <span aria-hidden="true">*</span> Required field
+        </p>
         <div className="field">
-          <label className="field__label" htmlFor="building-name">Building Name</label>
+          {/* US-ACC-08: visible * marker (aria-hidden) + aria-required on input */}
+          <label className="field__label field__label--required" htmlFor="building-name">Building Name</label>
           <input
             id="building-name"
             className="field__input"
@@ -46,10 +51,11 @@ export default function BuildingForm({ onSuccess, onCancel }: BuildingFormProps)
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Harbour View Tower"
+            aria-required="true"
           />
         </div>
         <div className="field">
-          <label className="field__label" htmlFor="building-manager-email">Manager Email</label>
+          <label className="field__label field__label--required" htmlFor="building-manager-email">Manager Email</label>
           <input
             id="building-manager-email"
             className="field__input"
@@ -57,6 +63,7 @@ export default function BuildingForm({ onSuccess, onCancel }: BuildingFormProps)
             value={managerEmail}
             onChange={(e) => setManagerEmail(e.target.value)}
             placeholder="e.g. manager@example.com"
+            aria-required="true"
           />
         </div>
         {formError && (

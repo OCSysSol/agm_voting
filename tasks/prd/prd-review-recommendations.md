@@ -398,6 +398,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-ACC-01: Lot checkboxes wrapped in accessible labels
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As a** voter using assistive technology,
 **I want** the lot selection checkboxes to be wrapped in properly associated `<label>` elements,
 **So that** screen readers announce the lot number when focus lands on the checkbox.
@@ -436,6 +438,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-ACC-03: Focus-visible styling on vote buttons
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As a** voter using keyboard navigation,
 **I want** the Yes/No/Abstain vote buttons to show a clear focus ring when focused via keyboard,
 **So that** keyboard users can see which button they are about to activate.
@@ -453,6 +457,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-ACC-04: Colour-independent status indicators
+
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
 
 **As a** voter with colour blindness,
 **I want** all status indicators (motion highlight for unanswered, voted badge, countdown timer warning) to communicate state through shape or text in addition to colour,
@@ -472,6 +478,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-ACC-05: OTP flow step clarity and accessible instructions
+
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
 
 **As a** voter using a screen reader,
 **I want** the OTP auth form to clearly announce which step I am on and what is expected,
@@ -511,6 +519,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-ACC-07: Skip-to-main-content link
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As a** voter using keyboard navigation,
 **I want** a skip link at the top of each page that jumps to the main content area,
 **So that** I do not have to Tab through the navigation header on every page load.
@@ -529,6 +539,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-ACC-08: Required field markers on forms
+
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
 
 **As a** voter or admin using a form,
 **I want** required fields to be marked with a visible indicator (asterisk + legend),
@@ -1070,6 +1082,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-06: Admin status badges must meet WCAG AA colour contrast
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As an** admin with low vision,
 **I want** status badge text in the admin portal to meet WCAG AA contrast requirements,
 **So that** I can reliably read meeting and building status at a glance.
@@ -1087,6 +1101,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 ---
 
 ### RR3-07: Admin confirmation modals require focus traps and Escape dismiss
+
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
 
 **As an** admin using keyboard navigation,
 **I want** all admin confirmation modals to trap focus and respond to Escape,
@@ -1399,6 +1415,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-24: `MultiChoiceOptionList` must use `<fieldset>`/`<legend>` for screen readers
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As a** voter using a screen reader,
 **I want** multi-choice option groups to be announced as a named group,
 **So that** I understand that the checkboxes belong together and how many I can select.
@@ -1418,6 +1436,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-25: `VoteButton` must have a reliable accessible name independent of icon
 
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
+
 **As a** voter using a screen reader,
 **I want** each vote button's accessible name to be unambiguous,
 **So that** I can distinguish "For", "Against", and "Abstain" without relying on the icon character.
@@ -1435,6 +1455,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 ---
 
 ### RR3-26: Admin routes must have an `ErrorBoundary` to handle chunk load failures
+
+**Status:** ✅ Implemented — branch: `fix/wave2-accessibility`, committed 2026-03-31
 
 **As an** admin,
 **I want** a meaningful error message when a lazy-loaded admin page fails to load,

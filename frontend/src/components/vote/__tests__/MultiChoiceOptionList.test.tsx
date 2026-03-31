@@ -217,6 +217,36 @@ describe("MultiChoiceOptionList", () => {
     expect(onSelectionChange).not.toHaveBeenCalled();
   });
 
+  // --- RR3-24: fieldset / legend ---
+
+  it("wraps options in a fieldset element", () => {
+    const { container } = render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        selectedOptionIds={[]}
+        onSelectionChange={() => {}}
+        disabled={false}
+      />
+    );
+    expect(container.querySelector("fieldset")).toBeInTheDocument();
+  });
+
+  it("renders a legend with the motion title", () => {
+    render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        selectedOptionIds={[]}
+        onSelectionChange={() => {}}
+        disabled={false}
+      />
+    );
+    expect(screen.getByText("Board Election")).toBeInTheDocument();
+    // Confirm it is inside a <legend>
+    const legend = document.querySelector("legend");
+    expect(legend).toBeInTheDocument();
+    expect(legend?.textContent).toBe("Board Election");
+  });
+
   // --- Edge cases ---
 
   it("handles null option_limit gracefully (falls back to options.length)", () => {

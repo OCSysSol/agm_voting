@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBuilding, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
@@ -76,12 +76,48 @@ interface ArchiveConfirmModalProps {
   onCancel: () => void;
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 function ArchiveConfirmModal({ buildingName, archiving, onConfirm, onCancel }: ArchiveConfirmModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // RR3-07: Focus first element on open
+  useEffect(() => {
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) focusable[0].focus();
+  }, []);
+
+  // RR3-07: Escape key dismisses (only when not loading)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !archiving) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [archiving, onCancel]);
+
+  // RR3-07: Tab/Shift+Tab focus trap
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Archive Building"
+      ref={dialogRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
         inset: 0,
@@ -132,6 +168,36 @@ function BuildingEditModal({ building, onSuccess, onCancel }: BuildingEditModalP
   const [managerEmail, setManagerEmail] = useState(building.manager_email);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // RR3-07: Focus first element on open
+  useEffect(() => {
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) focusable[0].focus();
+  }, []);
+
+  // RR3-07: Escape key dismisses (only when not saving)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !saving) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [saving, onCancel]);
+
+  // RR3-07: Tab/Shift+Tab focus trap
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -159,6 +225,8 @@ function BuildingEditModal({ building, onSuccess, onCancel }: BuildingEditModalP
       role="dialog"
       aria-modal="true"
       aria-label="Edit Building"
+      ref={dialogRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
         inset: 0,
@@ -208,7 +276,7 @@ function BuildingEditModal({ building, onSuccess, onCancel }: BuildingEditModalP
               style={{ width: "100%", padding: "8px 10px", boxSizing: "border-box" }}
             />
           </div>
-          {error && <p style={{ color: "red", marginBottom: 12 }}>{error}</p>}
+          {error && <p style={{ color: "var(--red)", marginBottom: 12 }}>{error}</p>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={saving}>
               Cancel

@@ -9,6 +9,7 @@ import { ConfirmationPage } from "./pages/vote/ConfirmationPage";
 import { VoterShell } from "./components/vote/VoterShell";
 import GeneralMeetingSummaryPage from "./pages/GeneralMeetingSummaryPage";
 import { BrandingProvider } from "./context/BrandingContext";
+import AdminErrorBoundary from "./components/admin/AdminErrorBoundary";
 
 // Admin routes are lazily loaded so the voter-flow bundle stays lean.
 // Admin code is only downloaded when a user navigates to /admin.
@@ -29,13 +30,15 @@ export default function App() {
         {/* Public General Meeting summary page */}
         <Route path="/general-meeting/:meetingId/summary" element={<GeneralMeetingSummaryPage />} />
 
-        {/* Admin routes — loaded on demand */}
+        {/* Admin routes — loaded on demand; wrapped in ErrorBoundary (RR3-26) */}
         <Route
           path="/admin/*"
           element={
-            <Suspense fallback={<div className="loading-spinner" />}>
-              <AdminRoutes />
-            </Suspense>
+            <AdminErrorBoundary>
+              <Suspense fallback={<div className="loading-spinner" />}>
+                <AdminRoutes />
+              </Suspense>
+            </AdminErrorBoundary>
           }
         />
       </Routes>
