@@ -202,8 +202,14 @@ class TestDebugMeetingStatus:
 
     async def test_returns_404_when_testing_mode_disabled(self, client: AsyncClient):
         """Debug endpoints return 404 when testing_mode=False (RR3-34)."""
-        response = await client.get(f"/api/admin/debug/meeting-status/{uuid.uuid4()}")
-        assert response.status_code == 404
+        from app.config import settings as _cfg_settings
+        original = _cfg_settings.testing_mode
+        _cfg_settings.testing_mode = False
+        try:
+            response = await client.get(f"/api/admin/debug/meeting-status/{uuid.uuid4()}")
+            assert response.status_code == 404
+        finally:
+            _cfg_settings.testing_mode = original
 
     # --- Input validation ---
 
@@ -298,8 +304,14 @@ class TestDebugDbHealth:
 
     async def test_returns_404_when_testing_mode_disabled(self, client: AsyncClient):
         """Debug db-health endpoint returns 404 when testing_mode=False (RR3-34)."""
-        response = await client.get("/api/admin/debug/db-health")
-        assert response.status_code == 404
+        from app.config import settings as _cfg_settings
+        original = _cfg_settings.testing_mode
+        _cfg_settings.testing_mode = False
+        try:
+            response = await client.get("/api/admin/debug/db-health")
+            assert response.status_code == 404
+        finally:
+            _cfg_settings.testing_mode = original
 
 
 # ---------------------------------------------------------------------------
