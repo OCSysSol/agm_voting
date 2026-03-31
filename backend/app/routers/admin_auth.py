@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import bcrypt as _bcrypt_lib
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -73,7 +73,7 @@ async def admin_login(
     if attempt_record is not None:
         # Expire the record if the window has passed
         if attempt_record.first_attempt_at.replace(tzinfo=UTC) < window_start:
-            await db.delete(attempt_record)
+            await db.execute(sql_delete(AdminLoginAttempt).where(AdminLoginAttempt.id == attempt_record.id))
             await db.flush()
             attempt_record = None
 
@@ -117,7 +117,7 @@ async def admin_login(
 
     # --- Successful login: reset failure counter ---
     if attempt_record is not None:
-        await db.delete(attempt_record)
+        await db.execute(sql_delete(AdminLoginAttempt).where(AdminLoginAttempt.id == attempt_record.id))
         await db.flush()
     await db.commit()
 
