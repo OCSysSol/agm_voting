@@ -15,6 +15,7 @@ interface LotOwnerTableProps {
 }
 
 function FinancialPositionBadge({ position }: { position: string }) {
+  // US-ACC-04: status conveyed by text label AND colour (never colour alone)
   if (position === "in_arrear") {
     return (
       <span
@@ -22,17 +23,18 @@ function FinancialPositionBadge({ position }: { position: string }) {
           display: "inline-block",
           padding: "2px 8px",
           borderRadius: "12px",
-          background: "#f59e0b",
-          color: "#0C1B2E",
+          background: "var(--amber-bg)",
+          color: "var(--amber)",
           fontSize: "0.75rem",
           fontWeight: 600,
+          border: "1px solid var(--amber)",
         }}
       >
         In Arrear
       </span>
     );
   }
-  return <span style={{ color: "var(--text-muted, #888)", fontSize: "0.875rem" }}>Normal</span>;
+  return <span style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Normal</span>;
 }
 
 function compareFinancialPosition(a: string, b: string): number {

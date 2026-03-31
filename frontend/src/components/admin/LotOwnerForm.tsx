@@ -343,8 +343,13 @@ function EditModal({
 
         {/* Edit form */}
         <form onSubmit={handleSubmit} className="admin-form">
+          {/* US-ACC-08: required field legend */}
+          <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <span aria-hidden="true">*</span> Required field
+          </p>
           <div className="field">
-            <label className="field__label" htmlFor="lot-entitlement">
+            {/* US-ACC-08: visible * marker + aria-required */}
+            <label className="field__label field__label--required" htmlFor="lot-entitlement">
               Unit Entitlement
             </label>
             <input
@@ -353,6 +358,7 @@ function EditModal({
               type="number"
               value={unitEntitlement}
               onChange={(e) => setUnitEntitlement(e.target.value)}
+              aria-required="true"
             />
           </div>
 
@@ -503,8 +509,13 @@ function AddForm({
         </h3>
 
         <form onSubmit={handleSubmit} className="admin-form">
+          {/* US-ACC-08: required field legend */}
+          <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <span aria-hidden="true">*</span> Required field
+          </p>
           <div className="field">
-            <label className="field__label" htmlFor="lot-number">
+            {/* US-ACC-08: visible * marker + aria-required on required inputs */}
+            <label className="field__label field__label--required" htmlFor="lot-number">
               Lot Number
             </label>
             <input
@@ -513,6 +524,7 @@ function AddForm({
               type="text"
               value={lotNumber}
               onChange={(e) => setLotNumber(e.target.value)}
+              aria-required="true"
             />
           </div>
 
@@ -531,7 +543,7 @@ function AddForm({
           </div>
 
           <div className="field">
-            <label className="field__label" htmlFor="lot-entitlement">
+            <label className="field__label field__label--required" htmlFor="lot-entitlement">
               Unit Entitlement
             </label>
             <input
@@ -540,6 +552,7 @@ function AddForm({
               type="number"
               value={unitEntitlement}
               onChange={(e) => setUnitEntitlement(e.target.value)}
+              aria-required="true"
             />
           </div>
 

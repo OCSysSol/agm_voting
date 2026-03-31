@@ -12,7 +12,7 @@ export default function CreateGeneralMeetingForm() {
 
   const { data: buildings = [] } = useQuery<Building[]>({
     queryKey: ["admin", "buildings"],
-    queryFn: listBuildings,
+    queryFn: () => listBuildings(),
   });
 
   const activeBuildings = buildings.filter((b) => !b.is_archived);

@@ -63,6 +63,14 @@ export function AuthForm({
     <div className="auth-card">
       <div className="card">
         <div className="auth-card__header">
+          {/* US-ACC-05: Step indicator — lets screen readers and sighted users know which step they are on */}
+          <p
+            className="auth-card__hint"
+            style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "6px" }}
+            aria-current="step"
+          >
+            {step === "email" ? "Step 1 of 2: Enter your email" : "Step 2 of 2: Enter your code"}
+          </p>
           <h1 className="auth-card__title">Verify your identity</h1>
           {step === "email" && (
             <p className="auth-card__hint">

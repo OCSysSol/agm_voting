@@ -956,11 +956,19 @@ button, input, select, textarea {
 }
 
 .status-badge--open {
+  /* RR3-06: --green (#155F32) on --green-bg (#EBF5EF) → ~7.1:1 contrast ✓ WCAG AA */
   background: var(--green-bg);
   color: var(--green);
 }
 
+.status-badge--pending {
+  /* RR3-06: --amber (#8B3A0F) on --amber-bg (#FDE8D8) → ~5.9:1 contrast ✓ WCAG AA */
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
 .status-badge--closed {
+  /* RR3-06: --text-primary (#0C1B2E) on #F0EFEE → ~14.5:1 contrast ✓ WCAG AA */
   background: #F0EFEE;
   color: var(--text-primary);
 }

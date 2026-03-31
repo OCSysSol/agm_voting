@@ -695,6 +695,115 @@ describe("BuildingDetailPage", () => {
     });
   });
 
+  // --- RR3-07: ArchiveConfirmModal focus trap + Escape ---
+
+  it("ArchiveConfirmModal focuses first element (Cancel button) when opened", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("ArchiveConfirmModal closes on Escape key", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("dialog", { name: "Archive Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Archive Building" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("ArchiveConfirmModal wraps Tab from last button back to first", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const archiveBtn = screen.getByRole("button", { name: "Archive" });
+    archiveBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("ArchiveConfirmModal wraps Shift+Tab from first button to last", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const archiveBtn = screen.getByRole("button", { name: "Archive" });
+    cancelBtn.focus();
+    await user.tab({ shift: true });
+    expect(archiveBtn).toHaveFocus();
+  });
+
+  // --- RR3-07: BuildingEditModal focus trap + Escape ---
+
+  it("BuildingEditModal focuses first focusable element when opened", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    // First focusable element is the Name input
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+  });
+
+  it("BuildingEditModal closes on Escape key when not saving", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    expect(screen.getByRole("dialog", { name: "Edit Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit Building" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("BuildingEditModal wraps Tab from last button back to first focusable", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    const nameInput = screen.getByLabelText("Name");
+    const saveBtn = screen.getByRole("button", { name: "Save Changes" });
+    saveBtn.focus();
+    await user.tab();
+    expect(nameInput).toHaveFocus();
+  });
+
+  it("BuildingEditModal wraps Shift+Tab from first focusable to last", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Building" }));
+    const nameInput = screen.getByLabelText("Name");
+    const saveBtn = screen.getByRole("button", { name: "Save Changes" });
+    nameInput.focus();
+    await user.tab({ shift: true });
+    expect(saveBtn).toHaveFocus();
+  });
+
   it("Delete Building button uses btn--danger class", async () => {
     server.use(
       http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {

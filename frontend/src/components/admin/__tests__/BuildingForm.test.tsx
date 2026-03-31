@@ -79,4 +79,16 @@ describe("BuildingForm", () => {
       expect(screen.getByText(/409/)).toBeInTheDocument();
     });
   });
+
+  // --- US-ACC-08: required field markers ---
+
+  it("Building Name input has aria-required='true'", () => {
+    renderComponent();
+    expect(screen.getByLabelText("Building Name")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("Manager Email input has aria-required='true'", () => {
+    renderComponent();
+    expect(screen.getByLabelText("Manager Email")).toHaveAttribute("aria-required", "true");
+  });
 });

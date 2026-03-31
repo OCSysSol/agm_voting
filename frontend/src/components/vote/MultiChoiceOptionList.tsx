@@ -31,7 +31,11 @@ export function MultiChoiceOptionList({
   }
 
   return (
-    <div>
+    <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+      {/* RR3-24: legend associates the group of checkboxes with the motion question for screen readers */}
+      <legend className="motion-card__title" style={{ float: "left", width: "100%", marginBottom: 8 }}>
+        {motion.title}
+      </legend>
       <p className="multi-choice-counter" data-testid="mc-counter">
         {`Select up to ${optionLimit} option${optionLimit !== 1 ? "s" : ""} — ${selectedCount} selected`}
       </p>
@@ -56,6 +60,6 @@ export function MultiChoiceOptionList({
           </label>
         );
       })}
-    </div>
+    </fieldset>
   );
 }
