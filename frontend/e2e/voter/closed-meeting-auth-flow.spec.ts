@@ -26,7 +26,6 @@ import {
   closeMeeting,
   deleteMeeting,
   clearBallots,
-  goToAuthPage,
   authenticateVoter,
   getTestOtp,
   submitBallotViaApi,
@@ -129,8 +128,11 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    // Navigate to auth page (meeting is closed but auth should still work)
-    await goToAuthPage(page, TCG04_BUILDING);
+    // Navigate directly to the closed meeting's auth page (bypasses the
+    // building dropdown which only lists buildings with *open* meetings).
+    await page.context().clearCookies({ name: 'agm_session' });
+    await page.goto(`/vote/${tcg04MeetingId}/auth`);
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
     // Authenticate via OTP — should succeed even though meeting is closed
     await authenticateVoter(
@@ -159,7 +161,11 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    await goToAuthPage(page, TCG04_BUILDING);
+    // Navigate directly to the closed meeting's auth page (bypasses the
+    // building dropdown which only lists buildings with *open* meetings).
+    await page.context().clearCookies({ name: 'agm_session' });
+    await page.goto(`/vote/${tcg04MeetingId}/auth`);
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
     await authenticateVoter(
       page,
