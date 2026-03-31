@@ -9,10 +9,12 @@ Voting endpoints (all require valid session):
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.rate_limiter import ballot_submit_limiter
 
 from app.database import get_db
 from app.models.general_meeting import GeneralMeeting
@@ -293,12 +295,16 @@ async def get_drafts_endpoint(
 async def submit_ballot_endpoint(
     general_meeting_id: uuid.UUID,
     body: SubmitBallotRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> SubmitResponse:
     """Formally submit the ballot for the specified lots. Requires valid session."""
     session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
+
+    # Rate limit: 10 requests per minute per voter_email (RR3-33)
+    ballot_submit_limiter.check(session.voter_email)
 
     result = await submit_ballot(
         db=db,

@@ -8,9 +8,11 @@ Public endpoints (no auth required):
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.rate_limiter import get_client_ip, public_limiter
 
 from app.database import get_db
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
@@ -39,8 +41,10 @@ async def server_time() -> dict:
 
 
 @router.get("/buildings", response_model=list[BuildingOut])
-async def list_buildings(db: AsyncSession = Depends(get_db)) -> list[BuildingOut]:
+async def list_buildings(request: Request, db: AsyncSession = Depends(get_db)) -> list[BuildingOut]:
     """List active (non-archived) buildings that have at least one open meeting."""
+    # Rate limit: 60 requests per minute per IP (RR3-33)
+    public_limiter.check(get_client_ip(request))
     result = await db.execute(
         select(Building)
         .where(Building.is_archived == False)  # noqa: E712
@@ -99,9 +103,12 @@ async def list_general_meetings(
 @router.get("/general-meeting/{general_meeting_id}/summary", response_model=GeneralMeetingSummaryOut)
 async def get_general_meeting_summary(
     general_meeting_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> GeneralMeetingSummaryOut:
     """Return public summary of a General Meeting including building name and motions."""
+    # Rate limit: 60 requests per minute per IP (RR3-33)
+    public_limiter.check(get_client_ip(request))
     meeting_result = await db.execute(
         select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id)
     )

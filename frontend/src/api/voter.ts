@@ -139,14 +139,6 @@ export interface SubmitBallotRequest {
   multi_choice_votes?: MultiChoiceVoteItem[];
 }
 
-export interface ServerTimeResponse {
-  utc: string;
-}
-
-export function fetchServerTime(): Promise<ServerTimeResponse> {
-  return apiFetch<ServerTimeResponse>("/api/server-time");
-}
-
 export function fetchBuildings(): Promise<BuildingOut[]> {
   return apiFetch<BuildingOut[]>("/api/buildings");
 }

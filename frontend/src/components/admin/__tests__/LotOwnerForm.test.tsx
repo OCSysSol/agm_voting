@@ -132,10 +132,10 @@ describe("LotOwnerForm - Add mode", () => {
     expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
   });
 
-  it("email input in add form has type=text (allows empty submission)", () => {
+  it("email input in add form has type=email (RR3-28)", () => {
     renderAddForm();
     const emailInput = screen.getByLabelText("Email");
-    expect(emailInput).toHaveAttribute("type", "text");
+    expect(emailInput).toHaveAttribute("type", "email");
   });
 
   it("shows hint text below email input", () => {

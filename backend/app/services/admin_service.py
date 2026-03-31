@@ -544,6 +544,8 @@ async def import_lot_owners_from_csv(
     errors: list[str] = []
     # Parse rows: group by lot_number
     lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
+    # Track row numbers seen per lot_number to detect duplicates (RR3-31)
+    lot_number_rows: dict[str, list[int]] = {}
 
     for i, row in enumerate(rows, start=2):
         lot_number = row.get("lot_number", "").strip()
@@ -580,20 +582,24 @@ async def import_lot_owners_from_csv(
         if row_errors:
             errors.extend(row_errors)
         else:
+            if lot_number:
+                lot_number_rows.setdefault(lot_number, []).append(i)
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
                     "emails": set(),
                 }
-            else:
-                # If lot already seen, the unit_entitlement and financial_position should be consistent
-                # Use values from first occurrence
-                pass
             for addr in email.split(";"):
                 addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
+
+    # Check for duplicate lot numbers and report them with row details (RR3-31)
+    for lot_num, row_nums in lot_number_rows.items():
+        if len(row_nums) > 1:
+            rows_str = " and ".join(str(r) for r in row_nums)
+            errors.append(f"Lot {lot_num} appears on rows {rows_str}")
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -652,6 +658,8 @@ async def import_lot_owners_from_excel(
 
     errors: list[str] = []
     lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
+    # Track row numbers seen per lot_number to detect duplicates (RR3-31)
+    lot_number_rows: dict[str, list[int]] = {}
 
     row_num = 0
     for raw_row in data_rows:
@@ -699,6 +707,8 @@ async def import_lot_owners_from_excel(
         if row_errors:
             errors.extend(row_errors)
         else:
+            if lot_number:
+                lot_number_rows.setdefault(lot_number, []).append(row_num)
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
@@ -709,6 +719,12 @@ async def import_lot_owners_from_excel(
                 addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
+
+    # Check for duplicate lot numbers and report them with row details (RR3-31)
+    for lot_num, row_nums in lot_number_rows.items():
+        if len(row_nums) > 1:
+            rows_str = " and ".join(str(r) for r in row_nums)
+            errors.append(f"Lot {lot_num} appears on rows {rows_str}")
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)

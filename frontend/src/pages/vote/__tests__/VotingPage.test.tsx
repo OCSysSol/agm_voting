@@ -2697,4 +2697,46 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
+
+  // ── RR3-27: Error state when all building queries fail to find the meeting ──
+
+  it("RR3-27: shows meeting-not-found error when all building queries return empty results", async () => {
+    // Override buildings to return one building, and that building returns no meetings
+    server.use(
+      http.get(`${BASE}/api/buildings`, () =>
+        HttpResponse.json([{ id: "bld-no-match", name: "No Match Building" }])
+      ),
+      http.get(`${BASE}/api/buildings/:buildingId/general-meetings`, () =>
+        HttpResponse.json([])
+      ),
+    );
+
+    renderPage("non-existent-meeting-id");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("meeting-not-found-error")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/meeting not found/i)
+    ).toBeInTheDocument();
+  });
+
+  it("RR3-27: does NOT show meeting-not-found error when all building queries fail with network errors (transient)", async () => {
+    // Override buildings to return one building, and that building's meetings endpoint fails
+    // Network errors are treated as transient — no error state is shown (only empty results → error)
+    server.use(
+      http.get(`${BASE}/api/buildings`, () =>
+        HttpResponse.json([{ id: "bld-failing", name: "Failing Building" }])
+      ),
+      http.get(`${BASE}/api/buildings/:buildingId/general-meetings`, () =>
+        HttpResponse.error()
+      ),
+    );
+
+    renderPage("non-existent-meeting-id");
+
+    // Wait a reasonable time — error state should NOT appear since queries errored
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByTestId("meeting-not-found-error")).not.toBeInTheDocument();
+  });
 });

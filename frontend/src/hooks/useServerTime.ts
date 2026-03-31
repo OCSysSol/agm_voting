@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
-import { fetchServerTime } from "../api/voter";
+
+const SERVER_TIME_TIMEOUT_MS = 5000; // 5 seconds (RR3-29)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export interface UseServerTimeResult {
   getServerNow: () => number;
@@ -9,8 +11,15 @@ export function useServerTime(): UseServerTimeResult {
   const offsetRef = useRef<number>(0);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), SERVER_TIME_TIMEOUT_MS);
     const clientBefore = Date.now();
-    fetchServerTime()
+
+    fetch(`${API_BASE_URL}/api/server-time`, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<{ utc: string }>;
+      })
       .then((data) => {
         const clientAfter = Date.now();
         const serverMs = new Date(data.utc).getTime();
@@ -19,9 +28,17 @@ export function useServerTime(): UseServerTimeResult {
         offsetRef.current = serverMs - clientMid;
       })
       .catch(() => {
-        // Fallback: use client time (offset stays 0)
+        // Fallback: use client time (offset stays 0) — covers both timeout (AbortError) and network errors
         offsetRef.current = 0;
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
       });
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   return {

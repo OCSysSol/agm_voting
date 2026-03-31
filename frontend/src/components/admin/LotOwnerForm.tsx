@@ -268,7 +268,7 @@ function EditModal({
             <input
               id="add-email-input"
               className="field__input"
-              type="text"
+              type="email"
               placeholder="new@example.com"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
@@ -318,7 +318,7 @@ function EditModal({
               <input
                 id="set-proxy-input"
                 className="field__input"
-                type="text"
+                type="email"
                 placeholder="proxy@example.com"
                 value={newProxyEmail}
                 onChange={(e) => setNewProxyEmail(e.target.value)}
@@ -535,7 +535,7 @@ function AddForm({
             <input
               id="lot-email"
               className="field__input"
-              type="text"
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />

@@ -117,5 +117,48 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def reject_weak_secrets_outside_development(self) -> "Settings":
+        """Reject known-weak SESSION_SECRET and admin_password outside development (RR3-35).
+
+        In production or preview environments, weak defaults are rejected at
+        startup to prevent misconfigured deployments from accepting real traffic.
+
+        Weak SESSION_SECRET values:
+        - The shipped placeholder "change_me_to_a_random_secret"
+        - Any value shorter than 32 characters
+
+        Weak admin_password values:
+        - The dev-only placeholder "admin"
+        - Any non-bcrypt value (complementing the field_validator above)
+        """
+        # Only enforce in production and preview — development and testing environments
+        # use weak defaults intentionally for developer ergonomics and CI.
+        _EXEMPT_ENVIRONMENTS = {"development", "testing"}
+        if self.environment in _EXEMPT_ENVIRONMENTS:
+            return self
+
+        # Reject weak session secret
+        _WEAK_SESSION_SECRETS = {"change_me_to_a_random_secret"}
+        if self.session_secret in _WEAK_SESSION_SECRETS or len(self.session_secret) < 32:
+            raise ValueError(
+                "SESSION_SECRET is too weak for a non-development environment. "
+                "Use a random string of at least 32 characters."
+            )
+
+        # Reject plaintext admin password outside development
+        _DEV_ADMIN_PASSWORD = "admin"
+        _BCRYPT_PREFIXES = ("$2b$", "$2a$")
+        if self.admin_password == _DEV_ADMIN_PASSWORD or (  # nosemgrep: no-plaintext-password-compare
+            self.admin_password
+            and not any(self.admin_password.startswith(p) for p in _BCRYPT_PREFIXES)
+        ):
+            raise ValueError(
+                "ADMIN_PASSWORD must be a bcrypt hash in non-development environments. "
+                "Run POST /api/admin/auth/hash-password to generate one."
+            )
+
+        return self
+
 
 settings = Settings()

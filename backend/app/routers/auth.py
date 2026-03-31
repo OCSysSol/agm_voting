@@ -34,7 +34,7 @@ from app.schemas.auth import (
     OtpRequestResponse,
     SessionRestoreRequest,
 )
-from app.services.auth_service import _unsign_token, create_session
+from app.services.auth_service import _TOKEN_MAX_AGE_SECONDS, _unsign_token, create_session
 from app.services.email_service import send_otp_email
 
 logger = get_logger(__name__)
@@ -437,8 +437,8 @@ async def verify_auth(
         value=token,
         httponly=True,
         secure=not settings.testing_mode,
-        samesite="strict",
-        max_age=86400,
+        samesite="lax",  # lax so the cookie is sent on first navigation from the OTP email link (RR3-36)
+        max_age=_TOKEN_MAX_AGE_SECONDS,  # matches SESSION_DURATION (RR3-36)
         path="/api",
     )
 
@@ -548,8 +548,8 @@ async def restore_session(
         value=new_token,
         httponly=True,
         secure=not settings.testing_mode,
-        samesite="strict",
-        max_age=86400,
+        samesite="lax",  # lax so the cookie is sent on first navigation from the OTP email link (RR3-36)
+        max_age=_TOKEN_MAX_AGE_SECONDS,  # matches SESSION_DURATION (RR3-36)
         path="/api",
     )
 

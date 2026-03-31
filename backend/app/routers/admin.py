@@ -81,6 +81,7 @@ _IMAGE_CONTENT_TYPES = {
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
 
 _MAX_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB
+_MAX_IMPORT_BYTES = 5 * 1024 * 1024  # 5 MB — applied to all import/upload endpoints
 
 
 def _detect_image_format(file: UploadFile) -> str:
@@ -152,6 +153,11 @@ async def import_buildings(
 ) -> BuildingImportResult:
     fmt = _detect_file_format(file)
     content = await file.read()
+    if len(content) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="File exceeds maximum size of 5 MB",
+        )
     if fmt == "csv":
         result = await admin_service.import_buildings_from_csv(content, db)
     else:
@@ -278,6 +284,11 @@ async def import_lot_owners(
 ) -> LotOwnerImportResult:
     fmt = _detect_file_format(file)
     content = await file.read()
+    if len(content) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="File exceeds maximum size of 5 MB",
+        )
     if fmt == "csv":
         result = await admin_service.import_lot_owners_from_csv(building_id, content, db)
     else:
@@ -297,6 +308,11 @@ async def import_proxy_nominations(
 ) -> ProxyImportResult:
     fmt = _detect_file_format(file)
     content = await file.read()
+    if len(content) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="File exceeds maximum size of 5 MB",
+        )
     if fmt == "csv":
         result = await admin_service.import_proxies_from_csv(building_id, content, db)
     else:
@@ -316,6 +332,11 @@ async def import_financial_positions(
 ) -> FinancialPositionImportResult:
     fmt = _detect_file_format(file)
     content = await file.read()
+    if len(content) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="File exceeds maximum size of 5 MB",
+        )
     if fmt == "csv":
         result = await admin_service.import_financial_positions_from_csv(building_id, content, db)
     else:
@@ -742,6 +763,18 @@ async def update_admin_config(
 # ---------------------------------------------------------------------------
 
 
+def _require_debug_access() -> None:
+    """Require testing_mode=True for debug endpoints (RR3-34).
+
+    Debug endpoints are already admin-authenticated but in production deployments
+    testing_mode is always False, so this guard prevents them from being reachable
+    in production even if the admin session is compromised.
+    """
+    from app.config import settings as _settings
+    if not _settings.testing_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @router.get("/debug/meeting-status/{meeting_id}")
 async def debug_meeting_status(
     meeting_id: uuid.UUID,
@@ -751,7 +784,9 @@ async def debug_meeting_status(
 
     Useful for diagnosing unexpected meeting state (e.g. why a meeting appears
     open or closed when the admin expects otherwise).
+    Only available when TESTING_MODE=true (RR3-34).
     """
+    _require_debug_access()
     result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == meeting_id))
     meeting = result.scalar_one_or_none()
     if meeting is None:
@@ -769,14 +804,17 @@ async def debug_meeting_status(
 
 @router.get("/debug/email-deliveries")
 async def debug_email_deliveries(
+    limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    """List all EmailDelivery records ordered by last update descending.
+    """List EmailDelivery records ordered by last update descending.
 
     Useful for diagnosing email failures and checking retry state.
+    Only available when TESTING_MODE=true (RR3-34).
     """
+    _require_debug_access()
     result = await db.execute(
-        select(EmailDelivery).order_by(EmailDelivery.updated_at.desc())
+        select(EmailDelivery).order_by(EmailDelivery.updated_at.desc()).limit(limit)
     )
     deliveries = result.scalars().all()
     return [
@@ -798,7 +836,9 @@ async def debug_db_health() -> dict:
 
     Reports the current pool state (size, overflow, checked-in/out connections).
     Useful for diagnosing connection exhaustion under load.
+    Only available when TESTING_MODE=true (RR3-34).
     """
+    _require_debug_access()
     pool = engine.pool
     # NullPool (used in some test configurations) does not expose size/status methods.
     if not hasattr(pool, "size"):  # pragma: no cover — NullPool path not exercised in integration tests

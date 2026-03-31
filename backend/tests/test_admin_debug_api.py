@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -125,6 +126,27 @@ async def building_with_many_owners(db_session: AsyncSession) -> Building:
 
 
 # ---------------------------------------------------------------------------
+# Fixture: enable testing_mode for debug endpoint tests (RR3-34)
+# Debug endpoints require testing_mode=True — patch settings for all debug classes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=False)
+def enable_testing_mode():
+    """Patch settings.testing_mode=True for the duration of a test (RR3-34).
+
+    Debug endpoints call _require_debug_access() which imports settings at call
+    time via 'from app.config import settings as _settings'. Patching the
+    attribute on the already-imported module-level singleton is the correct approach.
+    """
+    from app.config import settings as _cfg_settings
+    original = _cfg_settings.testing_mode
+    _cfg_settings.testing_mode = True
+    yield
+    _cfg_settings.testing_mode = original
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/debug/meeting-status/{meeting_id}
 # ---------------------------------------------------------------------------
 
@@ -133,7 +155,7 @@ class TestDebugMeetingStatus:
     # --- Happy path ---
 
     async def test_returns_meeting_status_fields(
-        self, client: AsyncClient, open_meeting: GeneralMeeting
+        self, client: AsyncClient, open_meeting: GeneralMeeting, enable_testing_mode
     ):
         response = await client.get(f"/api/admin/debug/meeting-status/{open_meeting.id}")
         assert response.status_code == 200
@@ -145,7 +167,7 @@ class TestDebugMeetingStatus:
         assert "current_time" in data
 
     async def test_closed_meeting_shows_closed_effective_status(
-        self, client: AsyncClient, closed_meeting: GeneralMeeting
+        self, client: AsyncClient, closed_meeting: GeneralMeeting, enable_testing_mode
     ):
         response = await client.get(f"/api/admin/debug/meeting-status/{closed_meeting.id}")
         assert response.status_code == 200
@@ -154,7 +176,7 @@ class TestDebugMeetingStatus:
         assert data["effective_status"] == "closed"
 
     async def test_voting_closes_at_is_iso_string(
-        self, client: AsyncClient, open_meeting: GeneralMeeting
+        self, client: AsyncClient, open_meeting: GeneralMeeting, enable_testing_mode
     ):
         response = await client.get(f"/api/admin/debug/meeting-status/{open_meeting.id}")
         data = response.json()
@@ -164,7 +186,7 @@ class TestDebugMeetingStatus:
         datetime.fromisoformat(closes_at)  # Should not raise
 
     async def test_current_time_is_iso_string(
-        self, client: AsyncClient, open_meeting: GeneralMeeting
+        self, client: AsyncClient, open_meeting: GeneralMeeting, enable_testing_mode
     ):
         response = await client.get(f"/api/admin/debug/meeting-status/{open_meeting.id}")
         data = response.json()
@@ -174,13 +196,18 @@ class TestDebugMeetingStatus:
 
     # --- State / precondition errors ---
 
-    async def test_404_for_missing_meeting(self, client: AsyncClient):
+    async def test_404_for_missing_meeting(self, client: AsyncClient, enable_testing_mode):
+        response = await client.get(f"/api/admin/debug/meeting-status/{uuid.uuid4()}")
+        assert response.status_code == 404
+
+    async def test_returns_404_when_testing_mode_disabled(self, client: AsyncClient):
+        """Debug endpoints return 404 when testing_mode=False (RR3-34)."""
         response = await client.get(f"/api/admin/debug/meeting-status/{uuid.uuid4()}")
         assert response.status_code == 404
 
     # --- Input validation ---
 
-    async def test_invalid_uuid_returns_422(self, client: AsyncClient):
+    async def test_invalid_uuid_returns_422(self, client: AsyncClient, enable_testing_mode):
         response = await client.get("/api/admin/debug/meeting-status/not-a-uuid")
         assert response.status_code == 422
 
@@ -194,7 +221,7 @@ class TestDebugEmailDeliveries:
     # --- Happy path ---
 
     async def test_returns_email_deliveries_list(
-        self, client: AsyncClient, email_delivery: EmailDelivery
+        self, client: AsyncClient, email_delivery: EmailDelivery, enable_testing_mode
     ):
         response = await client.get("/api/admin/debug/email-deliveries")
         assert response.status_code == 200
@@ -204,7 +231,7 @@ class TestDebugEmailDeliveries:
         assert str(email_delivery.id) in ids
 
     async def test_email_delivery_fields_present(
-        self, client: AsyncClient, email_delivery: EmailDelivery
+        self, client: AsyncClient, email_delivery: EmailDelivery, enable_testing_mode
     ):
         response = await client.get("/api/admin/debug/email-deliveries")
         data = response.json()
@@ -215,9 +242,23 @@ class TestDebugEmailDeliveries:
         assert "updated_at" in record
         assert "general_meeting_id" in record
 
+    async def test_limit_parameter_accepted(
+        self, client: AsyncClient, enable_testing_mode
+    ):
+        """limit query param (1-500) is accepted (RR3-34)."""
+        response = await client.get("/api/admin/debug/email-deliveries?limit=50")
+        assert response.status_code == 200
+
+    async def test_limit_over_500_returns_422(
+        self, client: AsyncClient, enable_testing_mode
+    ):
+        """limit > 500 returns 422 (RR3-34)."""
+        response = await client.get("/api/admin/debug/email-deliveries?limit=501")
+        assert response.status_code == 422
+
     # --- Edge cases ---
 
-    async def test_empty_when_no_deliveries(self, client: AsyncClient, building: Building):
+    async def test_empty_when_no_deliveries(self, client: AsyncClient, building: Building, enable_testing_mode):
         """Returns empty list when no email deliveries exist for this test transaction."""
         response = await client.get("/api/admin/debug/email-deliveries")
         assert response.status_code == 200
@@ -232,19 +273,19 @@ class TestDebugEmailDeliveries:
 class TestDebugDbHealth:
     # --- Happy path ---
 
-    async def test_returns_pool_info(self, client: AsyncClient):
+    async def test_returns_pool_info(self, client: AsyncClient, enable_testing_mode):
         response = await client.get("/api/admin/debug/db-health")
         assert response.status_code == 200
         data = response.json()
         assert "pool_type" in data
 
-    async def test_pool_type_is_string(self, client: AsyncClient):
+    async def test_pool_type_is_string(self, client: AsyncClient, enable_testing_mode):
         response = await client.get("/api/admin/debug/db-health")
         data = response.json()
         assert isinstance(data["pool_type"], str)
         assert len(data["pool_type"]) > 0
 
-    async def test_returns_numeric_pool_fields_or_na(self, client: AsyncClient):
+    async def test_returns_numeric_pool_fields_or_na(self, client: AsyncClient, enable_testing_mode):
         """Pool fields are either numeric (real pool) or 'n/a' string (NullPool)."""
         response = await client.get("/api/admin/debug/db-health")
         data = response.json()
@@ -254,6 +295,11 @@ class TestDebugDbHealth:
         else:
             # NullPool path returns status=n/a
             assert data.get("status") == "n/a"
+
+    async def test_returns_404_when_testing_mode_disabled(self, client: AsyncClient):
+        """Debug db-health endpoint returns 404 when testing_mode=False (RR3-34)."""
+        response = await client.get("/api/admin/debug/db-health")
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
