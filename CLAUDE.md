@@ -1,6 +1,5 @@
 > **For any feature, bug fix, or task — invoke the `/orchestrate-feature-dev` skill as the entry point.**
 > The skill runs in the main session and coordinates all sub-agents (design, implement, test, cleanup) via the `Agent` tool.
-> See `.claude/skills/orchestrate-feature-dev/SKILL.md` for the full protocol.
 
 ---
 
@@ -14,11 +13,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AGM Voting App — a web application for body corporates to run weighted voting during Annual General Meetings. See `tasks/prd/prd-agm-voting-app.md` for the full PRD.
 
+**Stack:** React (Vite) frontend · FastAPI backend · PostgreSQL · SQLAlchemy + Alembic · Resend (email)
+
 **Task folder structure:**
 - `tasks/prd/` — product requirements documents (`tasks/prd/TEMPLATE.md` is the PRD template)
 - `tasks/design/` — technical design docs (`tasks/design/TEMPLATE.md` is the design doc template)
 
-**Stack:** React (Vite) frontend · FastAPI backend · PostgreSQL · SQLAlchemy + Alembic · Resend (email)
+---
+
+## Codebase Structure
+
+| Path | Contents |
+|---|---|
+| `backend/app/models/` | SQLAlchemy models |
+| `backend/app/routers/` | FastAPI route handlers |
+| `backend/app/services/` | Business logic / service layer |
+| `backend/alembic/versions/` | DB migration files |
+| `frontend/src/pages/` | React page components |
+| `frontend/src/components/` | Shared React components |
+| `frontend/src/api/` | TypeScript API client functions |
+| `frontend/tests/msw/handlers.ts` | MSW mock handlers for tests |
+| `tasks/design/design-system.md` | Frontend design system — read before writing any UI |
+
+---
+
+## Domain Knowledge
+
+### Persona journeys
+
+| Persona | Flow |
+|---|---|
+| **Voter** | auth → lot selection → voting → confirmation |
+| **Proxy voter** | proxy auth → proxied lots → voting → confirmation |
+| **In-arrear lot** | auth → lot with in-arrear badge → `not_eligible` motion handling → confirmation |
+| **Admin** | login → building/meeting management → report viewing → close meeting |
+
+When a change affects an existing journey, update the existing tests for that journey — do not only add new scenarios.
+
+### Key domain test scenarios
+
+#### Authentication (`POST /api/auth/verify`)
+- Valid email + building → success with lot list
+- Email not found → 401
+- Proxy email → lots include `is_proxy: true`
+- Closed or past-close-date meeting → `agm_status: "closed"` in response
+
+#### Vote submission (`POST /api/agm/{id}/submit`)
+- All motions answered → success
+- Re-submission after already voted → 409
+- Submission after meeting is closed → 403
+- Proxy submits → `BallotSubmission.proxy_email` set in DB
+- In-arrear lot on General Motion → `not_eligible` recorded
+
+#### Meeting close (`POST /api/admin/agms/{id}/close`)
+- Close an open meeting → success + email triggered + absent records created for non-voters
+- Close an already-closed meeting → 409
+- Close a meeting that does not exist → 404
+
+#### Lot owner import (`POST /api/admin/buildings/{id}/import`)
+- Valid file → success, returns upserted count
+- Missing required columns → 422
+- Duplicate lot numbers → 422 with details
+- Extra/unknown columns → silently ignored
+- Non-CSV/Excel file → 422
+
+#### Weighted vote tallies
+- All lots vote Yes → entitlement sum equals total building entitlement
+- Mix of Yes/No → verify weighted sums, not lot counts
+- Absent lots → counted in absent tally, not abstained
 
 ---
 
@@ -34,6 +96,138 @@ Key decisions that must not be inadvertently reversed:
 - **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. The build script does this transformation; `api/index.py` does it for the runtime `DATABASE_URL` used by the app.
 - **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `preview`) to avoid migration conflicts on the shared preview DB. The `test` agent creates it before pushing; `cleanup` deletes it after merge.
 - **Branch-scoped Vercel env vars** — `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are set as Vercel preview env vars scoped to the feature branch so the branch deployment migrates against its own Neon DB. Removed by `cleanup` after merge.
+
+---
+
+## Development Workflow
+
+Invoke `/orchestrate-feature-dev` to coordinate all work — design → implement → test → cleanup. The skill runs in the main session and spawns `design`, `implement`, `test`, and `cleanup` sub-agents. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
+
+### Worktree-first rule
+
+A branch worktree must be created before any design, implementation, or test work begins. All agents work exclusively inside that worktree — never the main repo root, which may be on a different branch. See `.claude/skills/orchestrate-feature-dev/SKILL.md` (Step a) for the full protocol and commands.
+
+---
+
+## Implementation Ordering
+
+Follow this order for every change. Do not skip ahead — each layer depends on the previous.
+
+**Backend:**
+1. Alembic migration (if schema changes) — run against test DB before writing any model code
+2. SQLAlchemy models
+3. Pydantic schemas
+4. Service functions
+5. Router endpoints
+6. Unit tests (mocked DB)
+7. Integration tests (real test DB)
+
+**Frontend:**
+1. TypeScript API client functions (`src/api/`)
+2. MSW mock handlers (`frontend/tests/msw/handlers.ts`)
+3. React components and pages
+4. Unit tests (Vitest + RTL)
+5. Integration tests
+
+**Frontend style rule:** Read `tasks/design/design-system.md` before writing any UI. Never use `form-group`, `form-control`, inline style props for colours or spacing, or Bootstrap/Tailwind class names. After completing frontend changes, verify: `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` must return nothing.
+
+---
+
+## Test Pipeline
+
+Run all stages in order. Never skip. Never raise a PR until Branch E2E passes. Never merge until Post-merge CI passes.
+
+| Stage | Trigger | Checks | How to monitor |
+|---|---|---|---|
+| **Local testing** | During development + before every push | pytest (100% cov) · Vitest (100% cov) · bandit · eslint-security | Run manually — re-run on every meaningful change for fast feedback |
+| **Branch CI** | Auto on `git push` | Same as local + semgrep + Alembic migration on clean DB | `gh run list --branch <branch> --workflow ci.yml` |
+| **Branch E2E** | Auto after Vercel preview deploys | Full Playwright suite | `gh run list --branch <branch> --workflow e2e.yml` |
+| **Post-merge CI** | Auto after PR merges to `preview` | Same as Branch CI | `gh run list --branch preview --workflow ci.yml` |
+| **Preview E2E** | Orchestrator-directed after all slices merged | Full Playwright suite against `preview` | `gh run list --branch preview --workflow e2e.yml` |
+
+Local testing checks are fast (seconds) — use them as a tight feedback loop while developing, not just as a pre-push gate. All CI/E2E stages are automated and only need monitoring.
+
+### Local testing — commands (run from worktree root)
+
+```bash
+cd backend && TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  uv run pytest tests/ -n auto --cov=app --cov-fail-under=100 -q  # 100% coverage required
+cd frontend && npm run test:coverage                               # 100% coverage required
+cd backend && uv run bandit -r app/ -c pyproject.toml -ll
+cd frontend && npm run lint:security
+```
+
+### Branch CI / E2E / Post-merge CI / Preview E2E — monitoring (all automated)
+
+Poll with `gh run list --branch <branch> --workflow <workflow> --limit 1 --json status,conclusion`.
+`conclusion: "success"` = pass · `"failure"` = fail · `null` = still running.
+
+On CI failure: `gh run view --log-failed` to identify the failing step.
+On E2E failure: `gh run download <run-id>` to retrieve the Playwright HTML report. Record every failure verbatim and report to orchestrator — do not fix inline.
+
+---
+
+## Test Data Conventions
+
+E2E tests seed data using these naming patterns — the cleanup agent deletes them after runs:
+- **Test meetings**: titles matching `WF*`, `E2E*`, `Test*`, `Delete Test*`
+- **Test buildings**: names matching `E2E*`, `WF*`, `Test*`
+
+Do NOT delete/archive real production data. Known real buildings: "The Vale", "SBT", "Sandridge Bay Towers".
+
+---
+
+## Example Files
+
+Three example files live in `examples/` at the project root. Use these as test fixtures for import-related features — do not create synthetic test data when these files can be used instead.
+
+### `examples/Owners_SBT.xlsx` — Lot owner import template
+
+| Column | Maps to | Notes |
+|--------|---------|-------|
+| `S/Plan` | _(ignored)_ | |
+| `Building Name` | `Building.name` | Used to identify or create the building |
+| `Lot#` | `LotOwner.lot_number` | |
+| `Unit#` | _(ignored)_ | |
+| `UOE2` | `LotOwner.unit_entitlement` | Used for weighted voting |
+| `Email` | `LotOwnerEmail.email` | Stored in the `lot_owner_emails` table; multiple lots may share an email |
+
+147 data rows under "Sandridge Bay Towers (Building 6,7 & 8)". Multiple lots share an email (intentional). Extra columns silently ignored.
+
+### `examples/AGM Motion test.xlsx` — AGM motion import template
+
+| Column | Maps to |
+|--------|---------|
+| `Motion` | `Motion.order_index` |
+| `Description` | `Motion.description` (full text shown to voters) |
+
+2 data rows. Column names are case-insensitive. Blank rows silently skipped.
+
+### `examples/Lot financial position.csv` — TOCS Lot Positions Report
+
+Auto-extracted from the TOCS management system. Contains Administrative Fund and Maintenance Fund sections.
+Key columns: `Lot#` -> `LotOwner.lot_number`, `Closing Balance` -> determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
+Multiple fund sections: worst-case across all sections (arrears in any -> `in_arrear`).
+51 lots (lot numbers 1-51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
+
+---
+
+## Vercel Environments
+
+| Environment | Trigger | URL pattern |
+|---|---|---|
+| **Production** | Push to `master` only | `agm-voting.vercel.app` |
+| **Preview** | Push to any other branch | `agm-voting-git-<branch>-ocss.vercel.app` |
+
+- **Never** run `vercel deploy --prod` or target production from the CLI
+- All non-production deployments land in Preview and use Preview env vars
+- Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `ALLOWED_ORIGIN`
+
+> **CRITICAL:** `vercel env pull` may return a DIFFERENT Neon DB URL than what the deployed Lambda actually uses. To run a manual migration, retrieve `DATABASE_URL_UNPOOLED` directly from the Lambda (via a temporary debug endpoint), then run:
+> ```bash
+> DB="postgresql+asyncpg://user:pass@host/db?ssl=require"
+> cd backend && uv run alembic -x dburl="$DB" upgrade head
+> ```
 
 ---
 
@@ -143,202 +337,6 @@ curl -s "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?gitBranch=
         -H "Authorization: Bearer $VERCEL_TOKEN" > /dev/null
     done
 ```
-
----
-
-## Codebase Structure
-
-| Path | Contents |
-|---|---|
-| `backend/app/models/` | SQLAlchemy models |
-| `backend/app/routers/` | FastAPI route handlers |
-| `backend/app/services/` | Business logic / service layer |
-| `backend/alembic/versions/` | DB migration files |
-| `frontend/src/pages/` | React page components |
-| `frontend/src/components/` | Shared React components |
-| `frontend/src/api/` | TypeScript API client functions |
-| `frontend/tests/msw/handlers.ts` | MSW mock handlers for tests |
-| `tasks/design/design-system.md` | Frontend design system — read before writing any UI |
-
----
-
-## Implementation Ordering
-
-Follow this order for every change. Do not skip ahead — each layer depends on the previous.
-
-**Backend:**
-1. Alembic migration (if schema changes) — run against test DB before writing any model code
-2. SQLAlchemy models
-3. Pydantic schemas
-4. Service functions
-5. Router endpoints
-6. Unit tests (mocked DB)
-7. Integration tests (real test DB)
-
-**Frontend:**
-1. TypeScript API client functions (`src/api/`)
-2. MSW mock handlers (`frontend/tests/msw/handlers.ts`)
-3. React components and pages
-4. Unit tests (Vitest + RTL)
-5. Integration tests
-
-**Frontend style rule:** Read `tasks/design/design-system.md` before writing any UI. Never use `form-group`, `form-control`, inline style props for colours or spacing, or Bootstrap/Tailwind class names. After completing frontend changes, verify: `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` must return nothing.
-
----
-
-## Domain Knowledge
-
-### Persona journeys
-
-| Persona | Flow |
-|---|---|
-| **Voter** | auth → lot selection → voting → confirmation |
-| **Proxy voter** | proxy auth → proxied lots → voting → confirmation |
-| **In-arrear lot** | auth → lot with in-arrear badge → `not_eligible` motion handling → confirmation |
-| **Admin** | login → building/meeting management → report viewing → close meeting |
-
-When a change affects an existing journey, update the existing tests for that journey — do not only add new scenarios.
-
-### Key domain test scenarios
-
-#### Authentication (`POST /api/auth/verify`)
-- Valid email + building → success with lot list
-- Email not found → 401
-- Proxy email → lots include `is_proxy: true`
-- Closed or past-close-date meeting → `agm_status: "closed"` in response
-
-#### Vote submission (`POST /api/agm/{id}/submit`)
-- All motions answered → success
-- Re-submission after already voted → 409
-- Submission after meeting is closed → 403
-- Proxy submits → `BallotSubmission.proxy_email` set in DB
-- In-arrear lot on General Motion → `not_eligible` recorded
-
-#### Meeting close (`POST /api/admin/agms/{id}/close`)
-- Close an open meeting → success + email triggered + absent records created for non-voters
-- Close an already-closed meeting → 409
-- Close a meeting that does not exist → 404
-
-#### Lot owner import (`POST /api/admin/buildings/{id}/import`)
-- Valid file → success, returns upserted count
-- Missing required columns → 422
-- Duplicate lot numbers → 422 with details
-- Extra/unknown columns → silently ignored
-- Non-CSV/Excel file → 422
-
-#### Weighted vote tallies
-- All lots vote Yes → entitlement sum equals total building entitlement
-- Mix of Yes/No → verify weighted sums, not lot counts
-- Absent lots → counted in absent tally, not abstained
-
----
-
-## Test Data Conventions
-
-E2E tests seed data using these naming patterns — the cleanup agent deletes them after runs:
-- **Test meetings**: titles matching `WF*`, `E2E*`, `Test*`, `Delete Test*`
-- **Test buildings**: names matching `E2E*`, `WF*`, `Test*`
-
-Do NOT delete/archive real production data. Known real buildings: "The Vale", "SBT", "Sandridge Bay Towers".
-
----
-
-## Test Pipeline
-
-Run all stages in order. Never skip. Never raise a PR until Branch E2E passes. Never merge until Post-merge CI passes.
-
-| Stage | Trigger | Checks | How to monitor |
-|---|---|---|---|
-| **Local testing** | During development + before every push | pytest (100% cov) · Vitest (100% cov) · bandit · eslint-security | Run manually — re-run on every meaningful change for fast feedback |
-| **Branch CI** | Auto on `git push` | Same as local + semgrep + Alembic migration on clean DB | `gh run list --branch <branch> --workflow ci.yml` |
-| **Branch E2E** | Auto after Vercel preview deploys | Full Playwright suite | `gh run list --branch <branch> --workflow e2e.yml` |
-| **Post-merge CI** | Auto after PR merges to `preview` | Same as Branch CI | `gh run list --branch preview --workflow ci.yml` |
-| **Preview E2E** | Orchestrator-directed after all slices merged | Full Playwright suite against `preview` | `gh run list --branch preview --workflow e2e.yml` |
-
-Local testing checks are fast (seconds) — use them as a tight feedback loop while developing, not just as a pre-push gate. All CI/E2E stages are automated and only need monitoring.
-
-### Local testing — commands (run from worktree root)
-
-```bash
-cd backend && TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
-  uv run pytest tests/ -n auto --cov=app --cov-fail-under=100 -q  # 100% coverage required
-cd frontend && npm run test:coverage                               # 100% coverage required
-cd backend && uv run bandit -r app/ -c pyproject.toml -ll
-cd frontend && npm run lint:security
-```
-
-### Branch CI / E2E / Post-merge CI / Preview E2E — monitoring (all automated)
-
-Poll with `gh run list --branch <branch> --workflow <workflow> --limit 1 --json status,conclusion`.
-`conclusion: "success"` = pass · `"failure"` = fail · `null` = still running.
-
-On CI failure: `gh run view --log-failed` to identify the failing step.
-On E2E failure: `gh run download <run-id>` to retrieve the Playwright HTML report. Record every failure verbatim and report to orchestrator — do not fix inline.
-
----
-
-## Development Workflow
-
-Invoke `/orchestrate-feature-dev` to coordinate all work — design → implement → test → cleanup. The skill runs in the main session and spawns `design`, `implement`, `test`, and `cleanup` sub-agents. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
-
-### Worktree-first rule
-
-A branch worktree must be created before any design, implementation, or test work begins. All agents work exclusively inside that worktree — never the main repo root, which may be on a different branch. See `.claude/skills/orchestrate-feature-dev/SKILL.md` (Step a) for the full protocol and commands.
-
----
-
-## Vercel Environments
-
-| Environment | Trigger | URL pattern |
-|---|---|---|
-| **Production** | Push to `master` only | `agm-voting.vercel.app` |
-| **Preview** | Push to any other branch | `agm-voting-git-<branch>-ocss.vercel.app` |
-
-- **Never** run `vercel deploy --prod` or target production from the CLI
-- All non-production deployments land in Preview and use Preview env vars
-- Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `ALLOWED_ORIGIN`
-
-> **CRITICAL:** `vercel env pull` may return a DIFFERENT Neon DB URL than what the deployed Lambda actually uses. To run a manual migration, retrieve `DATABASE_URL_UNPOOLED` directly from the Lambda (via a temporary debug endpoint), then run:
-> ```bash
-> DB="postgresql+asyncpg://user:pass@host/db?ssl=require"
-> cd backend && uv run alembic -x dburl="$DB" upgrade head
-> ```
-
----
-
-
-## Example Files
-
-Three example files live in `examples/` at the project root. Use these as test fixtures for import-related features — do not create synthetic test data when these files can be used instead.
-
-### `examples/Owners_SBT.xlsx` — Lot owner import template
-
-| Column | Maps to | Notes |
-|--------|---------|-------|
-| `S/Plan` | _(ignored)_ | |
-| `Building Name` | `Building.name` | Used to identify or create the building |
-| `Lot#` | `LotOwner.lot_number` | |
-| `Unit#` | _(ignored)_ | |
-| `UOE2` | `LotOwner.unit_entitlement` | Used for weighted voting |
-| `Email` | `LotOwnerEmail.email` | Stored in the `lot_owner_emails` table; multiple lots may share an email |
-
-147 data rows under "Sandridge Bay Towers (Building 6,7 & 8)". Multiple lots share an email (intentional). Extra columns silently ignored.
-
-### `examples/AGM Motion test.xlsx` — AGM motion import template
-
-| Column | Maps to |
-|--------|---------|
-| `Motion` | `Motion.order_index` |
-| `Description` | `Motion.description` (full text shown to voters) |
-
-2 data rows. Column names are case-insensitive. Blank rows silently skipped.
-
-### `examples/Lot financial position.csv` — TOCS Lot Positions Report
-
-Auto-extracted from the TOCS management system. Contains Administrative Fund and Maintenance Fund sections.
-Key columns: `Lot#` -> `LotOwner.lot_number`, `Closing Balance` -> determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
-Multiple fund sections: worst-case across all sections (arrears in any -> `in_arrear`).
-51 lots (lot numbers 1-51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
 
 ---
 
