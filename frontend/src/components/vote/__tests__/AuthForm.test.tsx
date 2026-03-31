@@ -119,6 +119,12 @@ describe("AuthForm — step 1 (email)", () => {
     expect(label.classList.contains("field__label--required")).toBe(true);
   });
 
+  // --- US-ACC-05: Step indicator ---
+  it("shows 'Step 1 of 2' indicator on step 1", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.getByText(/Step 1 of 2/i)).toBeInTheDocument();
+  });
+
   // --- No code field on step 1 ---
   it("does not render 'Lot number' field on step 1", () => {
     render(<AuthForm {...step1Props()} />);
@@ -226,6 +232,12 @@ describe("AuthForm — step 2 (code)", () => {
     await user.type(screen.getByLabelText("Verification code"), "ABCD1234");
     await user.click(screen.getByRole("button", { name: "Resend code" }));
     expect(screen.queryByDisplayValue("ABCD1234")).not.toBeInTheDocument();
+  });
+
+  // --- US-ACC-05: Step indicator ---
+  it("shows 'Step 2 of 2' indicator on step 2", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
   });
 
   // --- US-ACC-05: OTP helper text ---

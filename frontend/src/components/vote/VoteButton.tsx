@@ -13,6 +13,7 @@ const LABELS: Record<VoteChoice, string> = {
   no: "Against",
   abstained: "Abstain",
   not_eligible: "Not Eligible",
+  selected: "Selected",
 };
 
 const ICONS: Record<VoteChoice, string> = {
@@ -20,6 +21,7 @@ const ICONS: Record<VoteChoice, string> = {
   no: "✗",
   abstained: "—",
   not_eligible: "—",
+  selected: "✓",
 };
 
 export function VoteButton({ choice, selected, disabled, ariaDisabled = false, onClick }: VoteButtonProps) {

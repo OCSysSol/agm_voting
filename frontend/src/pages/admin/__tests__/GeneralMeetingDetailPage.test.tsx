@@ -556,14 +556,6 @@ describe("GeneralMeetingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Move First Motion to bottom" })).toBeInTheDocument();
     });
 
-    // Before reorder: both motion_numbers visible as labels in # column.
-    // We scope our search to td elements (the # column cells) to avoid
-    // picking up numbers from the stats section of the page.
-    const getMotionLabelCells = () =>
-      Array.from(document.querySelectorAll("td")).filter(
-        (td) => td.style.fontFamily?.includes("Overpass Mono") || td.querySelector("*") === null
-      );
-
     // Move "First Motion" (motion_number="1") to the bottom
     await user.click(screen.getByRole("button", { name: "Move First Motion to bottom" }));
 
@@ -2170,7 +2162,7 @@ describe("Bulk motion visibility", () => {
 
   it("shows multi-choice fields when multi-choice checkbox is checked in Add Motion modal", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2189,7 +2181,7 @@ describe("Bulk motion visibility", () => {
 
   it("can add and remove options in Add Motion multi-choice modal", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2211,7 +2203,7 @@ describe("Bulk motion visibility", () => {
 
   it("shows validation error when Add Motion submitted with multi-choice but empty options", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2262,7 +2254,7 @@ describe("Bulk motion visibility", () => {
 
   it("can type in Add Motion option inputs when multi-choice is enabled", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2416,7 +2408,7 @@ describe("Bulk motion visibility", () => {
 
   it("successfully submits Add Motion form with multi-choice enabled", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2438,7 +2430,7 @@ describe("Bulk motion visibility", () => {
 
   it("shows validation error when Add Motion with multi-choice has option_limit exceeding count", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
@@ -2460,7 +2452,7 @@ describe("Bulk motion visibility", () => {
 
   it("shows validation error when Add Motion with multi-choice has invalid option_limit (0)", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage("agm1");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
     });
