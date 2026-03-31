@@ -21,6 +21,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-011: Host admin portal
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want a dedicated admin portal so I can manage buildings, lot owners, and AGMs separate from the lot owner–facing voting flow.
 
 **Acceptance Criteria:**
@@ -54,6 +56,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-019: Archive buildings and associated lot owners
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to archive a building so it no longer appears in the voter portal, and have its lot owners archived too unless they belong to another active building.
 
 **Acceptance Criteria:**
@@ -71,6 +75,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-020: Admin portal authentication
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want the admin portal to require a username and password login so unauthorised users cannot access or modify AGM data.
 
@@ -90,6 +96,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-012: Create and manage buildings via form or CSV/Excel upload
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to create or update building records via a manual form or file upload so I don't have to maintain buildings manually.
 
 **Acceptance Criteria:**
@@ -108,6 +116,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-BLD-01: Edit building name and manager email
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to edit a building's name and manager email from the Building Detail page so I can keep building information up to date.
 
@@ -129,6 +139,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-BLD-02: Filter voter building dropdown to buildings with open meetings
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want the building dropdown on the voter home page to show only buildings that have an active (open) voting session, so I am not presented with buildings where there is nothing to vote on.
 
 **Acceptance Criteria:**
@@ -148,6 +160,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-001: Create a new AGM
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to create a new AGM so that lot owners can vote on motions for an upcoming meeting.
 
 **Acceptance Criteria:**
@@ -165,6 +179,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-MN-01: Custom motion number
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to assign a custom display label (motion number) to each motion so that the voting page and reports show the official motion numbering from the meeting agenda (e.g. "5", "5a", "5b", "Special Resolution 1") rather than a sequential counter.
 
@@ -192,6 +208,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-MN-02: Admin motion reordering
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to change the display order of motions so that voters see them in the intended agenda sequence, with drag-and-drop as the primary interaction and keyboard-accessible move buttons as fallback.
 
 **Acceptance Criteria:**
@@ -218,6 +236,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-MN-03: Unified motion management table
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want reorder controls (drag-and-drop + move buttons) and visibility toggles in a single table so I can manage motion ordering and visibility in one place, rather than switching between two separate panels.
 
 **Acceptance Criteria:**
@@ -241,6 +261,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-MN-04: Admin login page uses tenant branding logo
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want the admin login page to display the configured tenant logo rather than a hardcoded static image, so the login screen is consistent with the rest of the branded app.
 
 **Acceptance Criteria:**
@@ -256,6 +278,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-002: Building selection, AGM list, and past submission review
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want to select my building, see all AGMs for that building, enter the active voting session, and review my past submissions.
 
@@ -273,6 +297,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-003: Lot owner authentication
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want to verify my identity via a one-time email code so the system can confirm I am eligible to vote without requiring a password or lot number.
 
@@ -296,6 +322,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-OTP-01: Email OTP request
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want to enter my email and receive a one-time verification code so I can begin the authentication process without a password.
 
 **Acceptance Criteria:**
@@ -318,6 +346,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-OTP-02: OTP verification (success)
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want to enter my verification code and be authenticated so I can proceed to vote.
 
 **Acceptance Criteria:**
@@ -336,6 +366,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-OTP-03: OTP expiry (5-minute window)
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want the system to reject codes older than 5 minutes so that stale codes cannot be used to authenticate.
 
 **Acceptance Criteria:**
@@ -350,6 +382,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-OTP-04: Invalid OTP error handling
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want clear feedback when I enter the wrong code so I know to try again or request a new one.
 
 **Acceptance Criteria:**
@@ -363,6 +397,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-OTP-05: Resend code
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want to request a new code if I did not receive the first one or it has expired, so I am not locked out.
 
@@ -379,6 +415,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-PS-01: Persistent voter session (skip OTP on return visit)
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want my authenticated session to be remembered across browser tab closures so that I do not have to re-enter my email and OTP code every time I open the voting app within the same day.
 
@@ -402,6 +440,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-004: Vote on motions
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want to vote yes, no, or abstain on each motion and submit my ballot so I can participate in the AGM.
 
@@ -435,6 +475,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-009: Vote confirmation screen
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want to see a summary of my submitted votes so I have a record of how I voted.
 
 **Acceptance Criteria:**
@@ -452,6 +494,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-005: Import lot owner data via CSV or Excel
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to upload a CSV or Excel file of lot owners so the system can authenticate them during the AGM.
 
@@ -471,6 +515,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-010: Manually add or edit a lot owner via UI
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to add or edit a lot owner record directly in the UI so I can make quick corrections without re-uploading a CSV.
 
 **Acceptance Criteria:**
@@ -487,6 +533,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-LOE-01: Optional lot owner email
+
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to add a lot owner without an email address, so that buildings with owners who have no email can still be managed in the system.
 
@@ -507,6 +555,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-SORT-01: Sortable admin table columns
+
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to sort the buildings, meetings, and lot owners tables by clicking column headers, so that I can find records quickly.
 
@@ -530,6 +580,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-UX-01: Mobile and form usability fixes
 
+**Status:** ✅ Implemented
+
 **Description:** As an admin or voter, I want the interface to work correctly on mobile devices and validate email inputs consistently, so that I can manage and vote from any device without layout or input errors.
 
 **Acceptance Criteria:**
@@ -548,6 +600,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-006: Sync lot owner data from PropertyIQ
 
+**Status:** 🔄 Partial — PropertyIQ API credentials pending; sync endpoint not yet implemented
+
 **Description:** As a meeting host, I want to sync lot owner data from PropertyIQ so I don't have to manually export/import CSVs.
 
 **Acceptance Criteria:**
@@ -562,6 +616,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-007: Close AGM and send results report
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting manager, I want to close voting and receive a results report so I can record the AGM outcome.
 
@@ -591,6 +647,8 @@ A web application for body corporates to run voting during Annual General Meetin
 ---
 
 ### US-030: Responsive voting layout and lot selection shortcuts
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner on any device, I want the voting page to make good use of screen space and allow quick lot selection so I can vote efficiently.
 
@@ -673,7 +731,7 @@ The Vite build must pre-generate `.br` files for all JS/CSS assets using `vite-p
 
 ### BUG-RV-01: Submit button missing after admin makes additional motions visible post-submission
 
-**Status:** Design complete (see `tasks/design/design-fix-revote-submit-button.md`)
+**Status:** ✅ Implemented
 
 **Description:** When a voter has already submitted their ballot and an admin subsequently makes additional motions visible, the voter logs back in and can see the new motions — but the Submit button is absent, and every lot is incorrectly shown as "Already submitted". The voter cannot vote on the new motions.
 
@@ -701,7 +759,7 @@ The Vite build must pre-generate `.br` files for all JS/CSS assets using `vite-p
 
 ### BUG-LS-01: Submitted lots remain selectable after voting and back navigation
 
-**Status:** Design complete (see `tasks/design/design-fix-lot-reselection-after-vote.md`)
+**Status:** ✅ Implemented
 
 **Description:** After a voter submits their ballot for one or more lots and then navigates back to
 the voting page (via the Back button, direct URL, or the "Vote for remaining lots" button), all
@@ -746,7 +804,7 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 
 ### BUG-RV-02: Previously-voted motions shown as unvoted and without prior answer on re-entry
 
-**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`)
+**Status:** ✅ Implemented
 
 **Description:** When a voter has submitted votes for motions 1, 2, and 3 and an admin subsequently makes motion 4 visible, the voter re-authenticates and correctly reaches the voting page (BUG-RV-01 is fixed). However, motions 1, 2, and 3 display with no pre-selected choice — the vote buttons all appear blank. The voter cannot see what they previously voted and can inadvertently submit different choices for motions that have already been answered (the backend will silently ignore those overrides, but the voter experience is confusing and misleading).
 
@@ -781,7 +839,7 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 
 ### BUG-RV-03: Previously-voted motions remain interactive in revote flow instead of being locked
 
-**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 2 section)
+**Status:** ✅ Implemented
 
 **Description:** After BUG-RV-02 is fixed (pre-populated prior choices displayed), motions that the voter has already submitted are still rendered as fully interactive — the vote buttons are enabled and the "Already voted" badge does not appear. The voter can change their prior answer, though the backend silently ignores any re-submission for already-voted motions. The expected UX is: previously-voted motions should be locked (disabled vote buttons, "Already voted" badge visible) and only newly revealed unvoted motions should be interactive.
 
@@ -809,7 +867,7 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 
 ### BUG-RV-04: Per-lot per-motion vote status not available to frontend
 
-**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 3 section)
+**Status:** ✅ Implemented
 
 **Description:** The auth response (`LotInfo`) currently returns only an `already_submitted` boolean per lot. It does not expose which specific motions each lot has already voted on. Without this data the frontend cannot compute per-lot per-motion locking (needed when a multi-lot voter selects lots with different prior-vote coverage) and cannot detect the mixed-selection condition required for BUG-RV-05.
 
@@ -834,7 +892,7 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 
 ### BUG-RV-05: No warning when multi-lot voter selects a mix of voted and unvoted lots
 
-**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 3 section)
+**Status:** ✅ Implemented
 
 **Description:** When a multi-lot voter selects lots with different voting histories (some motions already submitted for some lots but not others), there is no indication that previously submitted votes will not be re-recorded. The voter may believe their new answers override prior votes for affected lots — they do not. The backend silently skips already-voted motions per lot. This silent skip is correct behaviour but is not communicated to the voter. This includes the case where both lots are "partial" but with different motion coverage (e.g., Lot A voted motions 1–2 and Lot B voted motions 1–3).
 
@@ -868,7 +926,7 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 
 ### BUG-MC-01: Motion count display starts at 0 instead of 1
 
-**Status:** Fixed (see `tasks/design/design-fix-motion-count-display.md`)
+**Status:** ✅ Implemented
 
 On the voting screen, motion cards display "Motion N" where N is the raw `order_index` value (0-based). The first motion therefore shows "Motion 0". The fix is a single-line change in `MotionCard.tsx`: display `motion.order_index + 1` instead of `motion.order_index`, making motions read "Motion 1", "Motion 2", etc.
 
@@ -879,6 +937,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 ---
 
 ### US-CFG-01: Admin can view and edit tenant branding settings
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to configure the app name, logo, primary colour, and support email for my deployment so that the voting app reflects my organisation's identity.
 
@@ -901,6 +961,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-CFG-02: Branding config applied app-wide via React context
 
+**Status:** ✅ Implemented
+
 **Description:** As a voter, I want the app to display the configured app name, logo, and primary colour so that the voting experience matches the host organisation's branding.
 
 **Acceptance Criteria:**
@@ -919,6 +981,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-CFG-03: Deployment seeded with default branding on first migration
 
+**Status:** ✅ Implemented
+
 **Description:** As a developer or operator deploying a new instance, I want the system to start with sensible defaults so the app is usable immediately without any manual configuration step.
 
 **Acceptance Criteria:**
@@ -931,6 +995,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 ---
 
 ### US-MC-01: Admin creates a multi-choice motion
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to create a motion where voters select from a list of custom options (e.g., candidates, proposals) so I can run elections or preference votes within the AGM ballot.
 
@@ -952,6 +1018,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-MC-02: Admin edits a multi-choice motion
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to update the options and option limit of a hidden multi-choice motion so I can correct mistakes before making it visible.
 
 **Acceptance Criteria:**
@@ -969,6 +1037,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 ---
 
 ### US-MC-03: Voter votes on a multi-choice motion
+
+**Status:** ✅ Implemented
 
 **Description:** As a lot owner, I want to select from a list of options on a multi-choice motion so I can participate in elections or preference votes within my AGM ballot.
 
@@ -992,6 +1062,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-MC-04: Voter confirmation screen shows multi-choice selections
 
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner, I want the confirmation screen to show which options I selected for multi-choice motions so I have an accurate record of my ballot.
 
 **Acceptance Criteria:**
@@ -1007,6 +1079,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 ---
 
 ### US-MC-05: Admin views multi-choice motion results
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to see per-option vote tallies for multi-choice motions in the results report so I can determine the outcome of elections and preference votes.
 
@@ -1027,6 +1101,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-EMAIL-01: Multi-choice voter listing in results report email
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want the results report email to list which lots voted for each option on multi-choice motions, so I can see per-option voter breakdowns in the same format as yes/no motions.
 
 **Acceptance Criteria:**
@@ -1041,6 +1117,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ### US-EMAIL-02: Motion resolution type in results report email
 
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want the results report email to label each motion as "General Resolution" or "Special Resolution" so the type of approval threshold required is immediately visible.
 
 **Acceptance Criteria:**
@@ -1054,6 +1132,8 @@ No backend or database changes are required. The `order_index` field remains 0-b
 ---
 
 ### US-EMAIL-03: Resend summary email button on admin meeting detail page
+
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want a "Resend Summary Email" button on the closed meeting detail page so I can re-trigger the results email at any time without having to wait for delivery failure.
 
