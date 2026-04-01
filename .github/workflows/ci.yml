@@ -4,7 +4,7 @@ on:
   push:
     branches: [preview]
   pull_request:
-    branches: [preview]
+    branches: [preview, master]
 
 jobs:
   backend:
