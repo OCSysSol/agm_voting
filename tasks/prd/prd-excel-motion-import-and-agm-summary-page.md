@@ -21,6 +21,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 ## User Stories
 
 ### US-013: Download CSV/Excel template for motion import
+
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to download a pre-formatted template so I know exactly how to structure my motions file before uploading.
 
 **Acceptance Criteria:**
@@ -31,6 +34,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Typecheck/lint passes
 
 ### US-014: Upload CSV/Excel file to pre-fill motions on AGM creation form
+
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to upload a CSV or Excel file during AGM creation so that the motions list is pre-filled without manual entry.
 
 **Acceptance Criteria:**
@@ -50,6 +56,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Verify in browser using dev-browser skill
 
 ### US-015: Display all Excel validation errors before import
+
+**Status:** ✅ Implemented
+
 **Description:** As a meeting host, I want to see every error in my uploaded Excel file at once so I can fix them all before re-uploading.
 
 **Acceptance Criteria:**
@@ -67,6 +76,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Verify in browser using dev-browser skill
 
 ### US-016: Public AGM summary page
+
+**Status:** ✅ Implemented
+
 **Description:** As a lot owner or interested party, I want to view a public summary page for an AGM so I can review the motions before or during the meeting without logging in.
 
 **Acceptance Criteria:**
@@ -81,7 +93,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 ### US-017: Share voting link from admin portal
 
-**Status:** 🔄 Partial — some ACs incomplete
+**Status:** ✅ Implemented
 
 **Description:** As a meeting host, I want to easily copy the shareable voting link for a general meeting so I can distribute it to lot owners so they can authenticate and cast their votes.
 
@@ -94,6 +106,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Verify in browser using dev-browser skill
 
 ### US-018: Backend endpoint for AGM public summary
+
+**Status:** ✅ Implemented
+
 **Description:** As a developer, I need a public API endpoint returning AGM summary data so the frontend summary page can fetch it without authentication.
 
 **Acceptance Criteria:**

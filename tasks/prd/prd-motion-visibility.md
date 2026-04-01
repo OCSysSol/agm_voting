@@ -131,6 +131,8 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 ### US-MV08: Bulk hide/show all motions
 
+**Status:** ✅ Implemented
+
 **Description:** As a building manager, I want to show all or hide all motions at once so I can quickly control visibility at the start or end of a voting session without toggling each motion individually.
 
 **Acceptance Criteria:**

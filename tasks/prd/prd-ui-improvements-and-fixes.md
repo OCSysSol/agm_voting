@@ -27,6 +27,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-UI01: Back button on voter-facing pages
 
+**Status:** ✅ Implemented
+
 **Description:** As a voter, I want a back button on each step of the voting flow so I can correct mistakes without being stuck.
 
 **Acceptance Criteria:**
@@ -41,6 +43,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-UI02: Owner edit as centred modal
+
+**Status:** ✅ Implemented
 
 **Description:** As a building manager, I want the lot owner edit form to appear as a centred dialog so it doesn't displace the page layout.
 
@@ -58,6 +62,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-UI03: Email editing in owner edit modal
 
+**Status:** ✅ Implemented
+
 **Description:** As a building manager, I want to add, edit, and remove email addresses for a lot owner from within the edit modal so I can keep contact details current.
 
 **Acceptance Criteria:**
@@ -73,6 +79,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-UI04: Entitlement percentage per motion option (admin report)
+
+**Status:** ✅ Implemented
 
 **Description:** As a building manager, I want to see what percentage of total building entitlement each vote option represents in the AGM report so I can assess the result at a glance.
 
@@ -124,6 +132,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-CD01: Auto-close meetings past their closing date
 
+**Status:** ✅ Implemented
+
 **Description:** As a developer, I need the system to treat a meeting as closed when its `close_date` has passed, even if its `status` has not been manually set to `closed`.
 
 **Acceptance Criteria:**
@@ -136,6 +146,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-CD02: Record absent votes when a meeting closes
+
+**Status:** ✅ Implemented
 
 **Description:** As a developer, I need absent ballot submissions to be created for all lots that have not voted when a meeting is closed (manually or via close date) so the tally correctly reflects non-participation.
 
@@ -150,6 +162,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-UI05: Building filter on General Meetings list
+
+**Status:** ✅ Implemented
 
 **Description:** As a building manager, I want to filter the General Meetings list by building so I can quickly find meetings for a specific building when managing multiple buildings.
 
@@ -167,6 +181,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-CD03: Block voters from entering expired meetings
+
+**Status:** ✅ Implemented
 
 **Description:** As a voter, I should not be able to reach the voting page for a meeting that is past its closing date, so my votes are not silently discarded.
 
@@ -257,6 +273,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-FIX-AS01: Lots and motions show correct submitted state after returning via "View my votes"
 
+**Status:** ✅ Implemented
+
 **Description:** As a voter who has submitted their ballot and then navigated back to the voting page via the "View my votes" button on the confirmation page, I should see my lots correctly labelled "Already submitted" and my motions locked as read-only — not as if I have not voted yet.
 
 **Acceptance Criteria:**
@@ -271,6 +289,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-FIX-NM01: Previously-submitted lots unlock when admin reveals new motions
+
+**Status:** ✅ Implemented
 
 **Description:** As a voter whose lots were all locked ("Already submitted") after voting on all prior motions, I want my lots to automatically become selectable again when the admin reveals a new motion — because I have not yet voted on it.
 
@@ -288,6 +308,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-FIX-NM01-B: Lots remain unlocked after multiple batch-vote cycles (follow-up to US-FIX-NM01)
+
+**Status:** ✅ Implemented
 
 **Description:** As a voter who has completed multiple rounds of batch voting (vote batch 1, navigate away, admin reveals batch 2, return, vote batch 2, navigate away, admin reveals batch 3, return), I want my lots to correctly unlock on every return to the VotingPage — not just on the first round.
 
@@ -310,6 +332,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-UI06: Motion card typography improvements
 
+**Status:** ✅ Implemented
+
 **Description:** As a voter, I want the motion title on each voting card to be clearly legible at a glance and the card content to have consistent spacing, so I can read and respond to each motion without visual effort.
 
 **Acceptance Criteria:**
@@ -324,6 +348,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-UI07: Admin label typography consistency
+
+**Status:** ✅ Implemented
 
 **Description:** As a product owner, I want all "uppercase label" style text in the admin UI to use a consistent font family, size, weight, and letter-spacing so the app looks professionally polished and internally consistent.
 
@@ -340,6 +366,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-FIX-PF01: No pre-fill for unlocked motions on revote
+
+**Status:** ✅ Implemented
 
 **Description:** As a voter returning to the voting page to vote for remaining lots, I should not see motion cards pre-populated with a prior vote choice unless that motion is already locked (read-only) for my current selection — so that I am never misled into thinking a vote has been cast on my behalf.
 
@@ -363,6 +391,8 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ### US-UI08: Show motion numbers in the submit dialog
 
+**Status:** ✅ Implemented
+
 **Description:** As a voter reviewing my ballot before submission, I want to see the motion number alongside each motion title in the unanswered-motions list in the submit dialog, so I can easily locate the correct card on the voting page and answer it.
 
 **Acceptance Criteria:**
@@ -377,6 +407,8 @@ A set of UI improvements and correctness fixes for the voting application:
 ---
 
 ### US-UI09: Fix motion description left padding
+
+**Status:** ✅ Implemented
 
 **Description:** As a voter, I want the motion description text to be padded consistently with the rest of the card content (title and vote buttons), so the card looks visually coherent and the description does not appear to sit flush against the left border.
 

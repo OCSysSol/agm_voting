@@ -12,6 +12,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-VIL-01: Record absent voters at AGM close
 
+**Status:** ✅ Implemented
+
 **As a** meeting organiser,
 **I want** all non-voting lot owners to have a ballot record created when the meeting closes,
 **So that** the audit trail is complete and legally defensible in any post-AGM dispute.

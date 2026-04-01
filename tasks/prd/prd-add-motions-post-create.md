@@ -28,6 +28,8 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 
 ### US-AM01: Backend endpoint to add a motion
 
+**Status:** ✅ Implemented
+
 **As an** admin,
 **I want** a `POST /api/admin/general-meetings/{meeting_id}/motions` endpoint,
 **so that** I can programmatically add a motion to an existing meeting.
@@ -68,6 +70,8 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 
 ### US-AM02: Admin UI — add motion form on meeting detail page
 
+**Status:** ✅ Implemented
+
 **As an** admin,
 **I want** an "Add Motion" button on the meeting detail page,
 **so that** I can add a new motion without leaving the page.
@@ -93,6 +97,8 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 ---
 
 ### US-AM03: Backend endpoint to edit a motion
+
+**Status:** ✅ Implemented
 
 **As an** admin,
 **I want** a `PATCH /api/admin/motions/{motion_id}` endpoint,
@@ -135,6 +141,8 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 
 ### US-AM04: Backend endpoint to delete a motion
 
+**Status:** ✅ Implemented
+
 **As an** admin,
 **I want** a `DELETE /api/admin/motions/{motion_id}` endpoint,
 **so that** I can permanently remove a drafted (hidden) motion that is no longer needed.
@@ -160,6 +168,8 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 ---
 
 ### US-AM05: Admin UI — edit and delete actions per motion
+
+**Status:** ✅ Implemented
 
 **As an** admin,
 **I want** Edit and Delete buttons on each motion row in the meeting detail page,

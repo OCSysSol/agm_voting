@@ -254,9 +254,17 @@ Retrieve with: `security find-generic-password -s "agm-survey" -a "<account>" -w
 
 **Operational docs:** Service level objectives are defined in [`docs/slo.md`](docs/slo.md). Incident runbooks are in [`docs/runbooks/`](docs/runbooks/).
 
+### All branches — Vercel env var setup (required for every branch)
+
+The Vercel `buildCommand` runs `scripts/migrate.sh` which calls `alembic upgrade head` and requires `DATABASE_URL_UNPOOLED` to be set — even on branches with no schema migrations (alembic runs as a no-op but the env var must be present). Without it the Vercel build fails immediately with `BUILD_FAILED`.
+
+**Every branch** must have branch-scoped `DATABASE_URL` and `DATABASE_URL_UNPOOLED` Vercel env vars set before pushing:
+- **No migrations**: point to the existing `preview` Neon branch connection strings (no new Neon branch needed)
+- **Has migrations**: create a new Neon DB branch first (step 1 below), then use those connection strings
+
 ### Schema migration branches — Neon DB branch + Vercel env var setup
 
-Only required when the branch contains Alembic migrations. Run before `git push`.
+Run before `git push`. For non-migration branches, skip step 1 and use the `preview` Neon branch connection strings directly in step 2.
 
 **1. Create Neon DB branch** (branched off `preview`):
 ```bash

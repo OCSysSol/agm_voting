@@ -20,6 +20,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 ### US-PX01: Proxy nomination data model
 
+**Status:** ✅ Implemented
+
 **Description:** As a developer, I need a `lot_proxy` table so proxy nominations can be stored and queried at the building level.
 
 **Acceptance Criteria:**
@@ -35,6 +37,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 ---
 
 ### US-PX02: Import proxy nominations via CSV/Excel
+
+**Status:** ✅ Implemented
 
 **Description:** As a building manager, I want to upload a proxy nomination file so I can bulk-set proxy voters for lots without editing each lot individually.
 
@@ -55,6 +59,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 ### US-PX03: Import lot financial positions via CSV/Excel
 
+**Status:** ✅ Implemented
+
 **Description:** As a building manager, I want to upload a financial position file so I can bulk-update lot arrear status without re-importing the full lot owner list.
 
 **Acceptance Criteria:**
@@ -73,6 +79,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 ### US-PX04: Authentication resolves proxy lots
 
+**Status:** ✅ Implemented
+
 **Description:** As a proxy voter, I want to log in with my own email and see both my own lots and the lots I am nominated to vote for.
 
 **Acceptance Criteria:**
@@ -87,6 +95,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 ---
 
 ### US-PX05: Lot selection UI shows proxy label
+
+**Status:** ✅ Implemented
 
 **Description:** As a proxy voter, I want to see which lots are mine and which I am voting for as proxy, so I can make informed selections.
 
@@ -105,6 +115,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 ### US-PX06: Proxy audit trail on ballot submission
 
+**Status:** ✅ Implemented
+
 **Description:** As a developer, I need to record which ballots were cast by proxy so there is an audit trail in the database.
 
 **Acceptance Criteria:**
@@ -119,6 +131,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 
 ### US-PX07: Admin lot owner detail shows proxy
 
+**Status:** ✅ Implemented
+
 **Description:** As a building manager, I want to see the proxy nomination on the lot owner detail page so I know who is authorised to vote on behalf of that lot.
 
 **Acceptance Criteria:**
@@ -132,6 +146,8 @@ Allow lot owners to nominate a proxy to vote on their behalf at an AGM. A proxy 
 ---
 
 ### US-PX08: Edit proxy nomination inline on lot owner edit screen
+
+**Status:** ✅ Implemented
 
 **Description:** As a building manager, I want to set or remove the proxy for an individual lot owner directly from the edit modal, without needing to prepare and upload a CSV file.
 
