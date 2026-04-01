@@ -878,16 +878,18 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-02: Motion number auto-assign 409 conflict when display_order collides with existing manual number
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As an** admin adding a motion without specifying a motion number,
 **I want** auto-assigned motion numbers to never conflict with existing manually-set motion numbers,
 **So that** the insert does not fail with an unexpected 409 error.
 
 **Acceptance criteria:**
-- [ ] `admin_service.create_motion()` auto-assigns `motion_number` by computing `max(existing motion_number values cast to int) + 1`, not by using `str(display_order)`
-- [ ] If no motions exist yet, auto-assignment starts at `1`
-- [ ] If the max existing `motion_number` is non-numeric (manually set to a label like "A"), auto-assignment falls back to `max(display_order values) + 1`
-- [ ] A unit test covers: auto-assign with no existing motions, auto-assign when display_order equals an existing manual motion_number (previously caused 409), and auto-assign with non-numeric existing motion numbers
-- [ ] No 409 is ever raised for the auto-assign path
+- [x] `admin_service.create_motion()` auto-assigns `motion_number` by computing `max(existing motion_number values cast to int) + 1`, not by using `str(display_order)`
+- [x] If no motions exist yet, auto-assignment starts at `1`
+- [x] If the max existing `motion_number` is non-numeric (manually set to a label like "A"), auto-assignment falls back to `max(display_order values) + 1`
+- [x] A unit test covers: auto-assign with no existing motions, auto-assign when display_order equals an existing manual motion_number (previously caused 409), and auto-assign with non-numeric existing motion numbers
+- [x] No 409 is ever raised for the auto-assign path
 
 **Technical notes:** `backend/app/services/admin_service.py:1379` — motion creation auto-assign logic.
 
@@ -897,15 +899,17 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-03: Toggling archived filter does not reset pagination to page 1
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As an** admin browsing the buildings list,
 **I want** the page number to reset to 1 whenever I toggle the archived/active filter,
 **So that** I do not land on an empty or incorrect page when the filtered set has fewer pages than my current page.
 
 **Acceptance criteria:**
-- [ ] Toggling the "Show archived" filter resets the current page to `1` before issuing the new API request
-- [ ] The same reset behaviour applies to any other filter controls on paginated list pages (status filter on meeting list, etc.)
-- [ ] After reset, the URL search param `page` is set to `1` (or removed if 1 is the default)
-- [ ] A frontend unit test verifies that the page state is reset to 1 when the filter value changes
+- [x] Toggling the "Show archived" filter resets the current page to `1` before issuing the new API request
+- [x] The same reset behaviour applies to any other filter controls on paginated list pages (status filter on meeting list, etc.)
+- [x] After reset, the URL search param `page` is set to `1` (or removed if 1 is the default)
+- [x] A frontend unit test verifies that the page state is reset to 1 when the filter value changes
 - [ ] Verify in browser using dev-browser skill
 
 **Technical notes:** `frontend/src/pages/admin/` — buildings list page and any other paginated list pages that have filter controls.
@@ -916,16 +920,18 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-04: HttpOnly cookie `Secure=True` flag breaks localhost development
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As a** backend developer,
 **I want** the session cookie's `Secure` flag to be conditionally set based on the environment,
 **So that** authentication works on `http://localhost` during local development without requiring HTTPS.
 
 **Acceptance criteria:**
-- [ ] `backend/app/routers/auth.py` sets `secure=True` on the session cookie only when `settings.testing_mode` is `False` (i.e., in production/preview deployments)
-- [ ] In local development (`testing_mode=True` or a new `settings.is_local_dev` flag), the cookie is set with `secure=False`
-- [ ] The change applies to all `set_cookie` calls in `auth.py` (at minimum lines 399 and 578)
-- [ ] The `HttpOnly` and `SameSite=Strict` attributes remain set in all environments — only `Secure` is conditional
-- [ ] A unit test verifies that `secure=False` is used when `testing_mode=True` and `secure=True` when `testing_mode=False`
+- [x] `backend/app/routers/auth.py` sets `secure=True` on the session cookie only when `settings.testing_mode` is `False` (i.e., in production/preview deployments)
+- [x] In local development (`testing_mode=True` or a new `settings.is_local_dev` flag), the cookie is set with `secure=False`
+- [x] The change applies to all `set_cookie` calls in `auth.py` (at minimum lines 399 and 578)
+- [x] The `HttpOnly` and `SameSite=Strict` attributes remain set in all environments — only `Secure` is conditional
+- [x] A unit test verifies that `secure=False` is used when `testing_mode=True` and `secure=True` when `testing_mode=False`
 
 **Technical notes:** `backend/app/routers/auth.py:399, 578`. The `settings` object already has a `testing_mode` flag that can be reused.
 
@@ -935,16 +941,18 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-05: Pagination component missing ARIA attributes
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As a** voter or admin using assistive technology,
 **I want** the pagination control to have correct ARIA attributes,
 **So that** screen readers announce the current page, total pages, and individual page buttons correctly.
 
 **Acceptance criteria:**
-- [ ] Each page button has an `aria-label` (e.g., `aria-label="Page 3"`)
-- [ ] The active/current page button has `aria-current="page"`
-- [ ] The results container (the table or list that updates on page change) has `aria-live="polite"` so screen readers announce when content changes
-- [ ] Previous/Next buttons have descriptive `aria-label` values ("Previous page", "Next page") not just icon content
-- [ ] Disabled Previous/Next buttons have `aria-disabled="true"` in addition to the `disabled` attribute
+- [x] Each page button has an `aria-label` (e.g., `aria-label="Page 3"`)
+- [x] The active/current page button has `aria-current="page"`
+- [x] The results container (the table or list that updates on page change) has `aria-live="polite"` so screen readers announce when content changes
+- [x] Previous/Next buttons have descriptive `aria-label` values ("Previous page", "Next page") not just icon content
+- [x] Disabled Previous/Next buttons have `aria-disabled="true"` in addition to the `disabled` attribute
 - [ ] Verify in browser using dev-browser skill
 
 **Technical notes:** `frontend/src/components/` — the shared Pagination component introduced with the pagination feature.
@@ -955,17 +963,19 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-06: Pagination state not reflected in URL search params
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As an** admin on a paginated list page,
 **I want** the current page number to be stored in the URL,
 **So that** refreshing the page or sharing the URL preserves the current page.
 
 **Acceptance criteria:**
-- [ ] The `page` query param is added to the URL when navigating to a non-first page (e.g., `?building=5&status=open&page=3`)
-- [ ] On initial load, the page number is read from the URL `page` param and used as the initial state
-- [ ] Navigating to a different page updates the URL without adding a new browser history entry (use `replace` not `push`)
-- [ ] Refreshing the page at `?page=3` loads page 3, not page 1
-- [ ] This applies to all paginated list pages: buildings list and general meeting list at minimum
-- [ ] The existing `building` and `status` URL params continue to work alongside `page`
+- [x] The `page` query param is added to the URL when navigating to a non-first page (e.g., `?building=5&status=open&page=3`)
+- [x] On initial load, the page number is read from the URL `page` param and used as the initial state
+- [x] Navigating to a different page updates the URL without adding a new browser history entry (use `replace` not `push`)
+- [x] Refreshing the page at `?page=3` loads page 3, not page 1
+- [x] This applies to all paginated list pages: buildings list and general meeting list at minimum
+- [x] The existing `building` and `status` URL params continue to work alongside `page`
 - [ ] Verify in browser using dev-browser skill
 
 **Technical notes:** `frontend/src/pages/admin/GeneralMeetingListPage.tsx` and buildings list page. Use `useSearchParams` from React Router alongside existing filter param handling.
@@ -976,15 +986,17 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-07: No loading indicator when changing pages
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As an** admin navigating between pages,
 **I want** a loading indicator while the next page of results is fetching,
 **So that** the UI does not silently go blank and I know a request is in progress.
 
 **Acceptance criteria:**
-- [ ] While `isLoading` is `true` on a page-change request, the table area shows a spinner or skeleton rows instead of disappearing
-- [ ] The pagination controls are disabled (or visually inert) while loading to prevent double-clicks
-- [ ] Once loading completes, the spinner/skeleton is replaced by the new results
-- [ ] The loading state is distinct from the initial empty-state (no results found) — a message like "No buildings found" only appears when the request has completed and returned an empty list
+- [x] While `isLoading` is `true` on a page-change request, the table area shows a spinner or skeleton rows instead of disappearing
+- [x] The pagination controls are disabled (or visually inert) while loading to prevent double-clicks
+- [x] Once loading completes, the spinner/skeleton is replaced by the new results
+- [x] The loading state is distinct from the initial empty-state (no results found) — a message like "No buildings found" only appears when the request has completed and returned an empty list
 - [ ] Verify in browser using dev-browser skill
 
 **Technical notes:** `frontend/src/pages/admin/` — buildings list and meeting list pages. Check if a shared `TableSkeleton` or spinner component already exists in the design system before creating a new one.
@@ -995,16 +1007,18 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ### RR2-08: Hidden motions omitted from voter confirmation receipt (legal audit gap)
 
+**Status:** ✅ Implemented — branch: `fix/rr2-02-08`, committed 2026-03-31
+
 **As a** voter who has already submitted a ballot,
 **I want** my confirmation page to show all motions I voted on, even if an admin later hides a motion,
 **So that** my confirmation receipt accurately reflects what I submitted and cannot be silently altered after the fact.
 
 **Acceptance criteria:**
-- [ ] `voting_service.get_my_ballot()` fetches motions based on the voter's actual `Vote` records, not on the current `Motion.is_visible` filter
-- [ ] Motions that have been hidden after submission are included in the confirmation page response; they may be labelled "(hidden)" to distinguish them from currently visible motions
-- [ ] A voter who voted on 5 motions (3 now visible, 2 now hidden) sees all 5 on their confirmation page
-- [ ] An admin who hides a motion after votes are submitted does not alter any voter's confirmation receipt — the `get_my_ballot` response is stable regardless of subsequent visibility changes
-- [ ] Integration test: submit a ballot covering motions A, B, C; hide motion B; call `get_my_ballot`; assert all three motions appear in the response
+- [x] `voting_service.get_my_ballot()` fetches motions based on the voter's actual `Vote` records, not on the current `Motion.is_visible` filter
+- [x] Motions that have been hidden after submission are included in the confirmation page response; they may be labelled "(hidden)" to distinguish them from currently visible motions
+- [x] A voter who voted on 5 motions (3 now visible, 2 now hidden) sees all 5 on their confirmation page
+- [x] An admin who hides a motion after votes are submitted does not alter any voter's confirmation receipt — the `get_my_ballot` response is stable regardless of subsequent visibility changes
+- [x] Integration test: submit a ballot covering motions A, B, C; hide motion B; call `get_my_ballot`; assert all three motions appear in the response
 - [ ] The existing voter confirmation page E2E spec is updated to include a scenario covering a hidden motion appearing in the receipt
 
 **Technical notes:** `backend/app/services/voting_service.py:519` — `get_my_ballot()`. The fix is to JOIN `Vote` records to their `Motion` rows without filtering on `Motion.is_visible`, or to use the `Vote.motion_id` set as the driving filter rather than the motion list. This is a legal/audit issue: a voter's proof of vote must be immutable from their perspective.
