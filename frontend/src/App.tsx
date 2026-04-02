@@ -1,5 +1,5 @@
-import React, { Suspense } from "react";
-import { Routes, Route, Navigate, useParams } from "react-router-dom";
+import React, { Suspense, useEffect } from "react";
+import { Routes, Route, Navigate, useParams, useNavigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { BuildingSelectPage } from "./pages/vote/BuildingSelectPage";
@@ -17,7 +17,11 @@ const AdminRoutes = React.lazy(() => import("./routes/AdminRoutes"));
 
 function VoteMeetingRedirect() {
   const { meetingId } = useParams<{ meetingId: string }>();
-  return <Navigate to={`/vote/${meetingId}/auth`} replace />;
+  const navigate = useNavigate();
+  useEffect(() => {
+    navigate(`/vote/${meetingId}/auth`, { replace: true });
+  }, [meetingId, navigate]);
+  return null;
 }
 
 export default function App() {
