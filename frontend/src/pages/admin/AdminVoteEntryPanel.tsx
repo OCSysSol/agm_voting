@@ -15,6 +15,7 @@ import {
   type AdminVoteEntryLot,
   type AdminVoteEntryItem,
   type AdminMultiChoiceVoteItem,
+  type AdminMultiChoiceOptionChoice,
 } from "../../api/admin";
 import type { LotOwner } from "../../types";
 
@@ -25,16 +26,20 @@ interface AdminVoteEntryPanelProps {
 }
 
 type VoteChoice = "yes" | "no" | "abstained";
+type OptionChoice = "for" | "against" | "abstained";
 
 interface LotVotes {
   /** motion_id -> choice for binary motions */
   choices: Record<string, VoteChoice>;
-  /** motion_id -> option_ids[] for multi-choice */
-  multiChoiceSelections: Record<string, string[]>;
+  /**
+   * US-AVE2-01: motion_id -> option_id -> "for"|"against"|"abstained"
+   * Null/missing = blank (no choice made for that option)
+   */
+  multiChoiceChoices: Record<string, Record<string, OptionChoice>>;
 }
 
 function initialLotVotes(): LotVotes {
-  return { choices: {}, multiChoiceSelections: {} };
+  return { choices: {}, multiChoiceChoices: {} };
 }
 
 function isLotAnswered(lotVotes: LotVotes, visibleMotions: MotionDetail[]): boolean {
@@ -163,26 +168,29 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
     });
   }, []);
 
-  const toggleMultiOption = useCallback(
-    (lotId: string, motionId: string, optionId: string, optionLimit: number | null) => {
+  /**
+   * US-AVE2-01: Set For/Against/Abstain for a single option within a multi-choice motion.
+   * Clicking the same button a second time clears the selection (toggles off).
+   */
+  const setOptionChoice = useCallback(
+    (lotId: string, motionId: string, optionId: string, choice: OptionChoice) => {
       setLotVotes((prev) => {
         const existing = prev[lotId] ?? initialLotVotes();
-        const currentSelection = existing.multiChoiceSelections[motionId] ?? [];
-        let next: string[];
-        if (currentSelection.includes(optionId)) {
-          next = currentSelection.filter((id) => id !== optionId);
-        } else {
-          if (optionLimit !== null && currentSelection.length >= optionLimit) {
-            // at limit — do not add
-            return prev;
-          }
-          next = [...currentSelection, optionId];
-        }
+        const motionChoices = existing.multiChoiceChoices[motionId] ?? {};
+        const currentChoice = motionChoices[optionId];
+        // Toggle off if clicking the same button
+        const nextMotionChoices =
+          currentChoice === choice
+            ? (({ [optionId]: _, ...rest }) => rest)(motionChoices)
+            : { ...motionChoices, [optionId]: choice };
         return {
           ...prev,
           [lotId]: {
             ...existing,
-            multiChoiceSelections: { ...existing.multiChoiceSelections, [motionId]: next },
+            multiChoiceChoices: {
+              ...existing.multiChoiceChoices,
+              [motionId]: nextMotionChoices,
+            },
           },
         };
       });
@@ -213,12 +221,16 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
           motion_id: m.id,
           choice: votes_data.choices[m.id] ?? "abstained",
         }));
+      // US-AVE2-01: build option_choices from non-null per-option selections only
       const multi_choice_votes: AdminMultiChoiceVoteItem[] = visibleMotions
         .filter((m) => m.is_multi_choice === true)
-        .map((m) => ({
-          motion_id: m.id,
-          option_ids: votes_data.multiChoiceSelections[m.id] ?? [],
-        }));
+        .map((m) => {
+          const motionChoices = votes_data.multiChoiceChoices[m.id] ?? {};
+          const option_choices: AdminMultiChoiceOptionChoice[] = Object.entries(motionChoices).map(
+            ([optionId, choice]) => ({ option_id: optionId, choice })
+          );
+          return { motion_id: m.id, option_choices };
+        });
       return { lot_owner_id: lotId, votes, multi_choice_votes };
     });
     submitMutation.mutate(entries);
@@ -519,43 +531,87 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                       }
 
                       if (motion.is_multi_choice === true) {
-                        const selected = votes_data.multiChoiceSelections[motion.id] ?? [];
-                        const atLimit =
-                          motion.option_limit !== null && selected.length >= motion.option_limit;
+                        // US-AVE2-01: per-option For/Against/Abstain buttons
+                        const motionChoices = votes_data.multiChoiceChoices[motion.id] ?? {};
+                        const forCount = Object.values(motionChoices).filter((c) => c === "for").length;
+                        const atForLimit =
+                          motion.option_limit !== null && forCount >= motion.option_limit;
 
                         return (
-                          <td key={lo.id} style={{ textAlign: "center" }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                          <td key={lo.id} style={{ verticalAlign: "top", padding: "8px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               {motion.options.map((opt) => {
-                                const isChecked = selected.includes(opt.id);
-                                const disableCheck = !isChecked && atLimit;
+                                const currentChoice = motionChoices[opt.id] ?? null;
                                 return (
-                                  <label
-                                    key={opt.id}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 4,
-                                      fontSize: "0.8rem",
-                                      cursor: disableCheck ? "not-allowed" : "pointer",
-                                      color: disableCheck ? "var(--text-muted)" : undefined,
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      disabled={disableCheck}
-                                      onChange={() =>
-                                        toggleMultiOption(lo.id, motion.id, opt.id, motion.option_limit)
-                                      }
-                                      aria-label={`${opt.text} for lot ${lo.lot_number}`}
-                                    />
-                                    {opt.text}
-                                  </label>
+                                  <div key={opt.id}>
+                                    <div
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        color: "var(--text-secondary)",
+                                        marginBottom: 2,
+                                      }}
+                                    >
+                                      {opt.text}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 3 }}>
+                                      {(["for", "against", "abstained"] as OptionChoice[]).map((choice) => {
+                                        const isActive = currentChoice === choice;
+                                        const isForDisabled =
+                                          choice === "for" && !isActive && atForLimit;
+                                        return (
+                                          <button
+                                            key={choice}
+                                            type="button"
+                                            onClick={() =>
+                                              setOptionChoice(lo.id, motion.id, opt.id, choice)
+                                            }
+                                            aria-label={`${choice === "for" ? "For" : choice === "against" ? "Against" : "Abstain"} option ${opt.text} lot ${lo.lot_number}`}
+                                            aria-pressed={isActive}
+                                            disabled={isForDisabled}
+                                            style={{
+                                              padding: "2px 6px",
+                                              fontSize: "0.65rem",
+                                              fontWeight: isActive ? 700 : 400,
+                                              borderRadius: "var(--r-sm)",
+                                              border: "1px solid",
+                                              cursor: isForDisabled ? "not-allowed" : "pointer",
+                                              opacity: isForDisabled ? 0.4 : 1,
+                                              background: isActive
+                                                ? choice === "for"
+                                                  ? "var(--green)"
+                                                  : choice === "against"
+                                                  ? "var(--red)"
+                                                  : "var(--text-muted)"
+                                                : "var(--white)",
+                                              color: isActive
+                                                ? "var(--white)"
+                                                : choice === "for"
+                                                ? "var(--green)"
+                                                : choice === "against"
+                                                ? "var(--red)"
+                                                : "var(--text-muted)",
+                                              borderColor:
+                                                choice === "for"
+                                                  ? "var(--green)"
+                                                  : choice === "against"
+                                                  ? "var(--red)"
+                                                  : "var(--border)",
+                                            }}
+                                          >
+                                            {choice === "for"
+                                              ? "For"
+                                              : choice === "against"
+                                              ? "Against"
+                                              : "Abstain"}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
                                 );
                               })}
                               <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 2 }}>
-                                {selected.length}/{motion.option_limit} selected
+                                {forCount} of {motion.option_limit} voted For
                               </div>
                             </div>
                           </td>

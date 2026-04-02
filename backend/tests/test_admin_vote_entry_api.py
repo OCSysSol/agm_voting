@@ -753,3 +753,440 @@ class TestAdminVoteEntry:
 
         assert result["submitted_count"] == 0
         assert result["skipped_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Slice 9 — US-AVE2-01: For/Against/Abstain per multi-choice option
+# ---------------------------------------------------------------------------
+
+
+async def _setup_mc_meeting(
+    db_session: AsyncSession,
+    name: str,
+    option_limit: int = 2,
+    n_options: int = 3,
+    financial_position: str = "normal",
+) -> tuple:
+    """Helper: creates a building, lot, open meeting, MC motion + options."""
+    b = make_building(f"S9 {name}")
+    db_session.add(b)
+    await db_session.flush()
+    lo = make_lot_owner(b, f"S9-{name[:6]}", financial_position=financial_position)
+    db_session.add(lo)
+    await db_session.flush()
+    agm = make_open_meeting(b, f"S9 {name} AGM")
+    db_session.add(agm)
+    await db_session.flush()
+    fp_snap = (
+        FinancialPositionSnapshot.in_arrear
+        if financial_position == "in_arrear"
+        else FinancialPositionSnapshot.normal
+    )
+    w = GeneralMeetingLotWeight(
+        general_meeting_id=agm.id,
+        lot_owner_id=lo.id,
+        unit_entitlement_snapshot=lo.unit_entitlement,
+        financial_position_snapshot=fp_snap,
+    )
+    db_session.add(w)
+    m = Motion(
+        general_meeting_id=agm.id,
+        title=f"S9 MC {name}",
+        display_order=1,
+        is_visible=True,
+        is_multi_choice=True,
+        option_limit=option_limit,
+    )
+    db_session.add(m)
+    await db_session.flush()
+    opts = [
+        MotionOption(motion_id=m.id, text=f"Opt{i+1}", display_order=i + 1)
+        for i in range(n_options)
+    ]
+    for opt in opts:
+        db_session.add(opt)
+    await db_session.commit()
+    await db_session.refresh(agm)
+    await db_session.refresh(lo)
+    for opt in opts:
+        await db_session.refresh(opt)
+    return agm, lo, m, opts
+
+
+class TestAdminMultiChoiceOptionChoiceSchema:
+    """Unit tests for the AdminMultiChoiceOptionChoice Pydantic schema validator."""
+
+    def test_valid_choices_accepted(self):
+        from app.schemas.admin import AdminMultiChoiceOptionChoice
+        import uuid as _uuid
+
+        for choice in ("for", "against", "abstained"):
+            obj = AdminMultiChoiceOptionChoice(option_id=_uuid.uuid4(), choice=choice)
+            assert obj.choice == choice
+
+    def test_invalid_choice_raises(self):
+        from app.schemas.admin import AdminMultiChoiceOptionChoice
+        from pydantic import ValidationError
+        import uuid as _uuid
+
+        with pytest.raises(ValidationError):
+            AdminMultiChoiceOptionChoice(option_id=_uuid.uuid4(), choice="bad_value")
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestAdminVoteEntrySlice9:
+    """Tests for US-AVE2-01: For/Against/Abstain per multi-choice option."""
+
+    async def test_for_choices_create_selected_votes(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """For on 2 options (at limit) → 2 VoteChoice.selected rows."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "ForHappy", option_limit=2)
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "for"},
+                                {"option_id": str(opts[1].id), "choice": "for"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
+
+        await db_session.flush()
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.selected,
+            )
+        )
+        assert len(list(votes_result.scalars().all())) == 2
+
+    async def test_against_choice_creates_against_vote(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Against on 1 option → 1 VoteChoice.against row."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "AgainstHappy")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "against"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.against,
+            )
+        )
+        assert len(list(vote_result.scalars().all())) == 1
+
+    async def test_abstained_choice_creates_abstained_vote_with_option_id(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Abstained on 1 option → 1 VoteChoice.abstained row with motion_option_id set."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "AbstainOpt")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "abstained"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.abstained,
+                Vote.motion_option_id == opts[0].id,
+            )
+        )
+        assert vote_result.scalar_one_or_none() is not None
+
+    async def test_blank_options_not_auto_abstained(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Options with no entry in option_choices create no Vote rows for those options."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "BlankOpts", n_options=3)
+        # Only vote on opts[0]; opts[1] and opts[2] get no entry
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "for"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        # Only 1 vote row (for opts[0]); opts[1] and opts[2] have no row
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        all_votes = list(votes_result.scalars().all())
+        # 1 "for" vote with motion_option_id = opts[0].id; no rows for opts[1/2]
+        assert len(all_votes) == 1
+        assert all_votes[0].choice == VoteChoice.selected
+        assert all_votes[0].motion_option_id == opts[0].id
+
+    async def test_option_limit_enforced_on_for_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """More than option_limit For choices → 422; Against does not count toward limit."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "LimitFor", option_limit=2, n_options=3)
+        # 3 Against + 2 For (limit=2): should succeed because Against doesn't count
+        payload_ok = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "for"},
+                                {"option_id": str(opts[1].id), "choice": "for"},
+                                {"option_id": str(opts[2].id), "choice": "against"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp_ok = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload_ok
+        )
+        assert resp_ok.status_code == 200
+
+    async def test_for_exceeds_limit_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Sending more For options than option_limit → 422."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "LimitExceed", option_limit=2, n_options=3)
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "for"},
+                                {"option_id": str(opts[1].id), "choice": "for"},
+                                {"option_id": str(opts[2].id), "choice": "for"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_legacy_option_ids_still_works(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Legacy option_ids format (all treated as For) still produces VoteChoice.selected rows."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "LegacyIds", option_limit=2)
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_ids": [str(opts[0].id), str(opts[1].id)],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
+
+        await db_session.flush()
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.selected,
+            )
+        )
+        assert len(list(votes_result.scalars().all())) == 2
+
+    async def test_empty_option_choices_causes_motion_level_abstain(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Empty option_choices (no options entered) → single motion-level abstain row."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "EmptyChoices")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.abstained,
+                Vote.motion_option_id.is_(None),
+            )
+        )
+        assert vote_result.scalar_one_or_none() is not None
+
+    async def test_invalid_choice_string_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Unknown choice string in option_choices → 422."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "BadChoiceStr")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "invalid"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_invalid_option_id_in_option_choices_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Unknown option_id in option_choices → 422."""
+        agm, lo, m, opts = await _setup_mc_meeting(db_session, "BadOptId")
+        fake_opt = str(uuid.uuid4())
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": fake_opt, "choice": "for"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_mixed_for_against_abstained_creates_correct_rows(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """For, Against, Abstained choices all recorded correctly in a single entry."""
+        agm, lo, m, opts = await _setup_mc_meeting(
+            db_session, "MixedChoices", option_limit=2, n_options=3
+        )
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m.id),
+                            "option_choices": [
+                                {"option_id": str(opts[0].id), "choice": "for"},
+                                {"option_id": str(opts[1].id), "choice": "against"},
+                                {"option_id": str(opts[2].id), "choice": "abstained"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        for opt, expected_choice in zip(opts, [VoteChoice.selected, VoteChoice.against, VoteChoice.abstained]):
+            vote_result = await db_session.execute(
+                select(Vote).where(
+                    Vote.general_meeting_id == agm.id,
+                    Vote.lot_owner_id == lo.id,
+                    Vote.motion_option_id == opt.id,
+                )
+            )
+            vote = vote_result.scalar_one()
+            assert vote.choice == expected_choice

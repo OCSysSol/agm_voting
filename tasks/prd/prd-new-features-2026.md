@@ -405,7 +405,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-AVE2-01: Admin vote entry shows For/Against/Abstain buttons per multi-choice option
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin entering in-person votes, I want each multi-choice option to have For / Against / Abstain buttons in the vote entry grid, matching the voter-facing UX, so that I can accurately capture how each in-person voter expressed their intent on each option.
 

@@ -3294,8 +3294,10 @@ async def enter_votes_for_meeting(
                 )
             inline_lookup[mid] = choice_map[choice_str]
 
-        # Build multi-choice vote lookup: motion_id -> [option_ids]
-        mc_lookup: dict[uuid.UUID, list[uuid.UUID]] = {}
+        # Build multi-choice vote lookup (US-AVE2-01):
+        # motion_id -> list of (option_id, VoteChoice) pairs
+        # Supports both new option_choices format and legacy option_ids format.
+        mc_lookup: dict[uuid.UUID, list[tuple[uuid.UUID, VoteChoice]]] = {}
         for mv in entry.multi_choice_votes:
             mid = uuid.UUID(str(mv["motion_id"])) if not isinstance(mv["motion_id"], uuid.UUID) else mv["motion_id"]
             if mid not in valid_motion_ids:
@@ -3303,26 +3305,63 @@ async def enter_votes_for_meeting(
                     status_code=422,
                     detail=f"Unknown motion ID {mid}",
                 )
-            opt_ids = [
-                uuid.UUID(str(oid)) if not isinstance(oid, uuid.UUID) else oid
-                for oid in mv.get("option_ids", [])
-            ]
-            # Validate option IDs belong to this motion
             valid_opts = mc_options_map.get(mid, set())
-            for oid in opt_ids:
-                if oid not in valid_opts:
+            mc_m = mc_motion_map.get(mid)
+
+            # New format: option_choices takes precedence over option_ids
+            raw_option_choices = mv.get("option_choices") or []
+            raw_option_ids = mv.get("option_ids") or []
+
+            option_choice_map = {
+                "for": VoteChoice.selected,
+                "against": VoteChoice.against,
+                "abstained": VoteChoice.abstained,
+            }
+
+            if raw_option_choices:
+                # New format: [{option_id, choice}]
+                pairs: list[tuple[uuid.UUID, VoteChoice]] = []
+                for oc in raw_option_choices:
+                    oid = uuid.UUID(str(oc["option_id"])) if not isinstance(oc.get("option_id"), uuid.UUID) else oc["option_id"]
+                    if oid not in valid_opts:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Invalid option ID {oid} for motion {mid}",
+                        )
+                    choice_str = str(oc.get("choice", "")).lower()
+                    if choice_str not in option_choice_map:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Invalid choice '{oc.get('choice')}' for option {oid}",
+                        )
+                    pairs.append((oid, option_choice_map[choice_str]))
+                # Enforce option_limit on "for" choices only
+                for_count = sum(1 for _, c in pairs if c == VoteChoice.selected)
+                if mc_m and mc_m.option_limit is not None and for_count > mc_m.option_limit:
                     raise HTTPException(
                         status_code=422,
-                        detail=f"Invalid option ID {oid} for motion {mid}",
+                        detail=f"Selected {for_count} 'for' options but limit is {mc_m.option_limit}",
                     )
-            # Validate option_limit
-            mc_m = mc_motion_map.get(mid)
-            if mc_m and mc_m.option_limit is not None and len(opt_ids) > mc_m.option_limit:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Selected {len(opt_ids)} options but limit is {mc_m.option_limit}",
-                )
-            mc_lookup[mid] = opt_ids
+                mc_lookup[mid] = pairs
+            else:
+                # Legacy format: option_ids treated as all "for"
+                opt_ids = [
+                    uuid.UUID(str(oid)) if not isinstance(oid, uuid.UUID) else oid
+                    for oid in raw_option_ids
+                ]
+                for oid in opt_ids:
+                    if oid not in valid_opts:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Invalid option ID {oid} for motion {mid}",
+                        )
+                # Validate option_limit (legacy: all are "for")
+                if mc_m and mc_m.option_limit is not None and len(opt_ids) > mc_m.option_limit:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Selected {len(opt_ids)} options but limit is {mc_m.option_limit}",
+                    )
+                mc_lookup[mid] = [(oid, VoteChoice.selected) for oid in opt_ids]
 
         # Build Vote rows for all visible motions
         votes_to_add: list[Vote] = []
@@ -3341,8 +3380,9 @@ async def enter_votes_for_meeting(
                     ))
                     continue
 
-                selected_option_ids = mc_lookup.get(motion.id, [])
-                if not selected_option_ids:
+                option_pairs = mc_lookup.get(motion.id, [])
+                if not option_pairs:
+                    # No options specified → motion-level abstain
                     votes_to_add.append(Vote(
                         general_meeting_id=general_meeting_id,
                         motion_id=motion.id,
@@ -3352,13 +3392,13 @@ async def enter_votes_for_meeting(
                         status=VoteStatus.submitted,
                     ))
                 else:
-                    for opt_id in selected_option_ids:
+                    for opt_id, vote_choice in option_pairs:
                         votes_to_add.append(Vote(
                             general_meeting_id=general_meeting_id,
                             motion_id=motion.id,
                             voter_email="admin",
                             lot_owner_id=lot_owner_id,
-                            choice=VoteChoice.selected,
+                            choice=vote_choice,
                             motion_option_id=opt_id,
                             status=VoteStatus.submitted,
                         ))
