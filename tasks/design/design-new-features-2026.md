@@ -2,7 +2,7 @@
 
 ## Overview
 
-Seven features are added to the AGM Voting App: admin in-person vote entry, lot owner and proxy names, per-option For/Against/Abstain on multi-choice motions (voter-facing only), multi-choice pass/fail result calculation, a QR code for the voter share link, cross-owner ballot visibility on the confirmation page, and per-motion voting windows. Each feature is described as an independently deployable vertical slice below.
+Ten features are added to the AGM Voting App: admin in-person vote entry, lot owner and proxy names, per-option For/Against/Abstain on multi-choice motions (voter-facing only), multi-choice pass/fail result calculation, a QR code for the voter share link, cross-owner ballot visibility on the confirmation page, per-motion voting windows, DB-backed SMTP configuration in the admin UI, For/Against/Abstain buttons per multi-choice option in the admin vote entry grid, and For/Against/Abstain tallies per option in the admin meeting results view. Each feature is described as an independently deployable vertical slice below.
 
 ---
 
@@ -391,14 +391,236 @@ No foreign key; no cascade. The column is set by `POST /api/admin/motions/{id}/c
 
 ---
 
+### Slice 8 — DB-Backed SMTP Configuration (US-SMTP-01 through US-SMTP-06)
+
+#### Database changes
+
+**New table `tenant_smtp_config`:**
+
+```sql
+CREATE TABLE tenant_smtp_config (
+    id               INTEGER PRIMARY KEY DEFAULT 1,
+    smtp_host        VARCHAR NOT NULL DEFAULT '',
+    smtp_port        INTEGER NOT NULL DEFAULT 587,
+    smtp_username    VARCHAR NOT NULL DEFAULT '',
+    smtp_password_enc VARCHAR,          -- AES-256-GCM encrypted, base64-encoded; NULL means not set
+    smtp_from_email  VARCHAR NOT NULL DEFAULT '',
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+Row `id = 1` is the singleton. A CHECK constraint `id = 1` enforces the singleton invariant. Seeded by the migration from existing `SMTP_*` env vars (if present).
+
+**No changes to `TenantConfig` table** — SMTP is kept in a separate table to isolate credentials.
+
+#### Backend changes
+
+**New model** `backend/app/models/tenant_smtp_config.py`:
+- `TenantSmtpConfig` SQLAlchemy model mirroring the table above.
+- `smtp_password_enc` is stored encrypted; a `@property` method `smtp_password` decrypts and returns the plaintext using the `SMTP_ENCRYPTION_KEY` env var. If the key is absent or the field is null, returns `""`.
+
+**New encryption utility** `backend/app/crypto.py`:
+- `encrypt_smtp_password(plaintext: str, key_b64: str) -> str` — AES-256-GCM, returns base64-encoded `nonce + ciphertext + tag`.
+- `decrypt_smtp_password(enc_b64: str, key_b64: str) -> str` — reverses the above.
+- Uses Python `cryptography` library (`Fernet`-style but with explicit GCM for auditability).
+
+**New service** `backend/app/services/smtp_config_service.py`:
+- `get_smtp_config(db) -> TenantSmtpConfig` — returns singleton row; creates empty default row if missing.
+- `update_smtp_config(data: SmtpConfigUpdate, db) -> TenantSmtpConfig` — upserts all fields; if `password` field in `data` is `None` or empty string, leaves `smtp_password_enc` unchanged.
+- `is_smtp_configured(db) -> bool` — returns `True` only when `smtp_host`, `smtp_username`, `smtp_from_email` are non-empty AND `smtp_password_enc IS NOT NULL`.
+
+**New Pydantic schemas** `backend/app/schemas/config.py` (additions):
+- `SmtpConfigOut`: `smtp_host`, `smtp_port`, `smtp_username`, `smtp_from_email` — **no** `smtp_password` field.
+- `SmtpConfigUpdate`: `smtp_host`, `smtp_port`, `smtp_username`, `smtp_from_email` (all required), `smtp_password: str | None = None` (optional; `None` = keep existing).
+- `SmtpStatusOut`: `{"configured": bool}`.
+
+**New endpoints** in `backend/app/routers/admin.py`:
+- `GET /api/admin/config/smtp` → `SmtpConfigOut` (no password field in response).
+- `PUT /api/admin/config/smtp` → `SmtpConfigOut` — calls `smtp_config_service.update_smtp_config`.
+- `POST /api/admin/config/smtp/test` — loads current DB config, attempts `aiosmtplib.send` of a plain-text test message to `smtp_from_email`; returns `{"ok": true}` on success or raises HTTPException with the SMTP error message; rate-limited to 5 requests/min per admin session.
+- `GET /api/admin/config/smtp/status` → `SmtpStatusOut` — unauthenticated-accessible (needed by admin layout banner, which is already behind admin auth, but this keeps the status check cheap).
+
+**Modified `email_service.py`**:
+- `send_report()` and `send_otp_email()` both gain a new `db: AsyncSession` parameter (already present on `send_report` via the `EmailService` class; add to `send_otp_email` call signature or pass via a new `_get_smtp_config(db)` helper).
+- Both functions call `smtp_config_service.get_smtp_config(db)` to obtain `host`, `port`, `username`, `password` (decrypted), `from_email`. If any required field is empty, raise `SmtpNotConfiguredError` (new exception class in `email_service.py`).
+- `SmtpNotConfiguredError` is caught in `trigger_with_retry`: transitions `EmailDelivery.status = failed` immediately (no retry) and sets `last_error = "SMTP not configured — configure mail server in admin settings"`.
+
+**Modified `config.py` (Settings)**:
+- `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`, `smtp_from_email` fields are marked deprecated with a comment; they are retained for the migration seeding step only and must be removed in a subsequent release.
+- `smtp_encryption_key: str = ""` — new field for the AES key; logged as WARNING on startup if empty.
+
+**Migration** (`backend/alembic/versions/`):
+- Creates `tenant_smtp_config` table.
+- Data migration: reads `settings.smtp_host` etc. at migration time; if `smtp_host` is non-empty, inserts seed row; encrypts password if `settings.smtp_encryption_key` is non-empty.
+- The migration is written to be idempotent: skips the seed insert if a row already exists.
+
+#### Frontend changes
+
+**Modified `SettingsPage.tsx`**:
+- On mount, also calls `GET /api/admin/config/smtp` to load SMTP fields.
+- New "Mail Server" card section below Tenant Branding:
+  - Fields: Host (text, required), Port (number, min=1, max=65535, default 587), Username (text, required), From email (type="email", required), Password (type="password", placeholder="Enter new password to change", `autocomplete="new-password"`).
+  - Save button submits `PUT /api/admin/config/smtp`.
+  - "Send test email" button calls `POST /api/admin/config/smtp/test`; shows inline success/error message.
+- If SMTP fields load as all-empty (unconfigured), shows an amber inline notice above the Mail Server fields.
+
+**Modified `AdminLayout.tsx`** (or a new `SmtpWarningBanner` component):
+- On mount, calls `GET /api/admin/config/smtp/status`.
+- When `configured = false`, renders a dismissible amber banner at the top of the admin shell content area (not inside the nav).
+
+**New API client functions** in `frontend/src/api/config.ts`:
+- `getSmtpConfig()` → `SmtpConfigOut`.
+- `updateSmtpConfig(data: SmtpConfigUpdate)` → `SmtpConfigOut`.
+- `testSmtpConfig()` → `{ok: true}` or throws with error message.
+- `getSmtpStatus()` → `{configured: boolean}`.
+
+---
+
+### Slice 9 — Admin Vote Entry: For/Against/Abstain Per Multi-Choice Option (US-AVE2-01)
+
+This slice modifies the admin vote entry panel only. It is a companion to Slice 3 (voter-facing For/Against/Abstain) and depends on the `VoteChoice.against` enum value added in Slice 3.
+
+#### Database changes
+
+None. `VoteChoice.against` was added in Slice 3. No new schema changes are required.
+
+#### Backend changes
+
+**Modified `enter_votes_for_meeting`** (`backend/app/services/admin_service.py`):
+- The `AdminMultiChoiceVoteItem` request schema changes from `{motion_id, option_ids: [uuid]}` to `{motion_id, option_choices: [{option_id, choice: "for"|"against"|"abstained"}]}`.
+- Backward compatibility: the old `option_ids` field is accepted alongside `option_choices` (if `option_ids` is non-empty and `option_choices` is absent, treat all listed `option_ids` as `choice = "for"`). Both fields are optional in the request schema; the service picks `option_choices` first.
+- Vote recording per choice:
+  - `"for"` → `Vote(choice=VoteChoice.selected, motion_option_id=option_id)` (consistent with voter flow).
+  - `"against"` → `Vote(choice=VoteChoice.against, motion_option_id=option_id)`.
+  - `"abstained"` → `Vote(choice=VoteChoice.abstained, motion_option_id=option_id)`.
+  - Options with no entry in `option_choices` are omitted entirely (not auto-abstained); this matches the "blank = no vote" semantic defined in US-AVE2-01.
+- `option_limit` enforcement: count only `choice == "for"` entries; return 422 if `for_count > option_limit`.
+
+**Modified Pydantic schemas** `backend/app/schemas/admin.py`:
+- `AdminMultiChoiceOptionChoice`: `{option_id: UUID, choice: Literal["for","against","abstained"]}`.
+- `AdminMultiChoiceVoteItem`: add `option_choices: list[AdminMultiChoiceOptionChoice] | None = None`; retain `option_ids: list[UUID] | None = None` for backward compatibility.
+
+#### Frontend changes
+
+**Modified `AdminVoteEntryPanel.tsx`**:
+
+Replace the checkbox-per-option cell (`toggleMultiOption` + `multiChoiceSelections`) with a per-option For/Against/Abstain button group.
+
+State shape change:
+```typescript
+// Old
+multiChoiceSelections: Record<string, string[]>  // motion_id -> option_ids[]
+
+// New
+multiChoiceChoices: Record<string, Record<string, "for" | "against" | "abstained">>
+// motion_id -> option_id -> choice
+```
+
+New handler `setOptionChoice(lotId, motionId, optionId, choice)` replaces `toggleMultiOption`.
+
+Per-option cell renders three compact toggle buttons ("For", "Against", "Abstain") with the same `aria-pressed` pattern as the binary motion buttons. "For" button is disabled when `forCount >= option_limit AND currentChoice !== "for"`.
+
+Counter label: `{forCount} of {option_limit} voted For`.
+
+Submission: build `option_choices: [{option_id, choice}]` for options where a choice has been made; omit options with no selection.
+
+`isLotAnswered` for multi-choice: unchanged — multi-choice motions are always considered "answered" regardless of per-option selections (matches existing behaviour).
+
+**Modified API types** `frontend/src/api/admin.ts`:
+- Add `AdminMultiChoiceOptionChoice: {option_id: string; choice: "for"|"against"|"abstained"}`.
+- Update `AdminMultiChoiceVoteItem`: replace `option_ids: string[]` with `option_choices: AdminMultiChoiceOptionChoice[]` (send only this field for new submissions).
+
+---
+
+### Slice 10 — Admin Results: For/Against/Abstain Tallies Per Option (US-MC-ADMIN-01)
+
+This slice depends on Slice 9 (which generates `against` vote rows) and on Slice 4 (which stores the `outcome` on `motion_options`).
+
+#### Database changes
+
+**Modified `motion_options` table** — add tally snapshot columns (stored at meeting close for auditability):
+
+```sql
+ALTER TABLE motion_options
+  ADD COLUMN for_voter_count      INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN for_entitlement_sum  INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN against_voter_count  INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN against_entitlement_sum INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN abstained_voter_count   INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN abstained_entitlement_sum INTEGER NOT NULL DEFAULT 0;
+```
+
+These are populated by `compute_multi_choice_outcomes` at meeting close. Storing them avoids an O(V×M×O) recalculation on every admin detail page load and provides a stable audit record.
+
+#### Backend changes
+
+**Modified `compute_multi_choice_outcomes`** (`backend/app/services/admin_service.py`):
+- For each option, compute:
+  - `for_voter_count`, `for_entitlement_sum` (votes with `choice = selected`).
+  - `against_voter_count`, `against_entitlement_sum` (votes with `choice = against`).
+  - `abstained_voter_count`, `abstained_entitlement_sum` (votes with `choice = abstained` and `motion_option_id = option.id`).
+- Persist all six counts on `MotionOption`.
+- Pass/fail algorithm (updated from Slice 4 to use stored `against_entitlement_sum`):
+  1. An option **fails** if `against_entitlement_sum / total_building_entitlement > 0.50`.
+  2. Remaining (non-failed) options ranked by `for_entitlement_sum` descending.
+  3. Top `option_limit` non-failed options **pass** (with tie-breaking as in Slice 4).
+- This replaces the previous algorithm that used only "selected" count.
+
+**Modified `get_general_meeting_detail`** (`backend/app/services/admin_service.py`):
+- `OptionTallyEntry` is extended with the six stored tally fields plus alias fields:
+  - `for_voter_count`, `for_entitlement_sum` (new primary names).
+  - `against_voter_count`, `against_entitlement_sum`.
+  - `abstained_voter_count`, `abstained_entitlement_sum`.
+  - `voter_count` (alias for `for_voter_count` — deprecated, kept for one release).
+  - `entitlement_sum` (alias for `for_entitlement_sum` — deprecated, kept for one release).
+- `voter_lists` response is extended:
+  - `options_for: dict[str, list[BallotVoterItem]]` — lot voters who voted For for each `option_id`.
+  - `options_against: dict[str, list[BallotVoterItem]]` — voters who voted Against.
+  - `options_abstained: dict[str, list[BallotVoterItem]]` — voters who explicitly Abstained.
+  - The existing `options: dict[str, list[BallotVoterItem]]` field remains as an alias for `options_for` during the transition window.
+
+**Modified Pydantic schemas** `backend/app/schemas/admin.py`:
+- `OptionTallyEntry`: add six new count fields + two alias fields.
+- `MotionVoterLists`: add `options_for`, `options_against`, `options_abstained` dicts alongside the existing `options` dict alias.
+
+**Modified email template** (`backend/app/templates/report_email.html`):
+- For multi-choice motions, render each option with three rows: For, Against, Abstained — each showing voter count and entitlement sum. Keep existing option name + outcome badge.
+
+#### Frontend changes
+
+**Modified `AGMReportView.tsx`** (`frontend/src/components/admin/AGMReportView.tsx`):
+
+For each multi-choice option row, replace the current single row (showing `voter_count` / `entitlement_sum`) with a collapsible section:
+
+```
+[Option text]    [OutcomeBadge]         [▶ expand]
+  For            voter_count  ent_sum
+  Against        voter_count  ent_sum
+  Abstained      voter_count  ent_sum
+```
+
+- The option header row is always visible; For/Against/Abstained sub-rows are hidden by default and revealed via a `<details>/<summary>` element or a state toggle.
+- Each sub-row is further expandable to show the voter list for that category (same drill-down pattern used today for general/special motion categories).
+- The voter list drill-down is collapsed by default.
+- `OutcomeBadge` moves to the option header row.
+
+**New TypeScript types** `frontend/src/api/admin.ts`:
+- Extend `OptionTallyEntry` with `for_voter_count`, `for_entitlement_sum`, `against_voter_count`, `against_entitlement_sum`, `abstained_voter_count`, `abstained_entitlement_sum`.
+- Add `options_for`, `options_against`, `options_abstained` to the voter lists type alongside the existing `options` alias.
+
+**Modified CSV export** in `AGMReportView.handleExportCSV`:
+- For multi-choice motions, replace the current per-option voter-list rows with three sets of rows per option: one for "For" voters (from `voter_lists.options_for[option_id]`), one for "Against" (`options_against`), one for "Abstained" (`options_abstained`). Category column shows "Option: {text} — For", "Option: {text} — Against", "Option: {text} — Abstained".
+
+---
+
 ## Security Considerations
 
-- **Authentication**: all new admin endpoints (`POST /api/admin/general-meetings/{id}/enter-votes`, `POST /api/admin/motions/{id}/close`) are protected by `require_admin`. The voter `GET /api/general-meeting/{id}/motions` and `POST /api/general-meeting/{id}/submit` changes are already session-protected.
-- **Input validation**: `enter-votes` validates `lot_owner_ids` against the building's lot roster; foreign IDs are rejected with 422. `option_limit` enforcement is handled by the existing `submit_ballot` service.
+- **Authentication**: all new admin endpoints (`POST /api/admin/general-meetings/{id}/enter-votes`, `POST /api/admin/motions/{id}/close`, `GET/PUT /api/admin/config/smtp`, `POST /api/admin/config/smtp/test`, `GET /api/admin/config/smtp/status`) are protected by `require_admin`. The voter `GET /api/general-meeting/{id}/motions` and `POST /api/general-meeting/{id}/submit` changes are already session-protected.
+- **Input validation**: `enter-votes` validates `lot_owner_ids` against the building's lot roster; foreign IDs are rejected with 422. `option_limit` enforcement is handled by the existing `submit_ballot` service. SMTP config fields are validated server-side (port range 1–65535, from_email must be a valid email address, host must be non-empty).
 - **Session/cookies**: no changes to session handling.
-- **Secrets**: no new credentials required. `qrcode.react` is a client-side library; no server secrets involved.
-- **Rate limiting**: the existing ballot submit rate limiter (10 req/min per email) applies to `submit_ballot` called by the new admin vote entry path. The admin session is already authenticated, so no additional rate limiting is needed on `enter-votes`.
-- **Data exposure**: `get_my_ballot` broadening (Slice 6) only returns data for lots the authenticated voter is legitimately associated with (same `lot_owner_id` resolution as `list_motions`). No cross-building or cross-meeting data is exposed.
+- **Secrets**: Slice 8 introduces `SMTP_ENCRYPTION_KEY` — a 32-byte random key stored as a base64-encoded env var. The encrypted password is stored in the DB but never returned to clients. The key must be rotated if compromised; a key-rotation endpoint is out of scope but documented as a runbook step. `qrcode.react` is a client-side library; no server secrets involved.
+- **Rate limiting**: the `POST /api/admin/config/smtp/test` endpoint is rate-limited to 5 calls/min per admin session to prevent SMTP relay abuse. The existing ballot submit rate limiter applies to `submit_ballot` called by admin vote entry.
+- **Data exposure**: `get_my_ballot` broadening (Slice 6) only returns data for lots the authenticated voter is legitimately associated with (same `lot_owner_id` resolution as `list_motions`). No cross-building or cross-meeting data is exposed. SMTP password is write-only: `GET /api/admin/config/smtp` and `SmtpConfigOut` never include the password field.
 
 ---
 
@@ -430,6 +652,14 @@ No foreign key; no cascade. The column is set by `POST /api/admin/motions/{id}/c
 | `frontend/src/pages/voter/ConfirmationPage.tsx` | Show "submitted by" note (Slice 6); show per-option choices for multi-choice (Slice 3) |
 | `frontend/src/pages/admin/BuildingDetailPage.tsx` | Add given name/surname fields to Add and Edit lot owner forms; add Name column to table |
 | `frontend/tests/msw/handlers.ts` | Add MSW handlers for new endpoints |
+| `backend/app/models/tenant_smtp_config.py` | New model for SMTP singleton config row |
+| `backend/app/crypto.py` | New AES-256-GCM encrypt/decrypt utility for SMTP password |
+| `backend/app/services/smtp_config_service.py` | New service: get/update/status for SMTP config |
+| `backend/app/schemas/config.py` | Add `SmtpConfigOut`, `SmtpConfigUpdate`, `SmtpStatusOut` |
+| `backend/app/models/motion_option.py` | Add six tally snapshot columns (for/against/abstained counts + sums) |
+| `frontend/src/api/config.ts` | Add `getSmtpConfig`, `updateSmtpConfig`, `testSmtpConfig`, `getSmtpStatus` functions |
+| `frontend/src/pages/admin/SettingsPage.tsx` | Add Mail Server section with SMTP fields + test button |
+| `frontend/src/pages/admin/AdminLayout.tsx` | Add SMTP unconfigured banner |
 
 ---
 
@@ -521,9 +751,57 @@ No foreign key; no cascade. The column is set by `POST /api/admin/motions/{id}/c
 
 ---
 
+### Slice 8 — SMTP Config in UI
+
+**Unit / Integration:**
+- `get_smtp_config` returns default empty row when table has no row.
+- `update_smtp_config` with all fields: row is upserted; password is encrypted.
+- `update_smtp_config` with blank password: existing encrypted password is retained.
+- `is_smtp_configured` returns `False` when host is empty; `True` when all required fields set.
+- `send_report` raises `SmtpNotConfiguredError` when host is empty; `EmailDelivery.status = failed` immediately with no retry.
+- `send_otp_email` raises `SmtpNotConfiguredError` when unconfigured.
+- `POST /api/admin/config/smtp/test` — success: returns `{ok: true}`; SMTP failure: returns 400 with SMTP error message.
+- `GET /api/admin/config/smtp` never includes `smtp_password` field in response.
+- Migration seeding: when `SMTP_HOST` env var is set, the migration inserts a seed row; running migration twice does not duplicate the row.
+
+**E2E:**
+- Admin navigates to Settings; enters SMTP host/port/username/from-email/password; saves; "Saved" message appears.
+- Admin clicks "Send test email"; inline success message appears.
+- Unconfigured banner visible on meetings list page; disappears after saving valid SMTP config.
+
+### Slice 9 — Admin Vote Entry For/Against/Abstain Per Option
+
+**Unit / Integration:**
+- `enter_votes_for_meeting` with `option_choices` containing For on 2 options (limit 2): 2 `Vote(choice=selected)` rows.
+- `enter_votes_for_meeting` with Against on 1 option: 1 `Vote(choice=against)` row.
+- `enter_votes_for_meeting` with more than `option_limit` For choices: returns 422.
+- `enter_votes_for_meeting` with blank options (no `option_choices` entry): no Vote row created for that option.
+- Backward compatibility: `option_ids` field still accepted; treated as all-"for".
+- Against votes do not count toward `option_limit`; sending 3 Against + 2 For when limit=2 is valid.
+
+**E2E:**
+- Admin opens vote entry grid for a multi-choice motion; sees For/Against/Abstain buttons per option; For buttons disable at limit; Against does not count toward limit; submits successfully.
+
+### Slice 10 — Admin Results For/Against/Abstain Tally Per Option
+
+**Unit / Integration:**
+- `compute_multi_choice_outcomes` with Against votes present: option with Against > 50% of building entitlement is marked `fail` regardless of For votes.
+- `compute_multi_choice_outcomes` stores `for_voter_count`, `against_voter_count`, `abstained_voter_count` on each `MotionOption`.
+- `get_general_meeting_detail` returns `for_voter_count`, `against_voter_count`, `abstained_voter_count` on each option tally entry.
+- `get_general_meeting_detail` returns `voter_lists.options_for`, `voter_lists.options_against`, `voter_lists.options_abstained`.
+- Old alias fields (`voter_count`, `entitlement_sum`, `options`) still present in response for backward compatibility.
+- CSV export includes For/Against/Abstained rows per option.
+
+**E2E:**
+- Admin closes a meeting with a multi-choice motion where some lots voted Against; results page shows For/Against/Abstained counts per option; option with Against > 50% shows "Fail" badge; expand toggle reveals voter lists per category.
+
+---
+
 ## Schema Migration Required
 
-Yes — a single Alembic migration covers all schema changes:
+Yes — migrations cover all schema changes:
+
+**Original seven-slice migration (additive, backward-compatible):**
 1. `ballot_submissions.submitted_by_admin` (BOOLEAN NOT NULL DEFAULT FALSE)
 2. `lot_owners.given_name` (VARCHAR nullable), `lot_owners.surname` (VARCHAR nullable)
 3. `lot_proxies.given_name` (VARCHAR nullable), `lot_proxies.surname` (VARCHAR nullable)
@@ -531,24 +809,41 @@ Yes — a single Alembic migration covers all schema changes:
 5. `motion_options.outcome` (VARCHAR nullable, CHECK IN ('pass','fail','tie'))
 6. `votechoice` enum: add `'against'` value
 
-All changes are additive (new nullable columns, new enum value) and backward-compatible with existing data.
+**Slice 8 — SMTP config (separate migration, includes data migration):**
+7. Create `tenant_smtp_config` table (id, smtp_host, smtp_port, smtp_username, smtp_password_enc, smtp_from_email, updated_at)
+8. Data migration: seed from `SMTP_*` env vars if present
+
+**Slice 10 — Admin results tally snapshot (separate migration):**
+9. `motion_options.for_voter_count` (INTEGER NOT NULL DEFAULT 0)
+10. `motion_options.for_entitlement_sum` (INTEGER NOT NULL DEFAULT 0)
+11. `motion_options.against_voter_count` (INTEGER NOT NULL DEFAULT 0)
+12. `motion_options.against_entitlement_sum` (INTEGER NOT NULL DEFAULT 0)
+13. `motion_options.abstained_voter_count` (INTEGER NOT NULL DEFAULT 0)
+14. `motion_options.abstained_entitlement_sum` (INTEGER NOT NULL DEFAULT 0)
+
+All changes are additive (new nullable/defaulted columns, new table, new enum value) and backward-compatible with existing data.
 
 ---
 
 ## Parallelisation Plan
 
-The seven features decompose into independent slices with one dependency:
+The ten features decompose into independent slices with the following dependencies:
 
 | Slice | Depends on |
 |-------|-----------|
 | Slice 1 — Admin vote entry | None (uses existing `submit_ballot` service) |
 | Slice 2 — Lot owner names | None |
-| Slice 3 — Multi-choice For/Against/Abstain | None (schema change to `VoteChoice` enum is additive) |
+| Slice 3 — Multi-choice For/Against/Abstain (voter-facing) | None (schema change to `VoteChoice` enum is additive) |
 | Slice 4 — Multi-choice pass/fail outcome | Slice 3 (needs `against` vote rows to compute against threshold) |
 | Slice 5 — QR code | None |
 | Slice 6 — Cross-owner ballot visibility | None |
 | Slice 7 — Per-motion voting window | None |
+| Slice 8 — SMTP config in UI | None (self-contained; new table and new endpoints) |
+| Slice 9 — Admin vote entry For/Against/Abstain per option | Slice 3 (needs `VoteChoice.against` enum value) |
+| Slice 10 — Admin results For/Against/Abstain tally per option | Slices 4 and 9 (needs `outcome` column and `against` vote rows from both) |
 
-Slices 1, 2, 3, 5, 6, and 7 can be built in parallel on separate branches. Slice 4 must be built after Slice 3 merges (it needs the `against` VoteChoice value).
+**Parallel group A (no dependencies, can start immediately):** Slices 1, 2, 3, 5, 6, 7, 8.
 
-All slices that include schema changes (1, 2, 3, 4, 7) require their own Neon DB branch and Vercel env var setup per the CLAUDE.md migration protocol. Slices 5 and 6 require no schema changes and can use the `preview` Neon branch directly.
+**Sequential:** Slice 4 after Slice 3; Slice 9 after Slice 3; Slice 10 after both Slice 4 and Slice 9.
+
+All slices that include schema changes (1, 2, 3, 4, 7, 8, 9, 10) require their own Neon DB branch and Vercel env var setup per the CLAUDE.md migration protocol. Slices 5 and 6 require no schema changes and can use the `preview` Neon branch directly.

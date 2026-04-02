@@ -2,12 +2,15 @@
 
 ## Introduction
 
-This document captures seven new features for the AGM Voting App: admin vote entry on behalf of in-person voters, lot owner names for admin identification, a per-option For/Against/Abstain split for multi-choice motions on the voter-facing page, a pass/fail outcome algorithm for multi-choice results, a QR code for the voter share link, cross-owner ballot visibility on the confirmation page, and per-motion voting windows.
+This document captures ten new features for the AGM Voting App: admin vote entry on behalf of in-person voters, lot owner names for admin identification, a per-option For/Against/Abstain split for multi-choice motions on the voter-facing page, a pass/fail outcome algorithm for multi-choice results, a QR code for the voter share link, cross-owner ballot visibility on the confirmation page, per-motion voting windows, SMTP mail server settings in the admin UI, per-option For/Against/Abstain entry in the admin in-person vote entry grid (matching the voter-facing UX), and per-option For/Against/Abstain tally display in the admin meeting results view.
 
 ---
 
 ## Goals
 
+- Allow an admin to configure SMTP mail server settings in the admin UI rather than relying on environment variables, with encrypted storage and a test-send capability.
+- Align the admin in-person vote entry grid with the voter-facing multi-choice UX: show For/Against/Abstain buttons per option, with `option_limit` enforced on "For" only.
+- Show For/Against/Abstain tallies per option in the admin meeting results view, including drill-down voter lists and updated pass/fail algorithm that accounts for Against votes.
 - Allow all lot co-owners to see the submitted ballot on the confirmation page, regardless of which email submitted it.
 - Expose submitter and proxy identity on the ballot receipt for audit clarity.
 - Allow admins to enter votes on behalf of lot owners who voted in person (paper or vocal), without overriding app-submitted ballots
@@ -287,6 +290,162 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 
 ---
 
+---
+
+### US-SMTP-01: Admin configures SMTP host, port, username, and from-address in UI
+
+**Status:** Pending
+
+**Description:** As an admin, I want to enter SMTP server settings (host, port, username, from-email address) in the admin settings page so that I can configure outgoing email without needing access to environment variables.
+
+**Acceptance criteria:**
+
+- [ ] The admin Settings page gains a new "Mail Server" section (card) below the existing Tenant Branding card
+- [ ] The section contains fields: **Host** (text, required), **Port** (number, required, default 587), **Username** (text, required), **From email address** (email, required)
+- [ ] All four fields are pre-populated from the current DB configuration on page load
+- [ ] Saving the form calls `PUT /api/admin/config/smtp` with the four values; success shows an inline "Saved" confirmation
+- [ ] Validation: host must be non-empty; port must be an integer 1–65535; username must be non-empty; from-email must be a valid email address
+- [ ] If the DB has no SMTP configuration yet, all fields render empty and a dismissible banner reads: "Mail server is not configured — emails will not be sent until SMTP settings are saved."
+- [ ] The same banner is shown on every admin page load when SMTP is unconfigured (not only on the Settings page)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-SMTP-02: Admin sets SMTP password in UI (encrypted at rest)
+
+**Status:** Pending
+
+**Description:** As an admin, I want to enter (or update) the SMTP password in the UI so that the full credential set can be managed without environment variable access, with confidence that the password is stored securely.
+
+**Acceptance criteria:**
+
+- [ ] The Mail Server section includes a **Password** field (type="password") with placeholder "Enter new password to change"
+- [ ] The field is always blank on load — the stored password is never sent to the client
+- [ ] If the password field is left blank on save, the existing stored password is retained unchanged
+- [ ] If a non-empty value is entered, it is encrypted server-side using AES-256-GCM with the key from the `SMTP_ENCRYPTION_KEY` env var before being stored in the DB
+- [ ] `SMTP_ENCRYPTION_KEY` must be present in production/preview environments; if absent, the app logs a startup warning and the password field is disabled in the UI with a tooltip: "SMTP_ENCRYPTION_KEY env var not set — password storage unavailable"
+- [ ] The password is decrypted in memory when constructing the SMTP connection; it is never returned in any API response
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-SMTP-03: Send test email from admin settings
+
+**Status:** Pending
+
+**Description:** As an admin, I want to send a test email from the Settings page so that I can verify the SMTP configuration is correct before the next meeting close.
+
+**Acceptance criteria:**
+
+- [ ] The Mail Server section contains a **Send test email** button
+- [ ] Clicking it calls `POST /api/admin/config/smtp/test`; the endpoint sends a plain text "Test email from AGM Voting App" message to the `smtp_from_email` address using the currently saved DB SMTP settings
+- [ ] While the request is in-flight the button shows "Sending…" and is disabled
+- [ ] On success an inline green message reads: "Test email sent to [from_email]"
+- [ ] On failure an inline red message shows the SMTP error detail (e.g., "Authentication failed", "Connection refused to mail.example.com:587")
+- [ ] The test endpoint requires admin authentication and is rate-limited to 5 calls per minute per admin session
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-SMTP-04: Email service reads SMTP config from DB at send time
+
+**Status:** Pending
+
+**Description:** As a platform operator, I want all outgoing emails (both OTP verification emails and meeting results reports) to use the SMTP settings stored in the DB rather than environment variables, so that SMTP changes take effect immediately without a redeployment.
+
+**Acceptance criteria:**
+
+- [ ] `email_service.send_report()` fetches SMTP settings from `tenant_smtp_config` DB table at the start of each send attempt, not from `settings.*`
+- [ ] `email_service.send_otp_email()` similarly fetches from DB at send time
+- [ ] If the DB has no SMTP row, or any required field (host, port, username, from_email) is empty, both functions raise `SmtpNotConfiguredError` before attempting any connection; callers handle this as a non-retryable failure
+- [ ] There is no env-var fallback — env vars (`SMTP_HOST` etc.) are removed from `Settings` once DB-backed config is fully deployed (tracked in migration notes)
+- [ ] The `EmailDelivery` record captures `last_error = "SMTP not configured"` when `SmtpNotConfiguredError` is raised, with `status = failed` (no retry) so the admin error banner appears immediately
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-SMTP-05: Unconfigured SMTP banner visible on all admin pages
+
+**Status:** Pending
+
+**Description:** As an admin, I want a persistent warning banner when SMTP is unconfigured so that I notice the gap before a meeting close fails silently.
+
+**Acceptance criteria:**
+
+- [ ] `GET /api/admin/config/smtp/status` returns `{"configured": true|false}` — `configured` is `true` only when all required fields (host, port, username, password, from_email) have non-empty values in the DB
+- [ ] The admin layout shell fetches this status on mount and on each navigation
+- [ ] When `configured = false`, a dismissible amber banner is shown at the top of every admin page: "Mail server not configured — meeting results emails will not be sent. [Configure now →]" (link to Settings page Mail Server section)
+- [ ] The banner is suppressed once SMTP is configured (i.e., a re-fetch after saving settings clears it)
+- [ ] The banner is only visible to authenticated admins, not on public or voter-facing pages
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-SMTP-06: SMTP settings preserved across deployments via DB migration
+
+**Status:** Pending
+
+**Description:** As a platform operator, I want the SMTP configuration migration to seed the DB from the existing env vars on first deploy so that email delivery is not interrupted when switching from env-var to DB-backed config.
+
+**Acceptance criteria:**
+
+- [ ] The Alembic migration that creates the `tenant_smtp_config` table includes a data migration step: if `SMTP_HOST` env var is non-empty, it seeds the new table with the existing env var values (host, port, username, from_email); password is seeded as an AES-256-GCM encrypted value of `SMTP_PASSWORD` if `SMTP_ENCRYPTION_KEY` is also set; otherwise password is stored as empty and the admin is prompted to configure it
+- [ ] After migration, emails continue to work without any admin action if the env vars were previously set
+- [ ] The migration is idempotent — running it twice does not overwrite a row the admin has already edited
+- [ ] Alembic downgrade removes only the `tenant_smtp_config` table; it does not remove or alter env var values
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AVE2-01: Admin vote entry shows For/Against/Abstain buttons per multi-choice option
+
+**Status:** Pending
+
+**Description:** As an admin entering in-person votes, I want each multi-choice option to have For / Against / Abstain buttons in the vote entry grid, matching the voter-facing UX, so that I can accurately capture how each in-person voter expressed their intent on each option.
+
+**Acceptance criteria:**
+
+- [ ] In the admin vote entry grid (Step 2 of `AdminVoteEntryPanel`), multi-choice motion cells are replaced: instead of checkboxes per option, each option row shows three compact toggle buttons: **For**, **Against**, **Abstain**
+- [ ] The `option_limit` is enforced only on **For** selections — once the limit is reached all unselected "For" buttons for that lot × motion combination are disabled; "Against" and "Abstain" buttons are never disabled by the option_limit
+- [ ] The counter below each option group reads: "X of Y voted For" (where Y = `option_limit`)
+- [ ] Default/unset state for each option is blank (no button selected); blank options at submission time do NOT default to abstain — options with no selection are omitted from `multi_choice_votes` for that option
+- [ ] On form submission, multi-choice votes are sent as `option_choices: [{option_id, choice}]` per option (where `choice` is `"for"` | `"against"` | `"abstained"`) rather than the legacy flat `option_ids` list; options with no selection are omitted
+- [ ] Legacy admin-entered ballots (submitted with the old checkbox UX, stored as `VoteChoice.selected`) display selected options as "For" when viewed read-only; all other options display as blank
+- [ ] In-arrear lots display "Not eligible" and all buttons for general/multi-choice motion cells are disabled (behaviour unchanged from US-AVE-02)
+- [ ] The `isLotAnswered` check for multi-choice motions continues to treat all multi-choice motions as answered regardless of per-option selections (no change to the "All answered" badge logic)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-MC-ADMIN-01: Admin meeting results show For/Against/Abstain tally per option
+
+**Status:** Pending
+
+**Description:** As an admin reviewing meeting results, I want the results table for multi-choice motions to show separate For, Against, and Abstain counts and entitlement sums per option so that the full picture of how the building voted on each option is visible alongside the pass/fail outcome badge.
+
+**Acceptance criteria:**
+
+- [ ] For each multi-choice motion option in `AGMReportView`, the results table row expands to show three sub-rows (or three columns in a redesigned layout): **For** (voter count + entitlement sum), **Against** (voter count + entitlement sum), **Abstained** (voter count + entitlement sum)
+- [ ] The pass/fail outcome badge (`OutcomeBadge`) continues to appear beside the option name in the header row
+- [ ] The For/Against/Abstain sub-rows are collapsed by default (to keep the view compact for meetings with many options); a toggle button expands/collapses them per option
+- [ ] When expanded, a voter list per category (For / Against / Abstained) is shown for that option — each list is also collapsed by default and expandable independently, consistent with the existing general/special voter list drill-down
+- [ ] The CSV export includes per-option For/Against/Abstain rows: each exported row contains the option text, the category (For/Against/Abstained), the lot number, entitlement, voter email, and submitted-by value
+- [ ] The emailed results report shows For/Against/Abstain counts per option in the same layout used for general/special motions (two primary columns: voter count and entitlement sum, labelled For/Against/Abstained)
+- [ ] The pass/fail algorithm is updated: an option **fails** if `against_entitlement_sum / total_building_entitlement > 0.50`; the ranking to determine which non-failed options reach the top `option_limit` uses `for_entitlement_sum` descending — this is consistent with US-MC-RESULT-01 but explicitly replaces the old algorithm that used only "selected" count
+- [ ] `GET /api/admin/general-meetings/{id}` response for each option in `tally.options[]` is extended with: `for_voter_count`, `for_entitlement_sum`, `against_voter_count`, `against_entitlement_sum`, `abstained_voter_count`, `abstained_entitlement_sum` (the existing `voter_count` / `entitlement_sum` are renamed to `for_voter_count` / `for_entitlement_sum` for clarity — a non-breaking additive change if the old names are also retained as aliases during transition)
+- [ ] `voter_lists.options[option_id]` in the meeting detail response is split into `voter_lists.options_for[option_id]`, `voter_lists.options_against[option_id]`, `voter_lists.options_abstained[option_id]`
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ## Non-Goals
 
 - Changing who can submit a ballot (submission still restricted to the authenticated voter's own lots and proxy lots).
@@ -298,6 +457,10 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - QR code customisation beyond logo in centre (no colour or style options)
 - Per-motion scheduled auto-close (only manual admin close is supported)
 - Reopening a per-motion-closed motion (irreversible once closed)
+- Per-building SMTP configuration (one global config per tenant)
+- SMTP OAuth / app-password flows (STARTTLS username+password only)
+- Exporting or viewing the SMTP password from the admin UI (write-only field)
+- Automatically resolving the "Against > 50%" tie-break edge case (admin review required)
 
 ---
 
@@ -313,6 +476,9 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - Feature 5 (QR code) is purely frontend; `qrcode.react` or equivalent is added as a frontend dependency only
 - Feature 6 (cross-owner ballot visibility) is a backend query change to `get_my_ballot` — broaden the lookup to match any `lot_owner_id` the session voter is associated with
 - Feature 7 (per-motion voting window) requires a schema migration (new `voting_closed_at` column on `motions`), changes to `submit_ballot` to enforce per-motion close, and changes to the tally query to filter by `voting_closed_at`
+- Feature 8 (SMTP in UI) requires a new `tenant_smtp_config` DB table (separate from `TenantConfig` to keep SMTP credentials isolated); the encrypted password field requires a new `SMTP_ENCRYPTION_KEY` env var (32-byte random key, base64-encoded); AES-256-GCM encryption/decryption happens entirely in the Python service layer
+- Feature 9 (admin vote entry For/Against/Abstain) changes the wire format of `multi_choice_votes` in the `enter-votes` endpoint from `{option_ids: []}` to `{option_choices: [{option_id, choice}]}`; the backend must accept both formats during transition (old format treated as all-"for" for backward compatibility) — this is a breaking API change coordinated as a single deployment
+- Feature 10 (admin results For/Against/Abstain tally) changes the shape of `tally.options[]` and `voter_lists.options` in the meeting detail response; the old field names are retained as aliases during the transition window; `compute_multi_choice_outcomes` must be updated to persist `for_entitlement_sum` and `against_entitlement_sum` per option (stored, not computed on read, for auditability)
 
 ---
 
@@ -329,5 +495,7 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 
 ## Open Questions
 
-- Should the "against" vote for a multi-choice option be stored as a new `VoteChoice` enum value (`against`) or reuse an existing value? The current `VoteChoice` enum has `yes`, `no`, `abstained`, `not_eligible`, `selected`. Adding `against` (and perhaps renaming `selected` to `for`) is the cleanest approach but requires a migration and enum expansion.
-- Should multi-choice outcome (`pass`/`fail`/`tie`) be stored as a column on `motion_options` (computed once on close) or computed on every read? Storing avoids re-computation but requires a migration.
+- Should the "against" vote for a multi-choice option be stored as a new `VoteChoice` enum value (`against`) or reuse an existing value? The current `VoteChoice` enum has `yes`, `no`, `abstained`, `not_eligible`, `selected`. Adding `against` (and perhaps renaming `selected` to `for`) is the cleanest approach but requires a migration and enum expansion. — **Resolved: `VoteChoice.against` already exists in the enum (added in Slice 3 / US-MC-SPLIT-01); it is used for multi-choice against votes.**
+- Should multi-choice outcome (`pass`/`fail`/`tie`) be stored as a column on `motion_options` (computed once on close) or computed on every read? — **Resolved: stored on `motion_options.outcome`, computed once at meeting close.**
+- For Feature 8 (SMTP), should the password field accept pasting from a password manager (autocomplete="new-password") or be fully blocked? Answer: allow paste and autocomplete="new-password" so password managers can fill it.
+- For Feature 10 (admin results), should the old `voter_count`/`entitlement_sum` field names on `OptionTallyEntry` be removed immediately or kept as aliases? Answer: keep as aliases for one release cycle to avoid breaking any external consumers, then deprecate.
