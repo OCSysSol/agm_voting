@@ -1843,3 +1843,236 @@ class TestImportFileSizeLimits:
         )
         assert response.status_code == 413
         assert "5 MB" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# US-LON-01 / US-LON-02: Lot Owner Names (given_name / surname)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestLotOwnerNames:
+    """Tests for given_name and surname fields on lot owners and proxies."""
+
+    async def test_add_lot_owner_with_name(
+        self, client: AsyncClient, building: Building
+    ):
+        """Add lot owner with given_name and surname; both are persisted and returned."""
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners",
+            json={
+                "lot_number": "LON01",
+                "given_name": "Alice",
+                "surname": "Smith",
+                "emails": [],
+                "unit_entitlement": 100,
+            },
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["given_name"] == "Alice"
+        assert data["surname"] == "Smith"
+
+    async def test_add_lot_owner_without_name(
+        self, client: AsyncClient, building: Building
+    ):
+        """Add lot owner without given_name/surname; fields are null."""
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners",
+            json={"lot_number": "LON02", "emails": [], "unit_entitlement": 50},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["given_name"] is None
+        assert data["surname"] is None
+
+    async def test_update_lot_owner_given_name_and_surname(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PATCH with given_name and surname persists and returns them."""
+        lo = LotOwner(building_id=building.id, lot_number="LON03", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}",
+            json={"given_name": "Bob", "surname": "Jones"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["given_name"] == "Bob"
+        assert data["surname"] == "Jones"
+
+    async def test_lot_owner_names_returned_in_list(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """List lot owners includes given_name and surname fields."""
+        lo = LotOwner(
+            building_id=building.id,
+            lot_number="LON04",
+            unit_entitlement=80,
+            given_name="Carol",
+            surname="White",
+        )
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
+        assert response.status_code == 200
+        owners = response.json()
+        named = [o for o in owners if o["lot_number"] == "LON04"]
+        assert len(named) == 1
+        assert named[0]["given_name"] == "Carol"
+        assert named[0]["surname"] == "White"
+
+    async def test_csv_import_with_name_columns(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV import with given_name/surname columns imports names correctly."""
+        csv_data = make_csv(
+            ["lot_number", "unit_entitlement", "given_name", "surname"],
+            [["LON05", "100", "Dave", "Brown"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        # Verify name was stored
+        list_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lon05 = next((o for o in owners if o["lot_number"] == "LON05"), None)
+        assert lon05 is not None
+        assert lon05["given_name"] == "Dave"
+        assert lon05["surname"] == "Brown"
+
+    async def test_csv_import_without_name_columns_names_are_null(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV import without given_name/surname columns succeeds; names remain null."""
+        csv_data = make_csv(
+            ["lot_number", "unit_entitlement"],
+            [["LON06", "100"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        list_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lon06 = next((o for o in owners if o["lot_number"] == "LON06"), None)
+        assert lon06 is not None
+        assert lon06["given_name"] is None
+        assert lon06["surname"] is None
+
+    async def test_csv_import_updates_names_on_existing_lot(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV import with name columns updates given_name/surname on existing lot."""
+        lo = LotOwner(building_id=building.id, lot_number="LON07", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        csv_data = make_csv(
+            ["lot_number", "unit_entitlement", "given_name", "surname"],
+            [["LON07", "100", "Eve", "Green"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        list_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lon07 = next((o for o in owners if o["lot_number"] == "LON07"), None)
+        assert lon07 is not None
+        assert lon07["given_name"] == "Eve"
+        assert lon07["surname"] == "Green"
+
+    async def test_set_proxy_with_name(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /proxy with given_name and surname persists them on LotProxy."""
+        lo = LotOwner(building_id=building.id, lot_number="LON08", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "proxy@test.com", "given_name": "Frank", "surname": "Black"},
+        )
+        assert response.status_code == 200
+
+        # Verify LotProxy has the names
+        proxy_result = await db_session.execute(
+            select(LotProxy).where(LotProxy.lot_owner_id == lo.id)
+        )
+        proxy = proxy_result.scalar_one()
+        assert proxy.given_name == "Frank"
+        assert proxy.surname == "Black"
+
+    async def test_set_proxy_with_name_updates_existing_proxy(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /proxy with given_name/surname updates existing LotProxy names."""
+        lo = LotOwner(building_id=building.id, lot_number="LON09", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="old@test.com"))
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "new@test.com", "given_name": "Grace", "surname": "Hall"},
+        )
+        assert response.status_code == 200
+
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+        proxy_result = await db_session.execute(
+            select(LotProxy).where(LotProxy.lot_owner_id == lo.id)
+        )
+        proxy = proxy_result.scalar_one()
+        assert proxy.given_name == "Grace"
+        assert proxy.surname == "Hall"
+        assert proxy.proxy_email == "new@test.com"
+
+    async def test_proxy_csv_import_with_names_on_existing_proxy(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """Proxy CSV import with proxy_given_name/proxy_surname updates existing proxy names."""
+        lo = LotOwner(building_id=building.id, lot_number="LON10", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="old@test.com"))
+        await db_session.commit()
+
+        csv_data = make_csv(
+            ["Lot#", "Proxy Email", "proxy_given_name", "proxy_surname"],
+            [["LON10", "new@test.com", "Henry", "King"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import-proxies",
+            files={"file": ("proxies.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        proxy_result = await db_session.execute(
+            select(LotProxy).where(LotProxy.lot_owner_id == lo.id)
+        )
+        proxy = proxy_result.scalar_one()
+        assert proxy.given_name == "Henry"
+        assert proxy.surname == "King"
+        assert proxy.proxy_email == "new@test.com"

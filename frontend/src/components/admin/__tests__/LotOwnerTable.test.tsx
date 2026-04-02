@@ -9,6 +9,8 @@ const lotOwners: LotOwner[] = [
     id: "lo1",
     building_id: "b1",
     lot_number: "1A",
+    given_name: "Alice",
+    surname: "Smith",
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
     financial_position: "normal",
@@ -18,6 +20,8 @@ const lotOwners: LotOwner[] = [
     id: "lo2",
     building_id: "b1",
     lot_number: "2B",
+    given_name: null,
+    surname: null,
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
     financial_position: "in_arrear",
@@ -249,6 +253,8 @@ describe("LotOwnerTable", () => {
       id: "lo3",
       building_id: "b1",
       lot_number: "3C",
+      given_name: null,
+      surname: null,
       emails: [],
       unit_entitlement: 50,
       financial_position: "normal",
@@ -317,6 +323,8 @@ describe("LotOwnerTable", () => {
       id: `lo${i + 1}`,
       building_id: "b1",
       lot_number: `${String(i + 1).padStart(3, "0")}`,
+      given_name: null,
+      surname: null,
       emails: [],
       unit_entitlement: i + 1,
       financial_position: "normal" as const,
@@ -341,10 +349,12 @@ describe("LotOwnerTable", () => {
   });
 
   it("shows pagination controls at both top and bottom when there are more than 25 lot owners", () => {
-    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+    const manyLotOwners: LotOwner[] = Array.from({ length: 26 }, (_, i) => ({
       id: `lo${i + 1}`,
       building_id: "b1",
       lot_number: `${i + 1}`,
+      given_name: null,
+      surname: null,
       emails: [`owner${i + 1}@example.com`],
       unit_entitlement: 100,
       financial_position: "normal" as const,
@@ -359,10 +369,12 @@ describe("LotOwnerTable", () => {
 
   it("navigating to page 2 via top Next button shows lot owner 26", async () => {
     const user = userEvent.setup();
-    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+    const manyLotOwners: LotOwner[] = Array.from({ length: 26 }, (_, i) => ({
       id: `lo${i + 1}`,
       building_id: "b1",
       lot_number: `lot-${i + 1}`,
+      given_name: null,
+      surname: null,
       emails: [`owner${i + 1}@example.com`],
       unit_entitlement: 100,
       financial_position: "normal" as const,
@@ -385,9 +397,9 @@ describe("LotOwnerTable", () => {
   it("sorts lot numbers naturally so '10' comes after '9', not before '2'", async () => {
     const user = userEvent.setup();
     const numericLots: LotOwner[] = [
-      { id: "a", building_id: "b1", lot_number: "10", emails: [], unit_entitlement: 1, financial_position: "normal", proxy_email: null },
-      { id: "b", building_id: "b1", lot_number: "9", emails: [], unit_entitlement: 2, financial_position: "normal", proxy_email: null },
-      { id: "c", building_id: "b1", lot_number: "2", emails: [], unit_entitlement: 3, financial_position: "normal", proxy_email: null },
+      { id: "a", building_id: "b1", lot_number: "10", given_name: null, surname: null, emails: [], unit_entitlement: 1, financial_position: "normal", proxy_email: null },
+      { id: "b", building_id: "b1", lot_number: "9", given_name: null, surname: null, emails: [], unit_entitlement: 2, financial_position: "normal", proxy_email: null },
+      { id: "c", building_id: "b1", lot_number: "2", given_name: null, surname: null, emails: [], unit_entitlement: 3, financial_position: "normal", proxy_email: null },
     ];
     render(<LotOwnerTable lotOwners={numericLots} onEdit={() => {}} />);
     // Default sort is lot_number asc — numeric order: 2, 9, 10

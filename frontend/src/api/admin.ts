@@ -166,12 +166,16 @@ export interface EmailDeliveryInfo {
 
 export interface LotOwnerCreateRequest {
   lot_number: string;
+  given_name?: string | null;
+  surname?: string | null;
   emails: string[];
   unit_entitlement: number;
   financial_position?: string;
 }
 
 export interface LotOwnerUpdateRequest {
+  given_name?: string | null;
+  surname?: string | null;
   unit_entitlement?: number;
   financial_position?: string;
 }
@@ -201,11 +205,13 @@ export async function removeEmailFromLotOwner(
 
 export async function setLotOwnerProxy(
   lotOwnerId: string,
-  proxyEmail: string
+  proxyEmail: string,
+  givenName?: string | null,
+  surname?: string | null,
 ): Promise<LotOwner> {
   return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/proxy`, {
     method: "PUT",
-    body: JSON.stringify({ proxy_email: proxyEmail }),
+    body: JSON.stringify({ proxy_email: proxyEmail, given_name: givenName, surname }),
   });
 }
 

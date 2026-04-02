@@ -83,6 +83,8 @@ class BuildingImportResult(BaseModel):
 class LotOwnerOut(BaseModel):
     id: uuid.UUID
     lot_number: str
+    given_name: str | None = None
+    surname: str | None = None
     emails: list[str]
     unit_entitlement: int
     financial_position: str
@@ -93,6 +95,8 @@ class LotOwnerOut(BaseModel):
 
 class LotOwnerCreate(BaseModel):
     lot_number: str
+    given_name: str | None = None
+    surname: str | None = None
     unit_entitlement: int
     financial_position: str = "normal"
     emails: list[str] = []
@@ -120,6 +124,8 @@ class LotOwnerCreate(BaseModel):
 
 
 class LotOwnerUpdate(BaseModel):
+    given_name: str | None = None
+    surname: str | None = None
     unit_entitlement: int | None = None
     financial_position: str | None = None
 
@@ -139,8 +145,13 @@ class LotOwnerUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "LotOwnerUpdate":
-        if self.unit_entitlement is None and self.financial_position is None:
-            raise ValueError("At least one of unit_entitlement or financial_position must be provided")
+        if (
+            self.given_name is None
+            and self.surname is None
+            and self.unit_entitlement is None
+            and self.financial_position is None
+        ):
+            raise ValueError("At least one field must be provided")
         return self
 
 
@@ -157,6 +168,8 @@ class AddEmailRequest(BaseModel):
 
 class SetProxyRequest(BaseModel):
     proxy_email: str
+    given_name: str | None = None
+    surname: str | None = None
 
     @field_validator("proxy_email")
     @classmethod

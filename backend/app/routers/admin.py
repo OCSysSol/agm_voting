@@ -422,7 +422,10 @@ async def set_lot_owner_proxy(
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
     """Set or replace the proxy nomination for a lot owner."""
-    owner = await admin_service.set_lot_owner_proxy(lot_owner_id, data.proxy_email, db)
+    owner = await admin_service.set_lot_owner_proxy(
+        lot_owner_id, data.proxy_email, db,
+        given_name=data.given_name, surname=data.surname,
+    )
     return LotOwnerOut(**owner)
 
 

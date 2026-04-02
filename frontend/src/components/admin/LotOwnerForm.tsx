@@ -30,6 +30,8 @@ function EditModal({
   const [financialPosition, setFinancialPosition] = useState(
     lotOwner.financial_position
   );
+  const [givenName, setGivenName] = useState(lotOwner.given_name ?? "");
+  const [surname, setSurname] = useState(lotOwner.surname ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   // Email management
@@ -51,6 +53,8 @@ function EditModal({
   useEffect(() => {
     setUnitEntitlement(lotOwner.unit_entitlement.toString());
     setFinancialPosition(lotOwner.financial_position);
+    setGivenName(lotOwner.given_name ?? "");
+    setSurname(lotOwner.surname ?? "");
     setFormError(null);
     setEmails(lotOwner.emails);
     setNewEmail("");
@@ -156,6 +160,10 @@ function EditModal({
     if (parsed !== lotOwner.unit_entitlement) updateData.unit_entitlement = parsed;
     if (financialPosition !== lotOwner.financial_position)
       updateData.financial_position = financialPosition;
+    const trimmedGivenName = givenName.trim() || null;
+    const trimmedSurname = surname.trim() || null;
+    if (trimmedGivenName !== (lotOwner.given_name ?? null)) updateData.given_name = trimmedGivenName;
+    if (trimmedSurname !== (lotOwner.surname ?? null)) updateData.surname = trimmedSurname;
 
     if (Object.keys(updateData).length === 0) {
       if (emailsModified || proxyModified) {
@@ -348,6 +356,32 @@ function EditModal({
             <span aria-hidden="true">*</span> Required field
           </p>
           <div className="field">
+            <label className="field__label" htmlFor="edit-given-name">
+              Given Name
+            </label>
+            <input
+              id="edit-given-name"
+              className="field__input"
+              type="text"
+              value={givenName}
+              onChange={(e) => setGivenName(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="edit-surname">
+              Surname
+            </label>
+            <input
+              id="edit-surname"
+              className="field__input"
+              type="text"
+              value={surname}
+              onChange={(e) => setSurname(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
             {/* US-ACC-08: visible * marker + aria-required */}
             <label className="field__label field__label--required" htmlFor="lot-entitlement">
               Unit Entitlement
@@ -419,6 +453,8 @@ function AddForm({
   onCancel: () => void;
 }) {
   const [lotNumber, setLotNumber] = useState("");
+  const [givenName, setGivenName] = useState("");
+  const [surname, setSurname] = useState("");
   const [email, setEmail] = useState("");
   const [unitEntitlement, setUnitEntitlement] = useState("");
   const [financialPosition, setFinancialPosition] = useState("normal");
@@ -441,6 +477,8 @@ function AddForm({
     mutationFn: (data) => addLotOwner(buildingId, data),
     onSuccess: () => {
       setLotNumber("");
+      setGivenName("");
+      setSurname("");
       setEmail("");
       setUnitEntitlement("");
       setFormError(null);
@@ -475,6 +513,8 @@ function AddForm({
 
     addMutation.mutate({
       lot_number: lotNumber,
+      given_name: givenName.trim() || null,
+      surname: surname.trim() || null,
       emails: email.trim() ? [email.trim().toLowerCase()] : [],
       unit_entitlement: parsed,
       financial_position: financialPosition,
@@ -525,6 +565,32 @@ function AddForm({
               value={lotNumber}
               onChange={(e) => setLotNumber(e.target.value)}
               aria-required="true"
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="add-given-name">
+              Given Name
+            </label>
+            <input
+              id="add-given-name"
+              className="field__input"
+              type="text"
+              value={givenName}
+              onChange={(e) => setGivenName(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="add-surname">
+              Surname
+            </label>
+            <input
+              id="add-surname"
+              className="field__input"
+              type="text"
+              value={surname}
+              onChange={(e) => setSurname(e.target.value)}
             />
           </div>
 

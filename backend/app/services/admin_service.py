@@ -450,6 +450,8 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
+            "given_name": owner.given_name,
+            "surname": owner.surname,
             "emails": emails_by_owner.get(owner.id, []),
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": owner.financial_position.value if hasattr(owner.financial_position, "value") else owner.financial_position,
@@ -476,6 +478,8 @@ async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -584,11 +588,15 @@ async def import_lot_owners_from_csv(
         else:
             if lot_number:
                 lot_number_rows.setdefault(lot_number, []).append(i)
+            given_name = row.get("given_name", "").strip() or None
+            surname = row.get("surname", "").strip() or None
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
                     "emails": set(),
+                    "given_name": given_name,
+                    "surname": surname,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
@@ -652,6 +660,8 @@ async def import_lot_owners_from_excel(
     fp_idx = headers.index("financial position") if "financial position" in headers else (
         headers.index("financial_position") if "financial_position" in headers else None
     )
+    given_name_idx = headers.index("given_name") if "given_name" in headers else None
+    surname_idx = headers.index("surname") if "surname" in headers else None
 
     data_rows = list(rows_iter)
     wb.close()
@@ -677,6 +687,8 @@ async def import_lot_owners_from_excel(
         email = _cell(email_idx) if email_idx is not None else ""
         unit_entitlement_raw = _cell(uoe2_idx)
         financial_position_raw = _cell(fp_idx) if fp_idx is not None else ""
+        given_name_raw = _cell(given_name_idx) if given_name_idx is not None else ""
+        surname_raw = _cell(surname_idx) if surname_idx is not None else ""
 
         row_errors = []
 
@@ -709,11 +721,15 @@ async def import_lot_owners_from_excel(
         else:
             if lot_number:
                 lot_number_rows.setdefault(lot_number, []).append(row_num)
+            given_name_val = given_name_raw.strip() or None
+            surname_val = surname_raw.strip() or None
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
                     "emails": set(),
+                    "given_name": given_name_val,
+                    "surname": surname_val,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
@@ -758,6 +774,10 @@ async def _upsert_lot_owners(
             lo = existing[lot_number]
             lo.unit_entitlement = data["unit_entitlement"]
             lo.financial_position = data["financial_position"]
+            if data.get("given_name") is not None:
+                lo.given_name = data["given_name"]
+            if data.get("surname") is not None:
+                lo.surname = data["surname"]
             await db.flush()
             # Replace emails: delete existing, insert new set
             await db.execute(
@@ -769,6 +789,8 @@ async def _upsert_lot_owners(
             new_lo = LotOwner(
                 building_id=building_id,
                 lot_number=lot_number,
+                given_name=data.get("given_name"),
+                surname=data.get("surname"),
                 unit_entitlement=data["unit_entitlement"],
                 financial_position=data["financial_position"],
             )
@@ -812,6 +834,8 @@ async def add_lot_owner(
     lot_owner = LotOwner(
         building_id=building_id,
         lot_number=data.lot_number,
+        given_name=data.given_name,
+        surname=data.surname,
         unit_entitlement=data.unit_entitlement,
         financial_position=FinancialPosition(data.financial_position),
     )
@@ -830,6 +854,8 @@ async def add_lot_owner(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": email_strs,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -849,6 +875,10 @@ async def update_lot_owner(
     if lot_owner is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
+    if data.given_name is not None:
+        lot_owner.given_name = data.given_name
+    if data.surname is not None:
+        lot_owner.surname = data.surname
     if data.unit_entitlement is not None:
         lot_owner.unit_entitlement = data.unit_entitlement
     if data.financial_position is not None:
@@ -866,6 +896,8 @@ async def update_lot_owner(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -910,6 +942,8 @@ async def add_email_to_lot_owner(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -952,6 +986,8 @@ async def remove_email_from_lot_owner(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -963,6 +999,8 @@ async def set_lot_owner_proxy(
     lot_owner_id: uuid.UUID,
     proxy_email: str,
     db: AsyncSession,
+    given_name: str | None = None,
+    surname: str | None = None,
 ) -> dict:
     """Create or replace the proxy nomination for a lot owner."""
     result = await db.execute(
@@ -978,8 +1016,17 @@ async def set_lot_owner_proxy(
     existing_proxy = proxy_result.scalar_one_or_none()
     if existing_proxy is not None:
         existing_proxy.proxy_email = proxy_email
+        if given_name is not None:
+            existing_proxy.given_name = given_name
+        if surname is not None:
+            existing_proxy.surname = surname
     else:
-        db.add(LotProxy(lot_owner_id=lot_owner_id, proxy_email=proxy_email))
+        db.add(LotProxy(
+            lot_owner_id=lot_owner_id,
+            proxy_email=proxy_email,
+            given_name=given_name,
+            surname=surname,
+        ))
 
     await db.commit()
 
@@ -991,6 +1038,8 @@ async def set_lot_owner_proxy(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -1028,6 +1077,8 @@ async def remove_lot_owner_proxy(
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
+        "given_name": lot_owner.given_name,
+        "surname": lot_owner.surname,
         "emails": emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": lot_owner.financial_position.value if hasattr(lot_owner.financial_position, "value") else lot_owner.financial_position,
@@ -2282,12 +2333,18 @@ def _parse_proxy_csv_rows(content: bytes) -> list[dict]:
 
     rows = []
     for row in raw_reader:
-        lot_number = row.get("Lot#") or row.get("lot#") or ""
         # Build a case-insensitive lookup
         row_lower = {k.strip().lower(): v for k, v in row.items()}
         lot_number = row_lower.get("lot#", "").strip()
         proxy_email = row_lower.get("proxy email", "").strip()
-        rows.append({"lot_number": lot_number, "proxy_email": proxy_email})
+        given_name = row_lower.get("proxy_given_name", "").strip() or None
+        surname = row_lower.get("proxy_surname", "").strip() or None
+        rows.append({
+            "lot_number": lot_number,
+            "proxy_email": proxy_email,
+            "given_name": given_name,
+            "surname": surname,
+        })
     return rows
 
 
@@ -2324,6 +2381,8 @@ def _parse_proxy_excel_rows(content: bytes) -> list[dict]:
 
     lot_idx = headers.index("lot#")
     proxy_idx = headers.index("proxy email")
+    given_name_idx = headers.index("proxy_given_name") if "proxy_given_name" in headers else None
+    surname_idx = headers.index("proxy_surname") if "proxy_surname" in headers else None
 
     data_rows = list(rows_iter)
     wb.close()
@@ -2341,6 +2400,8 @@ def _parse_proxy_excel_rows(content: bytes) -> list[dict]:
         rows.append({
             "lot_number": _cell(lot_idx),
             "proxy_email": _cell(proxy_idx),
+            "given_name": _cell(given_name_idx) or None if given_name_idx is not None else None,
+            "surname": _cell(surname_idx) or None if surname_idx is not None else None,
         })
     return rows
 
@@ -2391,6 +2452,9 @@ async def import_proxies(
         )
         existing_proxy = proxy_result.scalar_one_or_none()
 
+        given_name = row.get("given_name")
+        surname = row.get("surname")
+
         if proxy_email == "":
             # Remove nomination
             if existing_proxy is not None:
@@ -2400,8 +2464,17 @@ async def import_proxies(
             # Upsert nomination
             if existing_proxy is not None:
                 existing_proxy.proxy_email = proxy_email
+                if given_name is not None:
+                    existing_proxy.given_name = given_name
+                if surname is not None:
+                    existing_proxy.surname = surname
             else:
-                db.add(LotProxy(lot_owner_id=lot_owner.id, proxy_email=proxy_email))
+                db.add(LotProxy(
+                    lot_owner_id=lot_owner.id,
+                    proxy_email=proxy_email,
+                    given_name=given_name,
+                    surname=surname,
+                ))
             upserted += 1
 
     await db.commit()

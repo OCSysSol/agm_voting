@@ -19,6 +19,8 @@ export interface LotOwner {
   id: string;
   building_id: string;
   lot_number: string;
+  given_name: string | null;
+  surname: string | null;
   emails: string[];
   unit_entitlement: number;
   financial_position: FinancialPosition;

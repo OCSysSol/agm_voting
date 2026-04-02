@@ -15,6 +15,7 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - Present multi-choice motion options to voters as individual For/Against/Abstain decisions, matching how voters experience other resolution types
 - Determine pass/fail outcomes for multi-choice motions based on a building-entitlement threshold and ranking
 - Generate a QR code on the admin AGM detail page that lot owners can scan to enter the voter URL
+- Allow all lot owners and proxies associated with a lot to view that lot's submitted ballot on the confirmation page
 - Allow admins to manually close voting on individual motions while the overall meeting remains open
 
 ---
@@ -106,41 +107,41 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 
 ### US-LON-01: Lot owner given name and surname
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to store a given name and surname for each lot owner so that admin views and reports can identify owners by name rather than lot number alone.
 
 **Acceptance Criteria:**
 
-- [ ] `LotOwner` gains two optional fields: `given_name` (VARCHAR, nullable) and `surname` (VARCHAR, nullable)
-- [ ] The Add Lot Owner form in the admin building detail page includes optional "Given name" and "Surname" fields
-- [ ] The Edit Lot Owner modal pre-fills existing name values and allows updates
-- [ ] The lot owner table on the admin building detail page shows a "Name" column (blank when not set)
-- [ ] Names are not shown anywhere in the voter-facing flow (voting page, confirmation page, auth page)
-- [ ] The lot owner import (CSV/Excel) accepts optional `given_name` and `surname` columns; rows without these columns import successfully without error (names default to null)
-- [ ] `PATCH /api/admin/lot-owners/{id}` accepts `given_name` and `surname` in the request body
-- [ ] `GET /api/admin/buildings/{id}/lot-owners` includes `given_name` and `surname` in each `LotOwnerOut` item
-- [ ] All tests pass at 100% coverage
-- [ ] Typecheck/lint passes
+- [x] `LotOwner` gains two optional fields: `given_name` (VARCHAR, nullable) and `surname` (VARCHAR, nullable)
+- [x] The Add Lot Owner form in the admin building detail page includes optional "Given name" and "Surname" fields
+- [x] The Edit Lot Owner modal pre-fills existing name values and allows updates
+- [x] The lot owner table on the admin building detail page shows a "Name" column (blank when not set)
+- [x] Names are not shown anywhere in the voter-facing flow (voting page, confirmation page, auth page)
+- [x] The lot owner import (CSV/Excel) accepts optional `given_name` and `surname` columns; rows without these columns import successfully without error (names default to null)
+- [x] `PATCH /api/admin/lot-owners/{id}` accepts `given_name` and `surname` in the request body
+- [x] `GET /api/admin/buildings/{id}/lot-owners` includes `given_name` and `surname` in each `LotOwnerOut` item
+- [x] All tests pass at 100% coverage
+- [x] Typecheck/lint passes
 
 ---
 
 ### US-LON-02: Proxy contact name
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to store a name for the proxy contact on a lot so that the results report and admin views can identify proxy representatives by name.
 
 **Acceptance Criteria:**
 
-- [ ] `LotProxy` gains two optional fields: `given_name` (VARCHAR, nullable) and `surname` (VARCHAR, nullable)
-- [ ] The Set Proxy dialog on the lot owner detail / edit view includes optional "Given name" and "Surname" fields for the proxy contact
-- [ ] `PUT /api/admin/lot-owners/{id}/proxy` accepts `given_name` and `surname` alongside `proxy_email`
-- [ ] `GET /api/admin/lot-owners/{id}` returns proxy name fields in the `LotOwnerOut.proxy` object
-- [ ] The proxy import (CSV/Excel) accepts optional `proxy_given_name` and `proxy_surname` columns; rows without them import without error
-- [ ] Proxy names are not shown in the voter-facing flow
-- [ ] All tests pass at 100% coverage
-- [ ] Typecheck/lint passes
+- [x] `LotProxy` gains two optional fields: `given_name` (VARCHAR, nullable) and `surname` (VARCHAR, nullable)
+- [x] The Set Proxy dialog on the lot owner detail / edit view includes optional "Given name" and "Surname" fields for the proxy contact
+- [x] `PUT /api/admin/lot-owners/{id}/proxy` accepts `given_name` and `surname` alongside `proxy_email`
+- [x] `GET /api/admin/lot-owners/{id}` returns proxy name fields in the `LotOwnerOut.proxy` object
+- [x] The proxy import (CSV/Excel) accepts optional `proxy_given_name` and `proxy_surname` columns; rows without them import without error
+- [x] Proxy names are not shown in the voter-facing flow
+- [x] All tests pass at 100% coverage
+- [x] Typecheck/lint passes
 
 ---
 
