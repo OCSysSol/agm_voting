@@ -1,7 +1,7 @@
 """add outcome to motion_options
 
 Revision ID: a9c1d5e7f2b3
-Revises: 3869c4d28305
+Revises: 4ab492b5e61f
 Create Date: 2026-04-02 13:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a9c1d5e7f2b3'
-down_revision: Union[str, Sequence[str], None] = '3869c4d28305'
+down_revision: Union[str, Sequence[str], None] = '4ab492b5e61f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
