@@ -112,16 +112,25 @@ async def list_motions(
     # Build a dict preferring a non-not_eligible choice when multiple lots vote on the same motion.
     # For multi-choice motions, use VoteChoice.selected as the submitted_choice sentinel
     # (indicates "you voted" without implying a specific binary choice).
+    # submitted_option_choices_by_motion maps motion_id -> {option_id_str -> choice_str}
     voted_choice_by_motion: dict[uuid.UUID, VoteChoice] = {}
-    submitted_option_ids_by_motion: dict[uuid.UUID, list[uuid.UUID]] = {}
+    submitted_option_choices_by_motion: dict[uuid.UUID, dict[str, str]] = {}
     for motion_id, choice, motion_option_id in voted_result.all():
         existing = voted_choice_by_motion.get(motion_id)
         if existing is None or existing == VoteChoice.not_eligible:
             voted_choice_by_motion[motion_id] = choice
-        if choice == VoteChoice.selected and motion_option_id is not None:
-            submitted_option_ids_by_motion.setdefault(motion_id, [])
-            if motion_option_id not in submitted_option_ids_by_motion[motion_id]:
-                submitted_option_ids_by_motion[motion_id].append(motion_option_id)
+        if motion_option_id is not None and choice in (VoteChoice.selected, VoteChoice.against, VoteChoice.abstained):
+            submitted_option_choices_by_motion.setdefault(motion_id, {})
+            opt_id_str = str(motion_option_id)
+            if opt_id_str not in submitted_option_choices_by_motion[motion_id]:
+                # Map stored VoteChoice back to display string for the frontend
+                if choice == VoteChoice.selected:
+                    choice_str = "for"
+                elif choice == VoteChoice.against:
+                    choice_str = "against"
+                else:
+                    choice_str = "abstained"
+                submitted_option_choices_by_motion[motion_id][opt_id_str] = choice_str
     voted_motion_ids = set(voted_choice_by_motion.keys())
 
     # Fetch motions that are visible OR already voted on by this voter
@@ -162,7 +171,7 @@ async def list_motions(
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,
             submitted_choice=voted_choice_by_motion.get(m.id),
-            submitted_option_ids=submitted_option_ids_by_motion.get(m.id, []),
+            submitted_option_choices=submitted_option_choices_by_motion.get(m.id, {}),
             option_limit=m.option_limit,
             options=[
                 {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
@@ -312,7 +321,7 @@ async def submit_ballot_endpoint(
         voter_email=session.voter_email,
         lot_owner_ids=body.lot_owner_ids,
         inline_votes={item.motion_id: item.choice for item in body.votes},
-        multi_choice_votes={item.motion_id: item.option_ids for item in body.multi_choice_votes},
+        multi_choice_votes={item.motion_id: item.option_choices for item in body.multi_choice_votes},
     )
     await db.commit()
     return result

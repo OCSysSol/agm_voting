@@ -8,13 +8,16 @@ import {
   fetchBuildings,
   restoreSession,
 } from "../../api/voter";
+import { optionChoiceMapToRequest } from "../../components/vote/MultiChoiceOptionList";
 import type { VoteChoice } from "../../types";
 import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
+
+type OptionChoiceMap = Record<string, "for" | "against" | "abstained">;
 
 interface SubmitPayload {
   lotsToSubmit: string[];
   votes: { motion_id: string; choice: VoteChoice }[];
-  multiChoiceVotes: { motion_id: string; option_ids: string[] }[];
+  multiChoiceVotes: { motion_id: string; option_choices: { option_id: string; choice: "for" | "against" | "abstained" }[] }[];
 }
 import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
@@ -34,9 +37,9 @@ export function VotingPage() {
   const serverTime = useServerTime();
 
   const [choices, setChoices] = useState<Record<string, VoteChoice | null>>({});
-  // Multi-choice state: motion_id -> selected option_ids
-  // A motion is considered "answered" once the voter interacts (key exists in map, even if [])
-  const [multiChoiceSelections, setMultiChoiceSelections] = useState<Record<string, string[]>>({});
+  // Multi-choice state: motion_id -> { option_id: "for" | "against" | "abstained" }
+  // A motion is considered "answered" once the voter interacts (key exists in map, even if {})
+  const [multiChoiceSelections, setMultiChoiceSelections] = useState<Record<string, OptionChoiceMap>>({});
   const [showDialog, setShowDialog] = useState(false);
   const [showMixedWarning, setShowMixedWarning] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
@@ -188,17 +191,18 @@ export function VotingPage() {
       return seeded;
     });
     // Seed multiChoiceSelections for read-only multi-choice motions so previously
-    // selected options are shown when the voter returns to this page.
+    // submitted option choices are shown when the voter returns to this page.
     setMultiChoiceSelections((prev) => {
-      const seeded: Record<string, string[]> = { ...prev };
+      const seeded: Record<string, OptionChoiceMap> = { ...prev };
       for (const m of motions) {
         if (
           m.is_multi_choice &&
           isMotionReadOnly(m) &&
-          m.submitted_option_ids?.length &&
+          m.submitted_option_choices &&
+          Object.keys(m.submitted_option_choices).length > 0 &&
           !(m.id in seeded)
         ) {
-          seeded[m.id] = m.submitted_option_ids;
+          seeded[m.id] = m.submitted_option_choices as OptionChoiceMap;
         }
       }
       return seeded;
@@ -269,7 +273,10 @@ export function VotingPage() {
       submitBallot(meetingId!, {
         lot_owner_ids: lotsToSubmit,
         votes,
-        multi_choice_votes: multiChoiceVotes,
+        multi_choice_votes: multiChoiceVotes.map(({ motion_id, option_choices }) => ({
+          motion_id,
+          option_choices,
+        })),
       }),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
@@ -406,8 +413,8 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  const handleMultiChoiceChange = (motionId: string, optionIds: string[]) => {
-    setMultiChoiceSelections((prev) => ({ ...prev, [motionId]: optionIds }));
+  const handleMultiChoiceChange = (motionId: string, choices: OptionChoiceMap) => {
+    setMultiChoiceSelections((prev) => ({ ...prev, [motionId]: choices }));
   };
 
   // Only count motions the voter can still interact with towards the progress bar.
@@ -476,7 +483,7 @@ export function VotingPage() {
       .filter(([, choice]) => choice !== null)
       .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
     const multiChoiceVotes = Object.entries(multiChoiceSelections).map(
-      ([motion_id, option_ids]) => ({ motion_id, option_ids })
+      ([motion_id, choices]) => ({ motion_id, option_choices: optionChoiceMapToRequest(choices) })
     );
     submitMutation.mutate({ lotsToSubmit, votes, multiChoiceVotes });
   };
@@ -682,7 +689,7 @@ export function VotingPage() {
                           : !choices[motion.id])
                       }
                       readOnly={isMotionReadOnly(motion)}
-                      multiChoiceSelectedIds={multiChoiceSelections[motion.id] ?? []}
+                      multiChoiceOptionChoices={multiChoiceSelections[motion.id] ?? {}}
                       onMultiChoiceChange={handleMultiChoiceChange}
                     />
                   ))}

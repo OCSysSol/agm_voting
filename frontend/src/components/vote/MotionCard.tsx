@@ -10,6 +10,8 @@ const MOTION_TYPE_LABELS: Record<string, string> = {
   special: "Special",
 };
 
+type OptionChoiceMap = Record<string, "for" | "against" | "abstained">;
+
 interface MotionCardProps {
   motion: MotionOut;
   position: number;
@@ -19,8 +21,8 @@ interface MotionCardProps {
   highlight: boolean;
   readOnly?: boolean;
   // Multi-choice state (only used for multi_choice motion type)
-  multiChoiceSelectedIds?: string[];
-  onMultiChoiceChange?: (motionId: string, optionIds: string[]) => void;
+  multiChoiceOptionChoices?: OptionChoiceMap;
+  onMultiChoiceChange?: (motionId: string, choices: OptionChoiceMap) => void;
 }
 
 export function MotionCard({
@@ -31,7 +33,7 @@ export function MotionCard({
   disabled,
   highlight,
   readOnly = false,
-  multiChoiceSelectedIds = [],
+  multiChoiceOptionChoices = {},
   onMultiChoiceChange,
 }: MotionCardProps) {
   const handleClick = (c: VoteChoice) => {
@@ -86,8 +88,8 @@ export function MotionCard({
       {isMultiChoice ? (
         <MultiChoiceOptionList
           motion={motion}
-          selectedOptionIds={multiChoiceSelectedIds}
-          onSelectionChange={onMultiChoiceChange ?? (() => {})}
+          optionChoices={multiChoiceOptionChoices}
+          onChoiceChange={onMultiChoiceChange ?? (() => {})}
           disabled={isEffectivelyDisabled}
           readOnly={readOnly}
         />

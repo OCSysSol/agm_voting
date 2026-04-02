@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ class MotionOut(BaseModel):
     is_visible: bool = True
     already_voted: bool = False
     submitted_choice: Optional[VoteChoice] = None
-    submitted_option_ids: list[uuid.UUID] = []
+    submitted_option_choices: dict[str, str] = {}
     option_limit: Optional[int] = None
     options: list[MotionOptionOut] = []
 
@@ -65,9 +65,21 @@ class SubmitResponse(BaseModel):
     lots: list[LotBallotResult]
 
 
+class MultiChoiceOptionChoice(BaseModel):
+    option_id: uuid.UUID
+    choice: Literal["for", "against", "abstained"]
+
+
 class MultiChoiceVoteItem(BaseModel):
     motion_id: uuid.UUID
-    option_ids: list[uuid.UUID] = []  # empty = abstain
+    option_choices: list[MultiChoiceOptionChoice] = []  # empty = abstain entire motion
+
+
+class BallotOptionChoiceItem(BaseModel):
+    """Per-option choice in the ballot confirmation response for multi-choice motions."""
+    option_id: uuid.UUID
+    option_text: str
+    choice: str  # "for", "against", or "abstained"
 
 
 class BallotVoteItem(BaseModel):
@@ -80,6 +92,7 @@ class BallotVoteItem(BaseModel):
     motion_type: MotionType = MotionType.general
     is_multi_choice: bool = False
     selected_options: list[MotionOptionOut] = []
+    option_choices: list[BallotOptionChoiceItem] = []
 
 
 class LotBallotSummary(BaseModel):

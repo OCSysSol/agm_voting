@@ -661,6 +661,37 @@ button, input, select, textarea {
   margin-bottom: 10px;
 }
 
+/* Per-option For/Against/Abstain row (Slice 3) */
+.mc-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--white);
+}
+
+.mc-option-row__text {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.mc-option-row__buttons {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mc-option-row__buttons .vote-btn {
+  min-height: 44px;
+  padding: 6px 10px 5px;
+  min-width: 60px;
+}
+
 .motion-card__voted-badge {
   display: inline-block;
   font-size: 0.65rem;

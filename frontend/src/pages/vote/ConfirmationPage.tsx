@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMyBallot } from "../../api/voter";
+import type { BallotVoteItem } from "../../api/voter";
 import { useBranding } from "../../context/BrandingContext";
 
 const CHOICE_LABELS: Record<string, string> = {
@@ -11,9 +12,22 @@ const CHOICE_LABELS: Record<string, string> = {
   selected: "Selected",
 };
 
-function renderChoiceLabel(vote: { choice: string; is_multi_choice?: boolean; selected_options?: Array<{ text: string }> }): string {
+const OPTION_CHOICE_LABELS: Record<string, string> = {
+  for: "For",
+  against: "Against",
+  abstained: "Abstained",
+};
+
+function renderChoiceLabel(vote: BallotVoteItem): string {
   if (vote.is_multi_choice) {
     if (vote.choice === "not_eligible") return "Not eligible";
+    // Use option_choices if present (Slice 3 format)
+    if (vote.option_choices && vote.option_choices.length > 0) {
+      return vote.option_choices
+        .map((oc) => `${oc.option_text}: ${OPTION_CHOICE_LABELS[oc.choice] ?? oc.choice}`)
+        .join(", ");
+    }
+    // Fallback to selected_options (backward compat for legacy abstain rows)
     if (vote.choice === "abstained" || !vote.selected_options || vote.selected_options.length === 0) return "Abstained";
     return vote.selected_options.map((o) => o.text).join(", ");
   }
@@ -64,7 +78,7 @@ export function ConfirmationPage() {
   }
 
   // Collect all votes across submitted lots, deduplicated by motion_id (first lot wins)
-  const allVotes: { motion_id: string; motion_title: string; display_order: number; motion_number: string | null; choice: string; lot_number: string; is_multi_choice?: boolean; selected_options?: Array<{ text: string }> }[] = [];
+  const allVotes: (BallotVoteItem & { lot_number: string })[] = [];
   for (const lot of data.submitted_lots) {
     for (const v of lot.votes) {
       if (!allVotes.find((x) => x.motion_id === v.motion_id && x.lot_number === lot.lot_number)) {

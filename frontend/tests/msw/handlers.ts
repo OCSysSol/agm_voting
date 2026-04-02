@@ -900,11 +900,28 @@ export const mcMotionFixtureVoter = {
   is_visible: true,
   already_voted: false,
   submitted_choice: null,
+  submitted_option_choices: {} as Record<string, string>,
   option_limit: 2,
   options: [
     { id: "opt-alice", text: "Alice", display_order: 1 },
     { id: "opt-bob", text: "Bob", display_order: 2 },
     { id: "opt-carol", text: "Carol", display_order: 3 },
+  ],
+};
+
+export const mcBallotVoteFixture = {
+  motion_id: MOTION_ID_MC,
+  motion_title: "Board Election",
+  display_order: 3,
+  motion_number: null,
+  choice: "selected" as const,
+  eligible: true,
+  motion_type: "general" as const,
+  is_multi_choice: true,
+  selected_options: [{ id: "opt-alice", text: "Alice", display_order: 1 }],
+  option_choices: [
+    { option_id: "opt-alice", option_text: "Alice", choice: "for" },
+    { option_id: "opt-bob", option_text: "Bob", choice: "against" },
   ],
 };
 
@@ -925,6 +942,10 @@ export const myBallotFixture = {
           motion_number: null,
           choice: "yes" as const,
           eligible: true,
+          motion_type: "general" as const,
+          is_multi_choice: false,
+          selected_options: [],
+          option_choices: [],
         },
         {
           motion_id: MOTION_ID_2,
@@ -933,6 +954,10 @@ export const myBallotFixture = {
           motion_number: null,
           choice: "no" as const,
           eligible: true,
+          motion_type: "general" as const,
+          is_multi_choice: false,
+          selected_options: [],
+          option_choices: [],
         },
       ],
     },

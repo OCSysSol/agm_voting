@@ -2487,7 +2487,7 @@ describe("VotingPage", () => {
 
   // --- Multi-choice motion type ---
 
-  it("renders multi-choice motion checkboxes when motion_type is multi_choice", async () => {
+  it("renders multi-choice motion option rows when motion_type is multi_choice", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([mcMotionFixtureVoter])
@@ -2495,9 +2495,9 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
-      expect(screen.getByLabelText("Bob")).toBeInTheDocument();
-      expect(screen.getByLabelText("Carol")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Bob")).toBeInTheDocument();
+      expect(screen.getByText("Carol")).toBeInTheDocument();
     });
   });
 
@@ -2520,12 +2520,12 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
     });
     // Initially 0/1 answered
     expect(screen.getByText("0 / 1")).toBeInTheDocument();
-    // Click Alice checkbox
-    await user.click(screen.getByLabelText("Alice"));
+    // Click Alice For button
+    await user.click(screen.getByTestId("mc-for-opt-alice"));
     // Now 1/1 answered
     await waitFor(() => {
       expect(screen.getByText("1 / 1")).toBeInTheDocument();
@@ -2553,7 +2553,7 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
     });
     // Click submit without selecting any MC option
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
@@ -2568,14 +2568,14 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("seeds multiChoiceSelections from submitted_option_ids when MC motion is read-only", async () => {
+  it("seeds multiChoiceSelections from submitted_option_choices when MC motion is read-only", async () => {
     // Fix 2: when the voter returns to the page and the MC motion is already voted,
-    // submitted_option_ids should restore the option checkboxes in read-only state.
+    // submitted_option_choices should restore the per-option choices in read-only state.
     const votedMcMotion = {
       ...mcMotionFixtureVoter,
       already_voted: true,
       submitted_choice: "selected" as const,
-      submitted_option_ids: ["opt-alice", "opt-bob"],
+      submitted_option_choices: { "opt-alice": "for", "opt-bob": "against" },
     };
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
@@ -2597,23 +2597,24 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      // Alice and Bob checkboxes should be checked (seeded from submitted_option_ids)
-      expect(screen.getByLabelText("Alice")).toBeChecked();
-      expect(screen.getByLabelText("Bob")).toBeChecked();
+      // Alice For button should be active (seeded from submitted_option_choices)
+      expect(screen.getByTestId("mc-for-opt-alice")).toHaveAttribute("aria-pressed", "true");
+      // Bob Against button should be active
+      expect(screen.getByTestId("mc-against-opt-bob")).toHaveAttribute("aria-pressed", "true");
     });
-    // Carol should not be checked
-    expect(screen.getByLabelText("Carol")).not.toBeChecked();
+    // Carol should have no active choice
+    expect(screen.getByTestId("mc-for-opt-carol")).toHaveAttribute("aria-pressed", "false");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
   it("does not seed multiChoiceSelections when MC motion is not read-only", async () => {
-    // When the lot has not yet voted on the MC motion, submitted_option_ids
-    // should NOT pre-populate checkboxes even if the field is present.
+    // When the lot has not yet voted on the MC motion, submitted_option_choices
+    // should NOT pre-populate button states even if the field is present.
     const unvotedMcMotion = {
       ...mcMotionFixtureVoter,
       already_voted: false,
       submitted_choice: null,
-      submitted_option_ids: ["opt-alice"],  // should be ignored (motion not read-only)
+      submitted_option_choices: { "opt-alice": "for" },  // should be ignored (motion not read-only)
     };
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
@@ -2635,14 +2636,14 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
     });
-    // Alice checkbox should NOT be pre-checked since the motion is interactive
-    expect(screen.getByLabelText("Alice")).not.toBeChecked();
+    // Alice For button should NOT be active since the motion is interactive
+    expect(screen.getByTestId("mc-for-opt-alice")).toHaveAttribute("aria-pressed", "false");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("includes multi_choice_votes in submit payload", async () => {
+  it("includes multi_choice_votes with option_choices in submit payload", async () => {
     const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
       submitted: true,
       lots: [],
@@ -2665,10 +2666,10 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
     });
-    // Select Alice
-    await user.click(screen.getByLabelText("Alice"));
+    // Vote For Alice
+    await user.click(screen.getByTestId("mc-for-opt-alice"));
     // Now submit
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     // Confirm dialog — the dialog submit button is also "Submit ballot"
@@ -2687,7 +2688,9 @@ describe("VotingPage", () => {
           multi_choice_votes: expect.arrayContaining([
             expect.objectContaining({
               motion_id: MOTION_ID_MC,
-              option_ids: ["opt-alice"],
+              option_choices: expect.arrayContaining([
+                expect.objectContaining({ option_id: "opt-alice", choice: "for" }),
+              ]),
             }),
           ]),
         })

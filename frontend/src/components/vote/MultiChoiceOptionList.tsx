@@ -1,65 +1,109 @@
-import type { MotionOut } from "../../api/voter";
+import type { MotionOut, MultiChoiceOptionChoice } from "../../api/voter";
+
+type OptionChoiceMap = Record<string, "for" | "against" | "abstained">;
 
 interface MultiChoiceOptionListProps {
   motion: MotionOut;
-  selectedOptionIds: string[];
-  onSelectionChange: (motionId: string, optionIds: string[]) => void;
+  /** option_id → choice ("for" | "against" | "abstained") */
+  optionChoices: OptionChoiceMap;
+  onChoiceChange: (motionId: string, choices: OptionChoiceMap) => void;
   disabled: boolean;
   readOnly?: boolean;
 }
 
 export function MultiChoiceOptionList({
   motion,
-  selectedOptionIds,
-  onSelectionChange,
+  optionChoices,
+  onChoiceChange,
   disabled,
   readOnly = false,
 }: MultiChoiceOptionListProps) {
   const optionLimit = motion.option_limit ?? motion.options.length;
-  const selectedCount = selectedOptionIds.length;
-  const limitReached = selectedCount >= optionLimit;
+  const forCount = Object.values(optionChoices).filter((c) => c === "for").length;
+  const limitReached = forCount >= optionLimit;
 
-  function handleChange(optionId: string, checked: boolean) {
+  function handleOptionChoice(optionId: string, choice: "for" | "against" | "abstained") {
     if (disabled || readOnly) return;
-    if (checked) {
-      if (!limitReached) {
-        onSelectionChange(motion.id, [...selectedOptionIds, optionId]);
-      }
+    const next = { ...optionChoices };
+    if (next[optionId] === choice) {
+      // Clicking the active choice deselects it (removes the entry)
+      delete next[optionId];
     } else {
-      onSelectionChange(motion.id, selectedOptionIds.filter((id) => id !== optionId));
+      next[optionId] = choice;
     }
+    onChoiceChange(motion.id, next);
   }
 
   return (
     <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
-      {/* RR3-24: legend associates the group of checkboxes with the motion question for screen readers */}
+      {/* RR3-24: legend associates the group of buttons with the motion question for screen readers */}
       <legend className="motion-card__title" style={{ float: "left", width: "100%", marginBottom: 8 }}>
         {motion.title}
       </legend>
       <p className="multi-choice-counter" data-testid="mc-counter">
-        {`Select up to ${optionLimit} option${optionLimit !== 1 ? "s" : ""} — ${selectedCount} selected`}
+        {`Select up to ${optionLimit} option${optionLimit !== 1 ? "s" : ""} — ${forCount} voted For`}
       </p>
       {motion.options.map((option) => {
-        const isChecked = selectedOptionIds.includes(option.id);
-        const isDisabledByLimit = !isChecked && limitReached;
-        const isEffectivelyDisabled = disabled || readOnly || isDisabledByLimit;
+        const currentChoice = optionChoices[option.id];
+        const isForSelected = currentChoice === "for";
+        const isAgainstSelected = currentChoice === "against";
+        const isAbstainSelected = currentChoice === "abstained";
+        // "For" is disabled when the limit is reached and this option is not already "For"
+        const isForDisabled = disabled || readOnly || (limitReached && !isForSelected);
+        const isEffectivelyDisabled = disabled || readOnly;
 
         return (
-          <label
+          <div
             key={option.id}
-            className={`multi-choice-option${isDisabledByLimit ? " multi-choice-option--disabled" : ""}`}
+            className="mc-option-row"
+            data-testid={`mc-option-row-${option.id}`}
           >
-            <input
-              type="checkbox"
-              aria-label={option.text}
-              checked={isChecked}
-              disabled={isEffectivelyDisabled}
-              onChange={(e) => handleChange(option.id, e.target.checked)}
-            />
-            <span className="multi-choice-option__text">{option.text}</span>
-          </label>
+            <span className="mc-option-row__text">{option.text}</span>
+            <div className="mc-option-row__buttons" role="group" aria-label={`Vote for ${option.text}`}>
+              <button
+                type="button"
+                className={`vote-btn vote-btn--yes${isForSelected ? " vote-btn--active" : ""}`}
+                aria-pressed={isForSelected}
+                disabled={isForDisabled}
+                onClick={() => handleOptionChoice(option.id, "for")}
+                data-testid={`mc-for-${option.id}`}
+              >
+                <span className="vote-btn__icon" aria-hidden="true">✓</span>
+                <span className="vote-btn__label">For</span>
+              </button>
+              <button
+                type="button"
+                className={`vote-btn vote-btn--no${isAgainstSelected ? " vote-btn--active" : ""}`}
+                aria-pressed={isAgainstSelected}
+                disabled={isEffectivelyDisabled}
+                onClick={() => handleOptionChoice(option.id, "against")}
+                data-testid={`mc-against-${option.id}`}
+              >
+                <span className="vote-btn__icon" aria-hidden="true">✗</span>
+                <span className="vote-btn__label">Against</span>
+              </button>
+              <button
+                type="button"
+                className={`vote-btn vote-btn--abstained${isAbstainSelected ? " vote-btn--active" : ""}`}
+                aria-pressed={isAbstainSelected}
+                disabled={isEffectivelyDisabled}
+                onClick={() => handleOptionChoice(option.id, "abstained")}
+                data-testid={`mc-abstain-${option.id}`}
+              >
+                <span className="vote-btn__icon" aria-hidden="true">—</span>
+                <span className="vote-btn__label">Abstain</span>
+              </button>
+            </div>
+          </div>
         );
       })}
     </fieldset>
   );
+}
+
+/**
+ * Convert OptionChoiceMap to the API submission format.
+ */
+export function optionChoiceMapToRequest(choices: OptionChoiceMap): MultiChoiceOptionChoice[] {
+  return Object.entries(choices).map(([option_id, choice]) => ({ option_id, choice }));
 }

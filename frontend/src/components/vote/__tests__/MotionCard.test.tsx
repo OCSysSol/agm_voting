@@ -486,7 +486,7 @@ describe("MotionCard", () => {
 
   // --- Multi-choice motion type ---
 
-  it("renders MultiChoiceOptionList instead of vote buttons for multi_choice motions", () => {
+  it("renders MultiChoiceOptionList instead of binary vote buttons for multi_choice motions", () => {
     render(
       <MotionCard
         motion={motionMultiChoice}
@@ -495,11 +495,10 @@ describe("MotionCard", () => {
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
-        multiChoiceSelectedIds={[]}
+        multiChoiceOptionChoices={{}}
         onMultiChoiceChange={() => {}}
       />
     );
-    expect(screen.queryByRole("button", { name: "For" })).not.toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Bob")).toBeInTheDocument();
     expect(screen.getByText("Carol")).toBeInTheDocument();
@@ -514,7 +513,7 @@ describe("MotionCard", () => {
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
-        multiChoiceSelectedIds={[]}
+        multiChoiceOptionChoices={{}}
         onMultiChoiceChange={() => {}}
       />
     );
@@ -522,7 +521,7 @@ describe("MotionCard", () => {
     expect(badge).toHaveClass("motion-type-badge--multi_choice");
   });
 
-  it("calls onMultiChoiceChange when MC option is clicked", async () => {
+  it("calls onMultiChoiceChange when MC For button is clicked", async () => {
     const user = userEvent.setup();
     const onMultiChoiceChange = vi.fn();
     render(
@@ -533,15 +532,15 @@ describe("MotionCard", () => {
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
-        multiChoiceSelectedIds={[]}
+        multiChoiceOptionChoices={{}}
         onMultiChoiceChange={onMultiChoiceChange}
       />
     );
-    await user.click(screen.getByLabelText("Alice"));
-    expect(onMultiChoiceChange).toHaveBeenCalledWith("mot-mc-001", ["opt-1"]);
+    await user.click(screen.getByTestId("mc-for-opt-1"));
+    expect(onMultiChoiceChange).toHaveBeenCalledWith("mot-mc-001", { "opt-1": "for" });
   });
 
-  it("MC option list is disabled when motion is readOnly", () => {
+  it("MC option buttons are disabled when motion is readOnly", () => {
     render(
       <MotionCard
         motion={motionMultiChoice}
@@ -551,15 +550,15 @@ describe("MotionCard", () => {
         disabled={false}
         highlight={false}
         readOnly={true}
-        multiChoiceSelectedIds={["opt-1"]}
+        multiChoiceOptionChoices={{ "opt-1": "for" }}
         onMultiChoiceChange={() => {}}
       />
     );
-    const checkboxes = screen.getAllByRole("checkbox");
-    checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+    const buttons = screen.getAllByRole("button");
+    buttons.forEach((btn) => expect(btn).toBeDisabled());
   });
 
-  it("MC counter shows correct selected count", () => {
+  it("MC counter shows correct For count", () => {
     render(
       <MotionCard
         motion={motionMultiChoice}
@@ -568,10 +567,10 @@ describe("MotionCard", () => {
         onChoiceChange={() => {}}
         disabled={false}
         highlight={false}
-        multiChoiceSelectedIds={["opt-1", "opt-2"]}
+        multiChoiceOptionChoices={{ "opt-1": "for", "opt-2": "for" }}
         onMultiChoiceChange={() => {}}
       />
     );
-    expect(screen.getByTestId("mc-counter")).toHaveTextContent("2 selected");
+    expect(screen.getByTestId("mc-counter")).toHaveTextContent("2 voted For");
   });
 });

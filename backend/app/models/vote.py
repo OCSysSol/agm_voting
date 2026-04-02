@@ -21,6 +21,7 @@ class VoteChoice(str, enum.Enum):
     abstained = "abstained"
     not_eligible = "not_eligible"
     selected = "selected"
+    against = "against"
 
 
 class VoteStatus(str, enum.Enum):
