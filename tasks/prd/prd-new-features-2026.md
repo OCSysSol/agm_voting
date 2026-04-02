@@ -2,34 +2,25 @@
 
 ## Introduction
 
-<<<<<<< feat/slice6-cross-owner-ballot
-This PRD tracks new features planned for 2026. These features extend the AGM Voting App to improve the experience for co-owners, proxy voters, and admins.
-=======
 This document captures seven new features for the AGM Voting App: admin vote entry on behalf of in-person voters, lot owner names for admin identification, a per-option For/Against/Abstain split for multi-choice motions on the voter-facing page, a pass/fail outcome algorithm for multi-choice results, a QR code for the voter share link, cross-owner ballot visibility on the confirmation page, and per-motion voting windows.
->>>>>>> preview
 
 ---
 
 ## Goals
 
-<<<<<<< feat/slice6-cross-owner-ballot
 - Allow all lot co-owners to see the submitted ballot on the confirmation page, regardless of which email submitted it.
 - Expose submitter and proxy identity on the ballot receipt for audit clarity.
-=======
 - Allow admins to enter votes on behalf of lot owners who voted in person (paper or vocal), without overriding app-submitted ballots
 - Store given name and surname for lot owners and proxy contacts for admin identification in reports
 - Present multi-choice motion options to voters as individual For/Against/Abstain decisions, matching how voters experience other resolution types
 - Determine pass/fail outcomes for multi-choice motions based on a building-entitlement threshold and ranking
 - Generate a QR code on the admin AGM detail page that lot owners can scan to enter the voter URL
-- Allow all lot owners and proxies associated with a lot to view that lot's submitted ballot on the confirmation page
 - Allow admins to manually close voting on individual motions while the overall meeting remains open
->>>>>>> preview
 
 ---
 
 ## User Stories
 
-<<<<<<< feat/slice6-cross-owner-ballot
 ### US-MOV-01: All Lot Co-Owners See Submitted Ballot ✅ Implemented
 
 **Description:** As a lot co-owner with a different email than the person who submitted the ballot, I want to see the submitted ballot on the confirmation page so that I can verify what was voted on behalf of my lot.
@@ -45,7 +36,7 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - [x] Voter with no associated lots gets 404
 - [x] All tests pass at 100% coverage
 - [x] Typecheck/lint passes
-=======
+
 ---
 
 ### US-AVE-01: Admin selects lots for in-person vote entry
@@ -292,16 +283,13 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - [ ] If the voter has already voted on a motion that subsequently has its `voting_closed_at` set, the motion shows their submitted choice (read-only) as normal
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
->>>>>>> preview
 
 ---
 
 ## Non-Goals
 
-<<<<<<< feat/slice6-cross-owner-ballot
 - Changing who can submit a ballot (submission still restricted to the authenticated voter's own lots and proxy lots).
 - Exposing submitter identity in the admin tally view.
-=======
 - Admin vote entry for meetings that are already closed
 - Overriding or amending app-submitted ballots via admin vote entry
 - Lot owner names shown in any voter-facing surface
@@ -309,17 +297,14 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - QR code customisation beyond logo in centre (no colour or style options)
 - Per-motion scheduled auto-close (only manual admin close is supported)
 - Reopening a per-motion-closed motion (irreversible once closed)
->>>>>>> preview
 
 ---
 
 ## Technical Considerations
 
-<<<<<<< feat/slice6-cross-owner-ballot
 - `BallotSubmission.voter_email` = the email that actually submitted (may differ from the authenticated viewer's email for co-owners).
 - `BallotSubmission.proxy_email` = set only when a proxy submitted (equals the proxy's email).
 - The vote query in `get_my_ballot` must not filter by `voter_email` — it must filter only by `lot_owner_id` to return votes cast by any email for that lot.
-=======
 - Feature 1 (admin vote entry) reuses the `submit_ballot` service path with a new `submitted_by_admin` flag on `BallotSubmission`; it does not create a separate ballot model
 - Feature 2 (lot owner names) requires an Alembic migration adding nullable columns to `lot_owners` and `lot_proxies`
 - Feature 3 (multi-choice split) is a frontend-only rendering change on the voter voting page; backend submission needs a new `option_choices` list format per `multi_choice_votes` item
@@ -327,16 +312,13 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 - Feature 5 (QR code) is purely frontend; `qrcode.react` or equivalent is added as a frontend dependency only
 - Feature 6 (cross-owner ballot visibility) is a backend query change to `get_my_ballot` — broaden the lookup to match any `lot_owner_id` the session voter is associated with
 - Feature 7 (per-motion voting window) requires a schema migration (new `voting_closed_at` column on `motions`), changes to `submit_ballot` to enforce per-motion close, and changes to the tally query to filter by `voting_closed_at`
->>>>>>> preview
 
 ---
 
 ## Success Metrics
 
-<<<<<<< feat/slice6-cross-owner-ballot
 - Co-owner B can see Lot A's ballot after co-owner A submits.
 - Proxy-submitted ballots show "Submitted via proxy by {proxy_email}" on confirmation page.
-=======
 - Admin can enter and submit votes for a selected set of lots for a full motion list in under 2 minutes
 - All lot owners and proxy contacts associated with a lot see the submitted ballot when they authenticate after submission
 - Pass/fail outcomes are automatically computed on meeting close with no manual admin calculation required
@@ -348,4 +330,3 @@ This document captures seven new features for the AGM Voting App: admin vote ent
 
 - Should the "against" vote for a multi-choice option be stored as a new `VoteChoice` enum value (`against`) or reuse an existing value? The current `VoteChoice` enum has `yes`, `no`, `abstained`, `not_eligible`, `selected`. Adding `against` (and perhaps renaming `selected` to `for`) is the cleanest approach but requires a migration and enum expansion.
 - Should multi-choice outcome (`pass`/`fail`/`tie`) be stored as a column on `motion_options` (computed once on close) or computed on every read? Storing avoids re-computation but requires a migration.
->>>>>>> preview
