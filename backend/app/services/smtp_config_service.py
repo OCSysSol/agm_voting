@@ -62,6 +62,7 @@ async def update_smtp_config(data: SmtpConfigUpdate, db: AsyncSession) -> Tenant
 
     if data.smtp_password:
         key = settings.smtp_encryption_key
+        logger.info("smtp_save_debug", key_set=bool(key), key_len=len(key))
         if not key:
             logger.warning(
                 "smtp_encryption_key_missing",
