@@ -549,6 +549,24 @@ async def delete_motion_endpoint(
     await admin_service.delete_motion(motion_id, db)
 
 
+@router.delete(
+    "/motions/{motion_id}/options/{option_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_motion_option_endpoint(
+    motion_id: uuid.UUID,
+    option_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a single option from a multi-choice motion.
+
+    Returns 204 on success.
+    Returns 404 if the motion or option does not exist.
+    Returns 409 if any submitted votes reference the option.
+    """
+    await admin_service.delete_motion_option(motion_id, option_id, db)
+
+
 # ---------------------------------------------------------------------------
 # General Meetings
 # ---------------------------------------------------------------------------
@@ -720,6 +738,7 @@ async def reset_general_meeting_ballots(
 async def enter_votes_for_meeting(
     general_meeting_id: uuid.UUID,
     data: AdminVoteEntryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> AdminVoteEntryResult:
     """Enter in-person votes on behalf of lot owners (US-AVE-01/02/03).
@@ -729,7 +748,10 @@ async def enter_votes_for_meeting(
     Returns 409 if the meeting is not open.
     Returns 422 if unknown lot_owner_ids or invalid votes are provided.
     """
-    result = await admin_service.enter_votes_for_meeting(general_meeting_id, data, db)
+    admin_username: str | None = request.session.get("admin_username")
+    result = await admin_service.enter_votes_for_meeting(
+        general_meeting_id, data, db, admin_username=admin_username
+    )
     return AdminVoteEntryResult(**result)
 
 

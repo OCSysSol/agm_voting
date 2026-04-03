@@ -1465,6 +1465,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     lot_owner_to_submitted_by_admin: dict[uuid.UUID, bool] = {
         sub.lot_owner_id: sub.submitted_by_admin for sub in voted_submissions
     }
+    # RR4-27: expose submitted_by_admin_username for audit trail
+    lot_owner_to_submitted_by_admin_username: dict[uuid.UUID, str | None] = {
+        sub.lot_owner_id: sub.submitted_by_admin_username for sub in voted_submissions
+    }
 
     def _lots(lot_owner_ids: set[uuid.UUID], category: str) -> list[dict]:
         result_list: list[dict] = []
@@ -1478,12 +1482,14 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     proxy_email_val = None  # absent rows don't expose proxy separately in the list
                     ballot_hash_val = None  # absent lots have no ballot hash
                     submitted_by_admin_val = False
+                    submitted_by_admin_username_val = None
                 else:
                     # For voted categories, use the actual auth email from BallotSubmission
                     voter_email = lot_owner_to_email.get(lid, "")
                     proxy_email_val = lot_owner_to_proxy_email.get(lid)
                     ballot_hash_val = lot_owner_to_ballot_hash.get(lid)
                     submitted_by_admin_val = lot_owner_to_submitted_by_admin.get(lid, False)
+                    submitted_by_admin_username_val = lot_owner_to_submitted_by_admin_username.get(lid)
                 result_list.append({
                     "voter_email": voter_email,
                     "lot_number": info["lot_number"],
@@ -1491,6 +1497,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "proxy_email": proxy_email_val,
                     "ballot_hash": ballot_hash_val,
                     "submitted_by_admin": submitted_by_admin_val,
+                    "submitted_by_admin_username": submitted_by_admin_username_val,
                 })
         return result_list
 
@@ -1854,7 +1861,20 @@ async def close_motion(
     if effective != GeneralMeetingStatus.open:
         raise HTTPException(status_code=409, detail="Cannot close motion on a meeting that is not open")
 
-    motion.voting_closed_at = datetime.now(UTC)
+    # RR4-33: ensure voting_closed_at > meeting_at (defensive — meeting must already
+    # have started for effective_status to be "open", but validate explicitly).
+    close_time = datetime.now(UTC)
+    if meeting.meeting_at is not None:
+        starts_at = meeting.meeting_at
+        # Normalise to UTC; DB columns use timezone=True so tzinfo is always set.
+        starts_at = starts_at.astimezone(UTC)
+        if close_time <= starts_at:
+            raise HTTPException(
+                status_code=422,
+                detail="Voting close time must be after meeting start time",
+            )
+
+    motion.voting_closed_at = close_time
     await db.flush()
     await db.commit()
 
@@ -2137,6 +2157,55 @@ async def delete_motion(
     await db.delete(motion)
     await db.flush()
     await db.commit()
+
+
+async def delete_motion_option(
+    motion_id: uuid.UUID,
+    option_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
+    """Delete a single option from a multi-choice motion.
+
+    Raises 404 if the motion or option does not exist.
+    Raises 409 if any submitted Vote references this option (RESTRICT FK semantics).
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    # Verify option exists and belongs to the motion
+    opt_result = await db.execute(
+        select(MotionOption).where(
+            MotionOption.id == option_id,
+            MotionOption.motion_id == motion_id,
+        )
+    )
+    option = opt_result.scalar_one_or_none()
+    if option is None:
+        raise HTTPException(status_code=404, detail="Motion option not found")
+
+    # Check whether any submitted votes reference this option
+    vote_count_result = await db.execute(
+        select(func.count()).select_from(Vote).where(
+            Vote.motion_option_id == option_id,
+            Vote.status == VoteStatus.submitted,
+        )
+    )
+    vote_count = vote_count_result.scalar_one()
+    if vote_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete an option that has submitted votes",
+        )
+
+    await db.delete(option)
+    try:
+        await db.flush()
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete an option that has submitted votes",
+        )
 
 
 async def start_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession) -> GeneralMeeting:
@@ -3238,6 +3307,7 @@ async def enter_votes_for_meeting(
     general_meeting_id: uuid.UUID,
     request: AdminVoteEntryRequest,
     db: AsyncSession,
+    admin_username: str | None = None,
 ) -> dict[str, int]:
     """
     Enter votes on behalf of in-person lot owners (US-AVE-01/02).
@@ -3252,7 +3322,8 @@ async def enter_votes_for_meeting(
         * no inline vote provided → abstained
         * multi-choice options provided → validate option_ids and option_limit
         * no options provided for multi-choice → abstained
-    - All created BallotSubmission rows have submitted_by_admin = True.
+    - All created BallotSubmission rows have submitted_by_admin = True and
+      submitted_by_admin_username = admin_username.
     - Returns {"submitted_count": N, "skipped_count": M}.
     """
     from sqlalchemy.exc import IntegrityError
@@ -3504,6 +3575,7 @@ async def enter_votes_for_meeting(
                     voter_email="admin",
                     proxy_email=None,
                     submitted_by_admin=True,
+                    submitted_by_admin_username=admin_username,
                 )
                 db.add(submission)
                 for vote in votes_to_add:

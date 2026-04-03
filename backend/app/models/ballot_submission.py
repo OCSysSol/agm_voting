@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func, CheckConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -29,6 +29,7 @@ class BallotSubmission(Base):
     proxy_email: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     is_absent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     submitted_by_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    submitted_by_admin_username: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     ballot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
