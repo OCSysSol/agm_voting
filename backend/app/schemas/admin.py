@@ -621,10 +621,27 @@ class AdminLoginRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AdminMultiChoiceOptionChoice(BaseModel):
+    """Per-option For/Against/Abstain choice for admin vote entry (US-AVE2-01)."""
+
+    option_id: uuid.UUID
+    choice: str  # "for" | "against" | "abstained"
+
+    @field_validator("choice")
+    @classmethod
+    def choice_valid(cls, v: str) -> str:
+        if v not in ("for", "against", "abstained"):
+            raise ValueError("choice must be 'for', 'against', or 'abstained'")
+        return v
+
+
 class AdminVoteEntry(BaseModel):
     lot_owner_id: uuid.UUID
     votes: list[dict] = []  # [{motion_id: str, choice: str}]
-    multi_choice_votes: list[dict] = []  # [{motion_id: str, option_ids: [str]}]
+    # New shape (US-AVE2-01): per-option For/Against/Abstain
+    option_choices: list[AdminMultiChoiceOptionChoice] | None = None
+    # Legacy field: motion_id -> [option_ids] treated as all "for"
+    multi_choice_votes: list[dict] = []  # [{motion_id: str, option_ids?: [str], option_choices?: [...]}]
 
 
 class AdminVoteEntryRequest(BaseModel):

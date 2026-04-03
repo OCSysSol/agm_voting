@@ -394,6 +394,49 @@ export const ADMIN_MEETING_DETAIL_MC_OUTCOME: GeneralMeetingDetail = {
   ],
 };
 
+/** US-AVE2-01: meeting with a multi-choice motion for admin vote entry tests */
+export const ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-mc-entry",
+  status: "open",
+  closed_at: null,
+  motions: [
+    {
+      id: "mc-entry-m1",
+      title: "Board Election Entry",
+      description: null,
+      display_order: 1,
+      motion_number: "1",
+      motion_type: "general" as const,
+      is_multi_choice: true,
+      is_visible: true,
+      option_limit: 2,
+      options: [
+        { id: "mc-entry-opt-a", text: "Alice", display_order: 1 },
+        { id: "mc-entry-opt-b", text: "Bob", display_order: 2 },
+        { id: "mc-entry-opt-c", text: "Carol", display_order: 3 },
+      ],
+      voting_closed_at: null,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
+      },
+      voter_lists: {
+        yes: [],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options: {},
+      },
+    },
+  ],
+};
+
 export const adminHandlers = [
   http.get(`${BASE}/api/admin/auth/me`, () => {
     return HttpResponse.json({ authenticated: true });

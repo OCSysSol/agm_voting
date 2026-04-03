@@ -617,9 +617,16 @@ export interface AdminVoteEntryItem {
   choice: "yes" | "no" | "abstained";
 }
 
+/** US-AVE2-01: per-option For/Against/Abstain choice for admin vote entry */
+export interface AdminMultiChoiceOptionChoice {
+  option_id: string;
+  choice: "for" | "against" | "abstained";
+}
+
 export interface AdminMultiChoiceVoteItem {
   motion_id: string;
-  option_ids: string[];
+  /** New format (US-AVE2-01): per-option choices */
+  option_choices: AdminMultiChoiceOptionChoice[];
 }
 
 export interface AdminVoteEntryLot {

@@ -6,7 +6,11 @@ import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import AdminVoteEntryPanel from "../AdminVoteEntryPanel";
-import { ADMIN_MEETING_DETAIL, ADMIN_LOT_OWNERS } from "../../../../tests/msw/handlers";
+import {
+  ADMIN_MEETING_DETAIL,
+  ADMIN_LOT_OWNERS,
+  ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY,
+} from "../../../../tests/msw/handlers";
 import type { GeneralMeetingDetail } from "../../../api/admin";
 
 function renderPanel(
@@ -64,6 +68,19 @@ describe("AdminVoteEntryPanel", () => {
     });
     const proceedBtn = screen.getByText(/Proceed to vote entry/);
     expect(proceedBtn).toBeDisabled();
+  });
+
+  it("unchecking a lot decrements the proceed count", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    expect(screen.getByText("Proceed to vote entry (1 lot)")).toBeInTheDocument();
+    // Uncheck it
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    expect(screen.getByText("Proceed to vote entry (0 lots)")).toBeInTheDocument();
   });
 
   it("proceed button is enabled after checking a lot", async () => {
@@ -199,6 +216,40 @@ describe("AdminVoteEntryPanel", () => {
     const forBtn = screen.getAllByRole("button", { name: /for lot/i })[0];
     await user.click(forBtn);
     expect(forBtn).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("can select Abstain vote for a binary motion", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // aria-label is "abstained for lot {lot} motion {motion}"
+      expect(screen.getAllByRole("button", { name: /abstained for lot/i }).length).toBeGreaterThan(0);
+    });
+    const abstainBtn = screen.getAllByRole("button", { name: /abstained for lot/i })[0];
+    await user.click(abstainBtn);
+    expect(abstainBtn).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("can select Against/no vote for a binary motion", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // aria-label is "no for lot {lot} motion {motion}"
+      expect(screen.getAllByRole("button", { name: /no for lot/i }).length).toBeGreaterThan(0);
+    });
+    const againstBtn = screen.getAllByRole("button", { name: /no for lot/i })[0];
+    await user.click(againstBtn);
+    expect(againstBtn).toHaveAttribute("aria-pressed", "true");
   });
 
   it("back button in step 2 returns to step 1", async () => {
@@ -377,5 +428,196 @@ describe("AdminVoteEntryPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("All answered")).toBeInTheDocument();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// US-AVE2-01: For/Against/Abstain per multi-choice option
+// ---------------------------------------------------------------------------
+
+describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)", () => {
+  async function goToStepTwo() {
+    const user = userEvent.setup();
+    renderPanel({ meeting: ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // Motion title is rendered as "1. Board Election Entry" in the grid
+      expect(screen.getByText(/Board Election Entry/)).toBeInTheDocument();
+    });
+    return user;
+  }
+
+  it("renders For/Against/Abstain buttons for each multi-choice option", async () => {
+    await goToStepTwo();
+    // 3 options × 3 buttons each = 9 option buttons
+    // aria-label format: "For option {text} lot {lot_number}"
+    const forBtns = screen.getAllByRole("button", { name: /^For option .+ lot /i });
+    const againstBtns = screen.getAllByRole("button", { name: /^Against option .+ lot /i });
+    const abstainBtns = screen.getAllByRole("button", { name: /^Abstain option .+ lot /i });
+    expect(forBtns.length).toBe(3);
+    expect(againstBtns.length).toBe(3);
+    expect(abstainBtns.length).toBe(3);
+  });
+
+  it("clicking For marks it as pressed (aria-pressed=true)", async () => {
+    const user = await goToStepTwo();
+    const forAlice = screen.getByRole("button", { name: "For option Alice lot 1A" });
+    expect(forAlice).toHaveAttribute("aria-pressed", "false");
+    await user.click(forAlice);
+    expect(forAlice).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clicking the same button again deselects it (toggles off)", async () => {
+    const user = await goToStepTwo();
+    const forAlice = screen.getByRole("button", { name: "For option Alice lot 1A" });
+    await user.click(forAlice);
+    expect(forAlice).toHaveAttribute("aria-pressed", "true");
+    await user.click(forAlice);
+    expect(forAlice).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("clicking Against does not affect For state", async () => {
+    const user = await goToStepTwo();
+    const againstAlice = screen.getByRole("button", { name: "Against option Alice lot 1A" });
+    await user.click(againstAlice);
+    const forAlice = screen.getByRole("button", { name: "For option Alice lot 1A" });
+    expect(forAlice).toHaveAttribute("aria-pressed", "false");
+    expect(againstAlice).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("For buttons for unselected options become disabled when option_limit is reached", async () => {
+    const user = await goToStepTwo();
+    // option_limit = 2; vote For on Alice and Bob
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
+    // Carol's For button should now be disabled
+    const forCarol = screen.getByRole("button", { name: "For option Carol lot 1A" });
+    expect(forCarol).toBeDisabled();
+  });
+
+  it("Against button is NOT disabled when For limit is reached", async () => {
+    const user = await goToStepTwo();
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
+    // Carol's Against button should remain enabled
+    const againstCarol = screen.getByRole("button", { name: "Against option Carol lot 1A" });
+    expect(againstCarol).not.toBeDisabled();
+  });
+
+  it("shows 'X of Y voted For' counter", async () => {
+    const user = await goToStepTwo();
+    expect(screen.getByText("0 of 2 voted For")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    expect(screen.getByText("1 of 2 voted For")).toBeInTheDocument();
+  });
+
+  it("already-selected For button remains enabled even at limit (allows deselection)", async () => {
+    const user = await goToStepTwo();
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
+    // Alice's For button should still be enabled (already selected, can deselect)
+    const forAlice = screen.getByRole("button", { name: "For option Alice lot 1A" });
+    expect(forAlice).not.toBeDisabled();
+  });
+
+  it("submission sends option_choices array (not option_ids)", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
+        }
+      )
+    );
+    const user = await goToStepTwo();
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: "Against option Bob lot 1A" }));
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const body = capturedBody as { entries: Array<{ multi_choice_votes: Array<{ option_choices: Array<{ option_id: string; choice: string }> }> }> };
+    const optChoices = body.entries[0].multi_choice_votes[0].option_choices;
+    const aliceChoice = optChoices.find((oc) => oc.option_id === "mc-entry-opt-a");
+    const bobChoice = optChoices.find((oc) => oc.option_id === "mc-entry-opt-b");
+    expect(aliceChoice?.choice).toBe("for");
+    expect(bobChoice?.choice).toBe("against");
+    // Carol not in the array (blank = not sent)
+    const carolChoice = optChoices.find((oc) => oc.option_id === "mc-entry-opt-c");
+    expect(carolChoice).toBeUndefined();
+  });
+
+  it("clicking Abstain marks it as pressed", async () => {
+    const user = await goToStepTwo();
+    const abstainAlice = screen.getByRole("button", { name: "Abstain option Alice lot 1A" });
+    expect(abstainAlice).toHaveAttribute("aria-pressed", "false");
+    await user.click(abstainAlice);
+    expect(abstainAlice).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("in-arrear lot shows Not eligible for multi-choice motion", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", () => {
+        return HttpResponse.json([
+          {
+            id: "lo-arrear2",
+            building_id: "b1",
+            lot_number: "4D",
+            emails: ["arrear2@example.com"],
+            unit_entitlement: 50,
+            financial_position: "in_arrear",
+            proxy_email: null,
+          },
+        ]);
+      })
+    );
+    const user = userEvent.setup();
+    renderPanel({ meeting: ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 4D")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 4D"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByText("Not eligible")).toBeInTheDocument();
+    });
+  });
+
+  it("blank options are not included in option_choices submission", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
+        }
+      )
+    );
+    const user = await goToStepTwo();
+    // Only vote on Alice; Bob and Carol left blank
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const body = capturedBody as { entries: Array<{ multi_choice_votes: Array<{ option_choices: Array<unknown> }> }> };
+    const optChoices = body.entries[0].multi_choice_votes[0].option_choices;
+    // Only 1 entry (Alice); Bob and Carol omitted
+    expect(optChoices.length).toBe(1);
   });
 });
