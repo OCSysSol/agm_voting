@@ -2,12 +2,9 @@ name: CI
 
 on:
   push:
-    branches-ignore:
-      - master
+    branches: [demo]      # post-merge CI only
   pull_request:
-    branches:
-      - demo
-      - master
+    branches: [demo, master]  # CI on PRs targeting demo or master
 
 jobs:
   backend:
