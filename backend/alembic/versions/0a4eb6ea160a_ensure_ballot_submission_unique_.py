@@ -1,7 +1,7 @@
 """ensure_ballot_submission_unique_constraint
 
 Revision ID: 0a4eb6ea160a
-Revises: 091424401a0b
+Revises: rr4001schema
 Create Date: 2026-04-04 01:53:45.813623
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '0a4eb6ea160a'
-down_revision: Union[str, Sequence[str], None] = '091424401a0b'
+down_revision: Union[str, Sequence[str], None] = 'rr4001schema'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
