@@ -143,6 +143,7 @@ async def admin_login(
     await db.commit()
 
     request.session["admin"] = True
+    request.session["admin_username"] = data.username
     return {"ok": True}
 
 

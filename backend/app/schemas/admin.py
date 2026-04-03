@@ -457,6 +457,7 @@ class VoterEntry(BaseModel):
     proxy_email: str | None = None
     ballot_hash: str | None = None  # US-VIL-03: SHA-256 audit hash of submitted ballot
     submitted_by_admin: bool = False
+    submitted_by_admin_username: str | None = None
 
 
 class TallyCategory(BaseModel):
