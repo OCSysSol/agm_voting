@@ -39,7 +39,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("settings page shows Save button", async ({ page }) => {
     await page.goto("/admin/settings");
-    await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+    await expect(page.getByTestId("branding-save-btn")).toBeVisible();
   });
 
   // --- Happy path: save and confirm branding updates ---
@@ -52,14 +52,14 @@ test.describe("Admin Settings — tenant branding", () => {
 
     // Update app name and save
     await page.getByLabel("App name").fill(testAppName);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
 
     // Success banner appears
     await expect(page.getByText("Settings saved.")).toBeVisible();
 
     // Restore original app name so the suite is idempotent
     await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
   });
 
@@ -76,13 +76,13 @@ test.describe("Admin Settings — tenant branding", () => {
     // rather than the <img> element — the span is only shown when logo_url is empty.
     if (originalLogoUrl) {
       await page.getByLabel("Logo URL").fill("");
-      await page.getByRole("button", { name: "Save" }).click();
+      await page.getByTestId("branding-save-btn").click();
       await expect(page.getByText("Settings saved.")).toBeVisible();
     }
 
     // Update app name and save
     await page.getByLabel("App name").fill(testAppName);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
 
     // Poll until /api/config reflects the new app_name — Lambda caching can cause
@@ -105,7 +105,7 @@ test.describe("Admin Settings — tenant branding", () => {
     // Restore original app name and logo URL so the suite is idempotent
     await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
     await page.getByLabel("Logo URL").fill(originalLogoUrl);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
     // Only assert the sidebar text when no logo is set (otherwise the img is shown)
     if (!originalLogoUrl) {
@@ -118,7 +118,7 @@ test.describe("Admin Settings — tenant branding", () => {
   test("success message disappears after a few seconds", async ({ page }) => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
     // Message auto-hides after 3 s
     await expect(page.getByText("Settings saved.")).not.toBeVisible({ timeout: 5000 });
@@ -166,7 +166,7 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
     await page.getByLabel("App name").fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     // HTML5 required validation prevents submit — no success message appears
     await expect(page.getByText("Settings saved.")).not.toBeVisible();
   });
@@ -175,14 +175,14 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.goto("/admin/settings");
     await expect(primaryColourText(page)).toBeVisible();
     await primaryColourText(page).fill("notacolour");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     // Backend returns 422 — frontend shows HTTP error message
     // (The 422 console log is suppressed in fixtures.ts IGNORED_PATTERNS)
     await expect(page.getByText(/HTTP 422|Failed to save/)).toBeVisible({ timeout: 10000 });
 
     // Restore valid colour
     await primaryColourText(page).fill(ORIGINAL_PRIMARY_COLOUR);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
   });
 });
@@ -202,7 +202,7 @@ test.describe("Admin Settings — favicon upload", () => {
     await expect(input).toHaveValue("https://example.com/fav.ico");
     // Restore
     await input.fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
   });
 });
@@ -238,7 +238,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
     await page.getByLabel("Logo URL").fill(TEST_LOGO_URL);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
 
     // Step 2: Navigate to admin login page (unauthenticated context)
@@ -264,7 +264,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 
     // Restore original logo URL
     await page.getByLabel("Logo URL").fill(originalLogoUrl);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
   });
 
@@ -275,7 +275,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
     await page.getByLabel("Logo URL").fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
 
     // Step 2: Visit login page unauthenticated
@@ -300,7 +300,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 
     // Restore original logo URL
     await page.getByLabel("Logo URL").fill(originalLogoUrl);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
   });
 });
