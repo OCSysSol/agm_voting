@@ -316,12 +316,8 @@ export default function SettingsPage() {
         </div>
         <div className="admin-card__body">
           {isSmtpUnconfigured && (
-            <div
-              className="notice notice--warning"
-              role="alert"
-              style={{ marginBottom: 16 }}
-            >
-              Mail server is not configured — emails will not be sent until SMTP settings are saved.
+            <div className="warning-banner" role="alert">
+              ⚠️ Mail server is not configured — emails will not be sent until SMTP settings are saved.
             </div>
           )}
           <form onSubmit={(e) => { void handleSmtpSubmit(e); }} className="admin-form">

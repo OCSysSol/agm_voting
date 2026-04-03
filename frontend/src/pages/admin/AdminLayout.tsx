@@ -165,9 +165,9 @@ export default function AdminLayout() {
         </button>
         {smtpConfigured === false && !smtpBannerDismissed && (
           <div
-            className="notice notice--warning"
+            className="warning-banner"
             role="alert"
-            style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
           >
             <span>
               Mail server not configured — meeting results emails will not be sent.{" "}
