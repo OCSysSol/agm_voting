@@ -2421,7 +2421,11 @@ async def delete_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession
         raise HTTPException(status_code=404, detail="General Meeting not found")
     if meeting.status == GeneralMeetingStatus.open:
         raise HTTPException(status_code=409, detail="Cannot delete an open General Meeting")
-    await db.delete(meeting)
+    # Use a statement-level DELETE so PostgreSQL's ondelete=CASCADE FK constraints handle
+    # child rows (votes, motions, ballot_submissions, etc.) at the DB level.  The ORM-level
+    # db.delete() path requires all child collections to be eagerly loaded in the async
+    # session; without that it raises a MissingGreenlet / lazy-load error at runtime.
+    await db.execute(delete(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
     await db.commit()
 
 

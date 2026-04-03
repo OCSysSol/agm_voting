@@ -74,6 +74,13 @@ export async function seedBuilding(
   const buildingsRes = await api.get(
     `/api/admin/buildings?name=${encodeURIComponent(name)}`
   );
+  // Guard against Lambda cold-start 5xx responses: parsing a non-array JSON body
+  // (e.g. {"detail":"..."}) and calling .find() on it throws "is not a function".
+  if (!buildingsRes.ok()) {
+    throw new Error(
+      `GET /api/admin/buildings returned ${buildingsRes.status()} — Lambda may be cold-starting; retry the test run. Body: ${await buildingsRes.text()}`
+    );
+  }
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
   // name filter is a substring match — use exact-name guard as safety net
   let building = buildings.find((b) => b.name === name) ?? null;
