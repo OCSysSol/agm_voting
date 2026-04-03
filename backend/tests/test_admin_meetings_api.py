@@ -765,7 +765,7 @@ class TestCountGeneralMeetings:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """count endpoint matches the number of items returned by the list endpoint."""
-        list_resp = await client.get("/api/admin/general-meetings")
+        list_resp = await client.get("/api/admin/general-meetings?limit=1000")
         count_resp = await client.get("/api/admin/general-meetings/count")
         assert list_resp.status_code == 200
         assert count_resp.status_code == 200
@@ -875,7 +875,7 @@ class TestCountGeneralMeetings:
     async def test_empty_name_filter_counts_all(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        list_resp = await client.get("/api/admin/general-meetings")
+        list_resp = await client.get("/api/admin/general-meetings?limit=1000")
         count_resp = await client.get("/api/admin/general-meetings/count?name=")
         assert list_resp.status_code == 200
         assert count_resp.status_code == 200
@@ -930,7 +930,7 @@ class TestCountGeneralMeetings:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """Omitting status counts all meetings."""
-        list_resp = await client.get("/api/admin/general-meetings")
+        list_resp = await client.get("/api/admin/general-meetings?limit=1000")
         count_resp = await client.get("/api/admin/general-meetings/count")
         assert list_resp.status_code == 200
         assert count_resp.status_code == 200

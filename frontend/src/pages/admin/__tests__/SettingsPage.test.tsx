@@ -699,6 +699,77 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByText(/Connection refused/)).toBeInTheDocument());
   });
 
+  it("Escape key closes test email modal", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/config/smtp`, () =>
+        HttpResponse.json({
+          smtp_host: "smtp.example.com",
+          smtp_port: 587,
+          smtp_username: "user",
+          smtp_from_email: "from@example.com",
+          password_is_set: true,
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.keyDown(overlay, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByLabelText("Recipient email")).not.toBeInTheDocument());
+  });
+
+  it("backdrop click closes test email modal", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/config/smtp`, () =>
+        HttpResponse.json({
+          smtp_host: "smtp.example.com",
+          smtp_port: 587,
+          smtp_username: "user",
+          smtp_from_email: "from@example.com",
+          password_is_set: true,
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.click(overlay);
+
+    await waitFor(() => expect(screen.queryByLabelText("Recipient email")).not.toBeInTheDocument());
+  });
+
+  it("Cancel button closes test email modal", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/config/smtp`, () =>
+        HttpResponse.json({
+          smtp_host: "smtp.example.com",
+          smtp_port: 587,
+          smtp_username: "user",
+          smtp_from_email: "from@example.com",
+          password_is_set: true,
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByLabelText("Recipient email")).not.toBeInTheDocument());
+  });
+
   it("shows fallback error when test email throws non-Error", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config/smtp`, () =>

@@ -414,6 +414,7 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 className="btn btn--primary"
+                data-testid="smtp-save-btn"
                 disabled={isSmtpSaving}
               >
                 {isSmtpSaving ? "Saving…" : "Save"}

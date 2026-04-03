@@ -425,7 +425,7 @@ class TestCountBuildings:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """Omitting ?name returns the same count as the unfiltered list."""
-        list_resp = await client.get("/api/admin/buildings")
+        list_resp = await client.get("/api/admin/buildings?limit=1000")
         count_resp = await client.get("/api/admin/buildings/count")
         assert list_resp.status_code == 200
         assert count_resp.status_code == 200
@@ -437,7 +437,7 @@ class TestCountBuildings:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """?name= (empty string) matches everything — same as no filter."""
-        list_resp = await client.get("/api/admin/buildings")
+        list_resp = await client.get("/api/admin/buildings?limit=1000")
         count_resp = await client.get("/api/admin/buildings/count?name=")
         assert list_resp.status_code == 200
         assert count_resp.status_code == 200
