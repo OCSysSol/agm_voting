@@ -28,7 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Path to the TOCS CSV file in the examples directory
 const TOCS_CSV_PATH = path.resolve(
   __dirname,
-  "../../../examples/Lot financial position.csv"
+  "../../examples/Lot financial position.csv"
 );
 
 const BUILDING_NAME = `AGM Financial Position Test Building-${Date.now()}`;
