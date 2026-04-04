@@ -16,6 +16,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Path to the admin auth storage state (relative to this file in e2e/workflows/)
 export const ADMIN_AUTH_PATH = path.join(__dirname, "../.auth/admin.json");
 
+// ── Retry helper ──────────────────────────────────────────────────────────────
+
+/**
+ * Retry an async function up to `maxRetries` times with `delayMs` between
+ * attempts. Useful for seeding helpers that can fail on Lambda cold-start.
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, delayMs = 5000): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      console.warn(`[retry ${attempt + 1}/${maxRetries}] ${err instanceof Error ? err.message : err}`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface LotOwnerSeed {
@@ -71,29 +90,31 @@ export async function seedBuilding(
   name: string,
   managerEmail: string
 ): Promise<string> {
-  const buildingsRes = await api.get(
-    `/api/admin/buildings?name=${encodeURIComponent(name)}`
-  );
-  // Guard against Lambda cold-start 5xx responses: parsing a non-array JSON body
-  // (e.g. {"detail":"..."}) and calling .find() on it throws "is not a function".
-  if (!buildingsRes.ok()) {
-    throw new Error(
-      `GET /api/admin/buildings returned ${buildingsRes.status()} — Lambda may be cold-starting; retry the test run. Body: ${await buildingsRes.text()}`
+  return withRetry(async () => {
+    const buildingsRes = await api.get(
+      `/api/admin/buildings?name=${encodeURIComponent(name)}`
     );
-  }
-  const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-  // name filter is a substring match — use exact-name guard as safety net
-  let building = buildings.find((b) => b.name === name) ?? null;
-  if (!building) {
-    const res = await api.post("/api/admin/buildings", {
-      data: { name, manager_email: managerEmail },
-    });
-    if (!res.ok()) {
-      throw new Error(`Failed to create building "${name}" (${res.status()}): ${await res.text()}`);
+    // Guard against Lambda cold-start 5xx responses: parsing a non-array JSON body
+    // (e.g. {"detail":"..."}) and calling .find() on it throws "is not a function".
+    if (!buildingsRes.ok()) {
+      throw new Error(
+        `GET /api/admin/buildings returned ${buildingsRes.status()} — Lambda may be cold-starting; retry the test run. Body: ${await buildingsRes.text()}`
+      );
     }
-    building = (await res.json()) as { id: string; name: string };
-  }
-  return building.id;
+    const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
+    // name filter is a substring match — use exact-name guard as safety net
+    let building = buildings.find((b) => b.name === name) ?? null;
+    if (!building) {
+      const res = await api.post("/api/admin/buildings", {
+        data: { name, manager_email: managerEmail },
+      });
+      if (!res.ok()) {
+        throw new Error(`Failed to create building "${name}" (${res.status()}): ${await res.text()}`);
+      }
+      building = (await res.json()) as { id: string; name: string };
+    }
+    return building.id;
+  });
 }
 
 // ── Lot owner helpers ─────────────────────────────────────────────────────────
@@ -107,52 +128,59 @@ export async function seedLotOwner(
   buildingId: string,
   seed: LotOwnerSeed
 ): Promise<string> {
-  const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
-  const lotOwners = (await lotOwnersRes.json()) as {
-    id: string;
-    lot_number: string;
-    emails: string[];
-    financial_position: string;
-  }[];
-
-  let lo = lotOwners.find((l) => l.lot_number === seed.lotNumber);
-  if (!lo) {
-    const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
-      data: {
-        lot_number: seed.lotNumber,
-        emails: seed.emails,
-        unit_entitlement: seed.unitEntitlement,
-        financial_position: seed.financialPosition ?? "normal",
-      },
-    });
-    if (!res.ok()) {
+  return withRetry(async () => {
+    const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
+    if (!lotOwnersRes.ok()) {
       throw new Error(
-        `Failed to create lot owner "${seed.lotNumber}" (${res.status()}): ${await res.text()}`
+        `GET /api/admin/buildings/${buildingId}/lot-owners returned ${lotOwnersRes.status()}: ${await lotOwnersRes.text()}`
       );
     }
-    lo = (await res.json()) as {
+    const lotOwners = (await lotOwnersRes.json()) as {
       id: string;
       lot_number: string;
       emails: string[];
       financial_position: string;
-    };
-  } else {
-    // Ensure all required emails are present
-    for (const email of seed.emails) {
-      if (!lo.emails?.includes(email)) {
-        await api.post(`/api/admin/lot-owners/${lo.id}/emails`, {
-          data: { email },
+    }[];
+
+    let lo = lotOwners.find((l) => l.lot_number === seed.lotNumber);
+    if (!lo) {
+      const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
+        data: {
+          lot_number: seed.lotNumber,
+          emails: seed.emails,
+          unit_entitlement: seed.unitEntitlement,
+          financial_position: seed.financialPosition ?? "normal",
+        },
+      });
+      if (!res.ok()) {
+        throw new Error(
+          `Failed to create lot owner "${seed.lotNumber}" (${res.status()}): ${await res.text()}`
+        );
+      }
+      lo = (await res.json()) as {
+        id: string;
+        lot_number: string;
+        emails: string[];
+        financial_position: string;
+      };
+    } else {
+      // Ensure all required emails are present
+      for (const email of seed.emails) {
+        if (!lo.emails?.includes(email)) {
+          await api.post(`/api/admin/lot-owners/${lo.id}/emails`, {
+            data: { email },
+          });
+        }
+      }
+      // Ensure correct financial position
+      if (seed.financialPosition && lo.financial_position !== seed.financialPosition) {
+        await api.patch(`/api/admin/lot-owners/${lo.id}`, {
+          data: { financial_position: seed.financialPosition },
         });
       }
     }
-    // Ensure correct financial position
-    if (seed.financialPosition && lo.financial_position !== seed.financialPosition) {
-      await api.patch(`/api/admin/lot-owners/${lo.id}`, {
-        data: { financial_position: seed.financialPosition },
-      });
-    }
-  }
-  return lo.id;
+    return lo.id;
+  });
 }
 
 // ── Proxy nomination helper ───────────────────────────────────────────────────
@@ -197,52 +225,59 @@ export async function createOpenMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
-  // Close any existing open/pending meetings for this building.
-  // Query by building_id (not name) so we catch meetings with different titles
-  // that would otherwise block the new meeting from being created (the backend
-  // enforces one open/pending meeting per building).
-  const agmsRes = await api.get(
-    `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
-  );
-  const agms = (await agmsRes.json()) as {
-    id: string;
-    status: string;
-    building_id: string;
-  }[];
-  const openAgms = agms.filter(
-    (a) => a.status === "open" || a.status === "pending"
-  );
-  for (const agm of openAgms) {
-    await api.post(`/api/admin/general-meetings/${agm.id}/close`);
-  }
-
-  const meetingStarted = new Date();
-  meetingStarted.setHours(meetingStarted.getHours() - 1);
-  const closesAt = new Date();
-  closesAt.setFullYear(closesAt.getFullYear() + 1);
-
-  const createRes = await api.post("/api/admin/general-meetings", {
-    data: {
-      building_id: buildingId,
-      title,
-      meeting_at: meetingStarted.toISOString(),
-      voting_closes_at: closesAt.toISOString(),
-      motions: motions.map((m) => ({
-        title: m.title,
-        description: m.description,
-        display_order: m.orderIndex,
-        motion_type: m.motionType,
-        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
-      })),
-    },
-  });
-  if (!createRes.ok()) {
-    throw new Error(
-      `Failed to create meeting "${title}" (${createRes.status()}): ${await createRes.text()}`
+  return withRetry(async () => {
+    // Close any existing open/pending meetings for this building.
+    // Query by building_id (not name) so we catch meetings with different titles
+    // that would otherwise block the new meeting from being created (the backend
+    // enforces one open/pending meeting per building).
+    const agmsRes = await api.get(
+      `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
     );
-  }
-  const newAgm = (await createRes.json()) as { id: string };
-  return newAgm.id;
+    if (!agmsRes.ok()) {
+      throw new Error(
+        `GET /api/admin/general-meetings returned ${agmsRes.status()}: ${await agmsRes.text()}`
+      );
+    }
+    const agms = (await agmsRes.json()) as {
+      id: string;
+      status: string;
+      building_id: string;
+    }[];
+    const openAgms = agms.filter(
+      (a) => a.status === "open" || a.status === "pending"
+    );
+    for (const agm of openAgms) {
+      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+    }
+
+    const meetingStarted = new Date();
+    meetingStarted.setHours(meetingStarted.getHours() - 1);
+    const closesAt = new Date();
+    closesAt.setFullYear(closesAt.getFullYear() + 1);
+
+    const createRes = await api.post("/api/admin/general-meetings", {
+      data: {
+        building_id: buildingId,
+        title,
+        meeting_at: meetingStarted.toISOString(),
+        voting_closes_at: closesAt.toISOString(),
+        motions: motions.map((m) => ({
+          title: m.title,
+          description: m.description,
+          display_order: m.orderIndex,
+          motion_type: m.motionType,
+          ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
+        })),
+      },
+    });
+    if (!createRes.ok()) {
+      throw new Error(
+        `Failed to create meeting "${title}" (${createRes.status()}): ${await createRes.text()}`
+      );
+    }
+    const newAgm = (await createRes.json()) as { id: string };
+    return newAgm.id;
+  });
 }
 
 /**
