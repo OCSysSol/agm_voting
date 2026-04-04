@@ -35,30 +35,30 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
-      - name: Extract branch name
-        id: branch
-        # For deployment_status events, github.event.deployment.ref may be a
-        # commit SHA rather than a branch name. Strip the refs/heads/ prefix if
-        # present; otherwise fall back to github.ref_name (the checked-out ref).
+      - name: Determine test URL
+        id: test_url
         run: |
-          RAW_REF="${{ github.event.deployment.ref }}"
-          BRANCH="${RAW_REF#refs/heads/}"
-          # If it still looks like a SHA (40 hex chars), use github.ref_name instead
-          if echo "$BRANCH" | grep -qE '^[0-9a-f]{40}$'; then
-            BRANCH="${{ github.ref_name }}"
+          ENVIRONMENT="${{ github.event.deployment.environment }}"
+          DEMO_URL="https://vms-demo.ocss.tech"
+          # For demo branch deployments, Vercel sets the environment to a name
+          # containing "demo". Use the canonical alias URL instead of the raw
+          # deployment URL (which goes cold between branch E2E and post-merge E2E).
+          if echo "$ENVIRONMENT" | grep -qi "demo"; then
+            echo "url=${DEMO_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ github.event.deployment_status.environment_url }}" >> "$GITHUB_OUTPUT"
           fi
-          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Run E2E tests
         run: cd frontend && npx playwright test
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ steps.test_url.outputs.url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           # Branch name for test data namespacing (used by global-setup.ts)
-          GITHUB_HEAD_REF: ${{ steps.branch.outputs.name }}
+          GITHUB_HEAD_REF: ${{ github.event.deployment.ref }}
 
       - name: Upload Playwright report
         if: always()
