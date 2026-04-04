@@ -222,7 +222,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     await expect(page.getByRole("button", { name: "Delete Meeting" })).not.toBeVisible();
   });
 
-  test("pending meeting: Delete Meeting button is visible and deletes meeting on confirm", async ({
+  test("pending meeting: Delete Meeting button is visible and shows 409 error on confirm", async ({
     page,
   }) => {
     test.setTimeout(120000);
@@ -233,6 +233,9 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
+    // Any pending meeting seeded through this building will have lot weights (from the
+    // lot owner seeded in beforeAll) and motions (required by the API), so the backend
+    // always returns 409 on delete for pending meetings.
     const pendingMeetingId = await createPendingMeeting(
       api,
       buildingId,
@@ -254,20 +257,31 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     // Delete Meeting button is visible for pending meetings
     await expect(page.getByRole("button", { name: "Delete Meeting" })).toBeVisible({ timeout: 10000 });
 
-    // Click Delete Meeting — this opens the custom confirmation modal (not a native dialog)
+    // Click Delete Meeting to open confirmation modal
     await page.getByRole("button", { name: "Delete Meeting" }).click();
-
-    // Confirm deletion in the modal — the modal contains a "Delete Meeting" button in the footer
     await expect(page.getByRole("dialog", { name: "Delete Meeting" })).toBeVisible({ timeout: 5000 });
-    await page.getByRole("dialog", { name: "Delete Meeting" }).getByRole("button", { name: "Delete Meeting" }).click();
 
-    // Should be redirected to the meetings list
-    await expect(page).toHaveURL(/\/admin\/general-meetings$/, { timeout: 15000 });
+    // Confirm deletion — backend returns 409 because meeting has motions/lot weights
+    const deleteDialog = page.getByRole("dialog", { name: "Delete Meeting" });
+    await deleteDialog.getByRole("button", { name: "Delete Meeting" }).click();
 
-    // Meeting no longer appears in the list
-    await expect(page.getByRole("table")).toBeVisible({ timeout: 15000 });
-    const rows = page.getByRole("row");
-    await expect(rows.filter({ hasText: pendingMeetingId })).toHaveCount(0);
+    // Inline error message should appear inside the modal
+    await expect(deleteDialog.getByRole("alert")).toBeVisible({ timeout: 10000 });
+    await expect(deleteDialog.getByRole("alert")).toContainText("Cannot delete");
+
+    // Modal stays open — user remains on the meeting detail page
+    await expect(page.getByRole("dialog", { name: "Delete Meeting" })).toBeVisible();
+    await expect(page).not.toHaveURL(/\/admin\/general-meetings$/, { timeout: 3000 });
+
+    // Cleanup — close the meeting first (lifts the pending guard), then delete
+    const cleanupApi = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+    await cleanupApi.post(`/api/admin/general-meetings/${pendingMeetingId}/close`);
+    await cleanupApi.delete(`/api/admin/general-meetings/${pendingMeetingId}`);
+    await cleanupApi.dispose();
   });
 
   test("closed meeting: Delete Meeting button is visible", async ({ page }) => {

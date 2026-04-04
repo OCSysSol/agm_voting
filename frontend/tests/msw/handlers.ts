@@ -220,6 +220,13 @@ export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {
   voting_closes_at: "2026-12-31T12:00:00Z",
 };
 
+// A pending meeting that already has motions/lot weights — DELETE returns 409
+export const ADMIN_MEETING_DETAIL_PENDING_CONFIGURED: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL_PENDING,
+  id: "agm-pending-configured",
+  title: "2026 Configured AGM",
+};
+
 export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
   ...ADMIN_MEETING_DETAIL,
   id: "agm-hidden-motion",
@@ -736,6 +743,9 @@ export const adminHandlers = [
     if (params.meetingId === "agm-pending") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
     }
+    if (params.meetingId === "agm-pending-configured") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING_CONFIGURED);
+    }
     if (params.meetingId === "agm-hidden-motion") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_HIDDEN_MOTION);
     }
@@ -789,6 +799,9 @@ export const adminHandlers = [
   http.delete(`${BASE}/api/admin/general-meetings/:meetingId`, ({ params }) => {
     if (params.meetingId === "agm1") {
       return HttpResponse.json({ detail: "Cannot delete an open General Meeting" }, { status: 409 });
+    }
+    if (params.meetingId === "agm-pending-configured") {
+      return HttpResponse.json({ detail: "Cannot delete a pending General Meeting that has motions or lot weights" }, { status: 409 });
     }
     if (params.meetingId === "agm-notfound-delete") {
       return HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 });

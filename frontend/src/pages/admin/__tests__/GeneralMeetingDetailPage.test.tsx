@@ -412,6 +412,49 @@ describe("GeneralMeetingDetailPage", () => {
     expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
   });
 
+  it("delete 409 error shows inline error in modal and does not navigate", async () => {
+    // "agm-pending-configured" returns 409 from the DELETE handler
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("agm-pending-configured");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Meeting" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Meeting" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("Cannot delete a pending General Meeting that has motions or lot weights");
+    // Modal stays open
+    expect(screen.getByRole("dialog", { name: "Delete Meeting" })).toBeInTheDocument();
+    // No navigation
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
+  });
+
+  it("delete error is cleared when modal is closed and re-opened", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("agm-pending-configured");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    // Open modal and trigger error
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Meeting" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Meeting" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    // Cancel (close) the modal
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Delete Meeting" })).not.toBeInTheDocument();
+    // Re-open — error should be gone
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   // --- Motion reorder panel integration ---
 
   it("renders Motions section heading", async () => {
