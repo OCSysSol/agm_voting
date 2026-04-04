@@ -1021,19 +1021,11 @@ async def debug_email_deliveries(
 async def debug_db_health() -> dict:
     """Return DB connection pool diagnostic information.
 
-    Reports the current pool state (size, overflow, checked-in/out connections).
-    Useful for diagnosing connection exhaustion under load.
+    NullPool is used — no application-level connection pooling. Each request
+    acquires a direct connection and releases it immediately. Pool size/overflow
+    metrics are not applicable.
     Only available when TESTING_MODE=true (RR3-34).
     """
     _require_debug_access()
     pool = engine.pool
-    # NullPool (used in some test configurations) does not expose size/status methods.
-    if not hasattr(pool, "size"):  # pragma: no cover — NullPool path not exercised in integration tests
-        return {"pool_type": type(pool).__name__, "status": "n/a"}
-    return {
-        "pool_type": type(pool).__name__,
-        "pool_size": pool.size(),
-        "checked_in": pool.checkedin(),
-        "checked_out": pool.checkedout(),
-        "overflow": pool.overflow(),
-    }
+    return {"pool_type": type(pool).__name__, "status": "n/a"}

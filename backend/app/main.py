@@ -218,13 +218,10 @@ async def lifespan(app: FastAPI):
     # to asyncio.gather() or any concurrent form.
     #
     # Both _check_migration_head() and requeue_pending_on_startup() acquire a
-    # DB connection from AsyncSessionLocal (pool_size=1, max_overflow=0).  With
-    # only one connection slot available, running them concurrently would cause
-    # the second coroutine to block on pool acquisition and time out, leaving
-    # the pool exhausted for all subsequent requests on this Lambda instance.
-    #
-    # Sequential awaits ensure the first operation fully acquires, uses, and
-    # releases its connection before the second one begins.
+    # DB connection from AsyncSessionLocal (NullPool — direct connections, no
+    # application-level pool).  Sequential awaits ensure the first operation
+    # fully acquires, uses, and releases its connection before the second one
+    # begins, keeping startup predictable.
     await _check_migration_head()
     from app.database import AsyncSessionLocal
     from app.services.email_service import EmailService

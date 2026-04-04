@@ -95,26 +95,13 @@ class TestDatabase:
 
         assert engine is not None
 
-    def test_engine_pool_configuration(self):
-        """Verify the engine is configured with serverless-appropriate pool settings (RR3-05)."""
+    def test_engine_uses_nullpool(self):
+        """Verify the engine is configured with NullPool for serverless Lambda (RR3-05)."""
+        from sqlalchemy.pool import NullPool
+
         from app.database import engine
 
-        pool = engine.pool
-        # NullPool is used in some test configurations and has no size() method.
-        if hasattr(pool, "size"):
-            assert pool.size() == 1
-
-    def test_config_pool_settings_defaults(self):
-        """DB pool settings have correct serverless Lambda defaults (RR3-05).
-
-        pool_size=1: each Lambda instance holds at most 1 persistent connection.
-        max_overflow=0: no burst connections — Lambda serves one request at a time.
-        """
-        from app.config import settings
-
-        assert settings.db_pool_size == 1
-        assert settings.db_max_overflow == 0
-        assert settings.db_pool_timeout == 10
+        assert isinstance(engine.pool, NullPool)
 
     def test_session_factory_created(self):
         from app.database import AsyncSessionLocal
@@ -937,10 +924,10 @@ class TestMigrationHeadCheck:
 class TestLifespan:
     """Verify that startup DB operations run sequentially, not concurrently.
 
-    pool_size=1, max_overflow=0 means only one DB connection slot exists.
+    NullPool means each DB operation acquires a fresh direct connection.
     If _check_migration_head() and requeue_pending_on_startup() were run
-    concurrently (e.g. via asyncio.gather), the second would time out
-    waiting for a pool slot, leaving the pool exhausted for all requests.
+    concurrently (e.g. via asyncio.gather), both would race to acquire
+    connections and the startup sequence would be non-deterministic.
     Sequential awaits ensure each operation acquires, uses, and releases its
     connection before the next one starts.
     """

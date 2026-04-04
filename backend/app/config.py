@@ -70,19 +70,11 @@ class Settings(BaseSettings):
     # Defaults to False so the endpoint is blocked in all deployed environments unless opted in.
     enable_ballot_reset: bool = False
 
-    # DB connection pool settings — tuned for serverless Lambda.
-    # Override via DB_POOL_SIZE / DB_MAX_OVERFLOW / DB_POOL_TIMEOUT env vars
-    # when running in environments with different Neon connection limits.
-    #
-    # Defaults (pool_size=1, max_overflow=0):
-    # - pool_size=1: each Lambda instance holds at most 1 persistent connection.
-    #   Lambda instances don't share connections, so a pool larger than 1 wastes
-    #   connections and causes exhaustion under autoscaling.
-    # - max_overflow=0: no burst connections beyond pool_size for the same reason.
-    # - pool_pre_ping=True: set in database.py — detects stale connections.
-    db_pool_size: int = 1
-    db_max_overflow: int = 0
-    db_pool_timeout: int = 10
+    # NullPool is used for DB connections (see database.py).
+    # No application-level pool settings are needed — each request acquires and
+    # releases its own direct connection. The DB_POOL_SIZE, DB_MAX_OVERFLOW, and
+    # DB_POOL_TIMEOUT env vars are no longer read by the app and can be removed
+    # from Vercel environment configuration.
 
     @field_validator("admin_password")
     @classmethod
