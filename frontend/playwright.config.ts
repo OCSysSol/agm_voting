@@ -11,7 +11,6 @@ export default defineConfig({
   workers: process.env.CI ? 1 : isDeployed ? 4 : undefined,
   // In CI shard jobs: emit blob reports for later merging; locally: HTML only
   reporter: process.env.CI ? [["blob"], ["list"]] : [["html"]],
-  globalSetup: undefined,  // replaced by the 'setup' project below
   timeout: isDeployed ? 60000 : 30000,
   expect: {
     timeout: isDeployed ? 10000 : 5000,
@@ -28,7 +27,7 @@ export default defineConfig({
     // - CI: run as a dedicated setup job before shard jobs start
     {
       name: "setup",
-      testMatch: /global\.setup\.ts/,
+      testMatch: "**/global.setup.ts",
     },
 
     // ── Admin tests ───────────────────────────────────────────────────────────

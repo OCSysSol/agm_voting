@@ -55,6 +55,16 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           GITHUB_HEAD_REF: ${{ github.event.deployment.ref }}
 
+      - name: Verify auth files were created
+        run: |
+          echo "Checking for auth files..."
+          ls -la e2e_tests/.auth/ || { echo "ERROR: e2e_tests/.auth/ not found"; exit 1; }
+          test -f e2e_tests/.auth/admin.json || { echo "ERROR: admin.json missing"; exit 1; }
+          test -f e2e_tests/.auth/public.json || { echo "ERROR: public.json missing"; exit 1; }
+          test -f e2e_tests/.run-suffix || { echo "ERROR: .run-suffix missing"; exit 1; }
+          echo "Auth files verified:"
+          cat e2e_tests/.run-suffix
+
       - name: Upload auth state and run suffix
         uses: actions/upload-artifact@v4
         with:
