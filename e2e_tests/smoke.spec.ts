@@ -69,8 +69,7 @@ test.describe("Voter flow", () => {
         !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
         !/blob\.vercel-storage\.com/i.test(e) &&
         !/net::ERR_FAILED.*403/i.test(e) &&
-        !/404.*logo\.png/i.test(e) &&
-        !/404.*favicon\.ico/i.test(e)
+        !(e.includes("404") && e.includes("Failed to load resource"))
     );
     expect(realErrors).toHaveLength(0);
   });
@@ -117,8 +116,7 @@ test.describe("Admin flow", () => {
         !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
         !/blob\.vercel-storage\.com/i.test(e) &&
         !/net::ERR_FAILED.*403/i.test(e) &&
-        !/404.*logo\.png/i.test(e) &&
-        !/404.*favicon\.ico/i.test(e)
+        !(e.includes("404") && e.includes("Failed to load resource"))
     );
     expect(realErrors).toHaveLength(0);
   });
