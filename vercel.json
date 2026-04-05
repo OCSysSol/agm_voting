@@ -1,6 +1,12 @@
 {
   "outputDirectory": "frontend/dist",
   "buildCommand": "cd frontend && npm install && npx vite build && cp -r dist ../api/static && bash ../scripts/migrate.sh",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "memory": 512
+    }
+  },
   "headers": [
     {
       "source": "/((?!assets/).*)",
