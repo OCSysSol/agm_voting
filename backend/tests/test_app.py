@@ -104,6 +104,39 @@ class TestDatabase:
         assert isinstance(engine.pool, QueuePool)
         assert engine.pool.size() == 1
 
+    def test_engine_connect_args(self):
+        """Engine connect_args disables statement cache (PgBouncer compat) and sets asyncpg timeout.
+
+        SQLAlchemy merges connect_args into the asyncpg connection parameters dict, which
+        is stored as a closure variable in the pool's creator function. We extract it from
+        there to verify both required keys are present with the expected values.
+        """
+        from app.database import engine
+
+        # The pool creator closes over (cargs_tup, cparams) produced by
+        # dialect.create_connect_args(). The merged keyword params dict is an
+        # immutabledict that contains both dialect-level URL params and any extra
+        # connect_args passed to create_async_engine().
+        creator = engine.pool._creator
+        cparams: dict = {}
+        if creator.__closure__:
+            for cell in creator.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if isinstance(val, dict) and "statement_cache_size" in val:
+                        cparams = dict(val)
+                        break
+                except ValueError:
+                    pass
+
+        assert cparams.get("statement_cache_size") == 0, (
+            "statement_cache_size must be 0 for PgBouncer transaction mode compatibility"
+        )
+        assert cparams.get("timeout") == 10, (
+            "timeout must be 10 so asyncpg raises after 10s during Neon wake-up "
+            "instead of hanging indefinitely"
+        )
+
     def test_session_factory_created(self):
         from app.database import AsyncSessionLocal
 
