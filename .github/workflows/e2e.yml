@@ -6,6 +6,9 @@ name: E2E Tests (post-deploy)
 on:
   deployment_status:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   playwright:
     name: Playwright E2E
