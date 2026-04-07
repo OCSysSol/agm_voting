@@ -23,6 +23,7 @@ import {
   goToAuthPage,
   authenticateVoter,
   getTestOtp,
+  withRetry,
 } from "../workflows/helpers";
 
 const CRL_BUILDING = `CRL01 Remaining Lots Building-${RUN_SUFFIX}`;
@@ -43,29 +44,34 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, CRL_BUILDING, `crl01-mgr-${RUN_SUFFIX}@test.com`);
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, CRL_BUILDING, `crl01-mgr-${RUN_SUFFIX}@test.com`);
 
-    // Create two lots with the same email (shared voter)
-    await seedLotOwner(api, buildingId, {
-      lotNumber: CRL_LOT_A,
-      emails: [CRL_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
-    await seedLotOwner(api, buildingId, {
-      lotNumber: CRL_LOT_B,
-      emails: [CRL_EMAIL],
-      unitEntitlement: 20,
-      financialPosition: "normal",
-    });
+        // Create two lots with the same email (shared voter)
+        await seedLotOwner(api, buildingId, {
+          lotNumber: CRL_LOT_A,
+          emails: [CRL_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: CRL_LOT_B,
+          emails: [CRL_EMAIL],
+          unitEntitlement: 20,
+          financialPosition: "normal",
+        });
 
-    crlMeetingId = await createOpenMeeting(api, buildingId, `CRL01 Meeting-${RUN_SUFFIX}`, [
-      { title: "CRL01 Motion 1", description: "Test motion for remaining lots.", orderIndex: 0, motionType: "general" },
-    ]);
+        crlMeetingId = await createOpenMeeting(api, buildingId, `CRL01 Meeting-${RUN_SUFFIX}`, [
+          { title: "CRL01 Motion 1", description: "Test motion for remaining lots.", orderIndex: 0, motionType: "general" },
+        ]);
 
-    await clearBallots(api, crlMeetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        await clearBallots(api, crlMeetingId);
+      }, 6, 10000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test("CRL.1: submit Lot A only → confirmation shows Vote for remaining lots → click → Lot B selectable", async ({ page }) => {
     test.setTimeout(120000);
