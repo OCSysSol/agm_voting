@@ -85,6 +85,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Start Lambda keepalive
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          # Hit /api/health every 30s in the background.
+          # This keeps at least one Lambda instance alive, preventing
+          # all PgBouncer connections from dropping to zero, which would
+          # trigger instant Neon suspension (suspend_timeout_seconds=0).
+          while sleep 30; do
+            curl -s -o /dev/null \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health" || true
+          done &
+          echo "Keepalive started (PID $!)"
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.deployment.sha }}
@@ -120,22 +136,6 @@ jobs:
             echo "Attempt $i: HTTP $STATUS — waiting 10s"
             sleep 10
           done
-        env:
-          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
-
-      - name: Start Lambda keepalive
-        run: |
-          URL="${{ github.event.deployment_status.environment_url }}"
-          # Hit /api/health every 30s in the background.
-          # This keeps at least one Lambda instance alive, preventing
-          # all PgBouncer connections from dropping to zero, which would
-          # trigger instant Neon suspension (suspend_timeout_seconds=0).
-          while sleep 30; do
-            curl -s -o /dev/null \
-              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
-              "$URL/api/health" || true
-          done &
-          echo "Keepalive started (PID $!)"
         env:
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
 
@@ -170,6 +170,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Start Lambda keepalive
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          # Hit /api/health every 30s in the background.
+          # This keeps at least one Lambda instance alive, preventing
+          # all PgBouncer connections from dropping to zero, which would
+          # trigger instant Neon suspension (suspend_timeout_seconds=0).
+          while sleep 30; do
+            curl -s -o /dev/null \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health" || true
+          done &
+          echo "Keepalive started (PID $!)"
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.deployment.sha }}
@@ -205,22 +221,6 @@ jobs:
             echo "Attempt $i: HTTP $STATUS — waiting 10s"
             sleep 10
           done
-        env:
-          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
-
-      - name: Start Lambda keepalive
-        run: |
-          URL="${{ github.event.deployment_status.environment_url }}"
-          # Hit /api/health every 30s in the background.
-          # This keeps at least one Lambda instance alive, preventing
-          # all PgBouncer connections from dropping to zero, which would
-          # trigger instant Neon suspension (suspend_timeout_seconds=0).
-          while sleep 30; do
-            curl -s -o /dev/null \
-              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
-              "$URL/api/health" || true
-          done &
-          echo "Keepalive started (PID $!)"
         env:
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
 
@@ -255,6 +255,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Start Lambda keepalive
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          # Hit /api/health every 30s in the background.
+          # This keeps at least one Lambda instance alive, preventing
+          # all PgBouncer connections from dropping to zero, which would
+          # trigger instant Neon suspension (suspend_timeout_seconds=0).
+          while sleep 30; do
+            curl -s -o /dev/null \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health" || true
+          done &
+          echo "Keepalive started (PID $!)"
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.deployment.sha }}
@@ -290,22 +306,6 @@ jobs:
             echo "Attempt $i: HTTP $STATUS — waiting 10s"
             sleep 10
           done
-        env:
-          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
-
-      - name: Start Lambda keepalive
-        run: |
-          URL="${{ github.event.deployment_status.environment_url }}"
-          # Hit /api/health every 30s in the background.
-          # This keeps at least one Lambda instance alive, preventing
-          # all PgBouncer connections from dropping to zero, which would
-          # trigger instant Neon suspension (suspend_timeout_seconds=0).
-          while sleep 30; do
-            curl -s -o /dev/null \
-              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
-              "$URL/api/health" || true
-          done &
-          echo "Keepalive started (PID $!)"
         env:
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
 
