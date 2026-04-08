@@ -440,7 +440,12 @@ async def verify_auth(
         value=token,
         httponly=True,
         secure=not settings.testing_mode,
-        samesite="lax",  # lax so the cookie is sent on first navigation from the OTP email link (RR3-36)
+        # SameSite=Lax (not Strict): the voter's first request after clicking the OTP email
+        # link is a top-level cross-site navigation; Strict would drop the cookie on that
+        # request, forcing a second round-trip.  Lax is safe here because no state-changing
+        # GET endpoints exist and all POST endpoints require a valid session token — so
+        # CSRF via cross-site form submission cannot succeed (security deviation: SD-001).
+        samesite="lax",
         max_age=_TOKEN_MAX_AGE_SECONDS,  # matches SESSION_DURATION (RR3-36)
         path="/api",
     )
@@ -552,7 +557,12 @@ async def restore_session(
         value=new_token,
         httponly=True,
         secure=not settings.testing_mode,
-        samesite="lax",  # lax so the cookie is sent on first navigation from the OTP email link (RR3-36)
+        # SameSite=Lax (not Strict): the voter's first request after clicking the OTP email
+        # link is a top-level cross-site navigation; Strict would drop the cookie on that
+        # request, forcing a second round-trip.  Lax is safe here because no state-changing
+        # GET endpoints exist and all POST endpoints require a valid session token — so
+        # CSRF via cross-site form submission cannot succeed (security deviation: SD-001).
+        samesite="lax",
         max_age=_TOKEN_MAX_AGE_SECONDS,  # matches SESSION_DURATION (RR3-36)
         path="/api",
     )
