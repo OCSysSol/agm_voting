@@ -71,14 +71,16 @@ class Settings(BaseSettings):
     enable_ballot_reset: bool = False
 
     # Pool settings for the persistent pool (see database.py).
-    # Fluid Compute handles multiple concurrent requests per Lambda instance, so
-    # pool_size=5 supports up to 5 concurrent DB operations without exhausting the
-    # QueuePool. pool_timeout=5s fails fast so the retry in get_db() can attempt
-    # reconnection quickly without blocking for 30s per attempt.
+    # PgBouncer accepts 10,000 client connections so the Lambda-side pool is not a
+    # bottleneck on the Neon side. pool_size=20 supports up to 20 concurrent DB
+    # operations per Lambda instance under Fluid Compute's concurrent request handling.
+    # max_overflow=10 provides burst headroom up to 30 total connections per instance.
+    # pool_timeout=10s: longer wait since more connections are available, reducing the
+    # need to fail fast.
     # Override via DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_POOL_TIMEOUT env vars if needed.
-    db_pool_size: int = 5
-    db_max_overflow: int = 2
-    db_pool_timeout: int = 5  # Fail fast so retries kick in quickly
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 10
 
     @field_validator("admin_password")
     @classmethod

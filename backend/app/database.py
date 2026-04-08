@@ -13,16 +13,16 @@ from app.config import settings
 
 # Persistent pool sized for Fluid Compute concurrency.
 #
-# Architecture rationale (Vercel Fluid Compute + Neon):
-# - pool_size=5: Fluid Compute routes multiple concurrent requests to the same Lambda
-#   instance. pool_size=5 supports up to 5 concurrent DB operations without exhausting
-#   the QueuePool and raising TimeoutError.
-# - max_overflow=2: allows up to 2 extra connections under burst load before rejecting.
+# Architecture rationale (Vercel Fluid Compute + Neon + PgBouncer):
+# - pool_size=20: PgBouncer accepts 10,000 client connections, so the Lambda-side pool
+#   is not a bottleneck on the Neon side. pool_size=20 supports heavy concurrent load
+#   under Fluid Compute's concurrent request handling without pool exhaustion.
+# - max_overflow=10: burst headroom up to 30 total connections per Lambda instance.
 # - pool_pre_ping=True: detects if Neon compute suspended mid-session and reconnects
 #   transparently on the next request.
 # - pool_recycle=300: recycles connections held for 5+ minutes to prevent stale state.
-# - pool_timeout=5: fails fast (5s) so the retry in get_db() can attempt reconnection
-#   quickly rather than blocking for 30s per attempt.
+# - pool_timeout=10: longer wait (10s) since more connections are available, reducing
+#   the likelihood of TimeoutError under concurrent load.
 #
 # statement_cache_size=0 is required for PgBouncer transaction mode compatibility.
 # timeout=5 sets a 5-second asyncpg connection timeout. When Neon is waking from

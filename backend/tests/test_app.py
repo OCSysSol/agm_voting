@@ -96,13 +96,13 @@ class TestDatabase:
         assert engine is not None
 
     def test_engine_uses_persistent_pool(self):
-        """Verify the engine is configured with a QueuePool sized for Fluid Compute concurrency."""
+        """Verify the engine is configured with a QueuePool sized for Fluid Compute concurrency + PgBouncer."""
         from sqlalchemy.pool import QueuePool
 
         from app.database import engine
 
         assert isinstance(engine.pool, QueuePool)
-        assert engine.pool.size() == 5
+        assert engine.pool.size() == 20
 
     def test_engine_connect_args(self):
         """Engine connect_args disables statement cache (PgBouncer compat) and sets asyncpg timeout.
