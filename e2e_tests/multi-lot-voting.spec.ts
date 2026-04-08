@@ -22,7 +22,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getTestOtp, makeAdminApi, withRetry } from "./workflows/helpers";
+import { getTestOtp, makeAdminApi } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,121 +47,116 @@ test.describe("Multi-lot voter journey", () => {
 
     const api = await makeAdminApi(baseURL);
 
-    try {
-      await withRetry(async () => {
-        // ── Building ──────────────────────────────────────────────────────────
-        const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
-        const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-        let building = buildings.find((b) => b.name === BUILDING_NAME);
-        if (!building) {
-          const res = await api.post("/api/admin/buildings", {
-            data: { name: BUILDING_NAME, manager_email: "ml-mgr@test.com" },
-          });
-          building = (await res.json()) as { id: string; name: string };
-        }
-        const buildingId = building.id;
-
-        // ── Lot owners ────────────────────────────────────────────────────────
-        const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
-        const lotOwners = (await lotOwnersRes.json()) as {
-          id: string;
-          lot_number: string;
-          emails: string[];
-          financial_position: string;
-        }[];
-
-        // Lot ML-1
-        let lo1 = lotOwners.find((l) => l.lot_number === LOT_NUMBER_1);
-        if (!lo1) {
-          const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
-            data: {
-              lot_number: LOT_NUMBER_1,
-              emails: [LOT_EMAIL],
-              unit_entitlement: LOT_ENTITLEMENT_1,
-              financial_position: "normal",
-            },
-          });
-          lo1 = (await res.json()) as { id: string; lot_number: string; emails: string[]; financial_position: string };
-        } else {
-          if (!lo1.emails?.includes(LOT_EMAIL)) {
-            await api.post(`/api/admin/lot-owners/${lo1.id}/emails`, {
-              data: { email: LOT_EMAIL },
-            });
-          }
-        }
-
-        // Lot ML-2
-        let lo2 = lotOwners.find((l) => l.lot_number === LOT_NUMBER_2);
-        if (!lo2) {
-          const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
-            data: {
-              lot_number: LOT_NUMBER_2,
-              emails: [LOT_EMAIL],
-              unit_entitlement: LOT_ENTITLEMENT_2,
-              financial_position: "normal",
-            },
-          });
-          lo2 = (await res.json()) as { id: string; lot_number: string; emails: string[]; financial_position: string };
-        } else {
-          if (!lo2.emails?.includes(LOT_EMAIL)) {
-            await api.post(`/api/admin/lot-owners/${lo2.id}/emails`, {
-              data: { email: LOT_EMAIL },
-            });
-          }
-        }
-
-        // ── Close any existing open/pending AGMs for this building ─────────────
-        const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
-        const agms = (await agmsRes.json()) as {
-          id: string;
-          status: string;
-          building_id: string;
-        }[];
-        const openAgms = agms.filter(
-          (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
-        );
-        for (const agm of openAgms) {
-          await api.post(`/api/admin/general-meetings/${agm.id}/close`);
-        }
-
-        // ── Create a fresh AGM with two motions ────────────────────────────────
-        const meetingStarted = new Date();
-        meetingStarted.setHours(meetingStarted.getHours() - 1);
-        const closesAt = new Date();
-        closesAt.setFullYear(closesAt.getFullYear() + 1);
-
-        const createRes = await api.post("/api/admin/general-meetings", {
-          data: {
-            building_id: buildingId,
-            title: AGM_TITLE,
-            meeting_at: meetingStarted.toISOString(),
-            voting_closes_at: closesAt.toISOString(),
-            motions: [
-              {
-                title: "Motion 1 — Annual Budget",
-                description: "Do you approve the annual budget?",
-                display_order: 1,
-                motion_type: "general",
-              },
-              {
-                title: "Motion 2 — Special Resolution",
-                description: "Do you approve the special resolution?",
-                display_order: 2,
-                motion_type: "special",
-              },
-            ],
-          },
-        });
-        const newAgm = (await createRes.json()) as { id: string };
-        meetingId = newAgm.id;
-
-        // Clear any prior ballots for a clean slate
-        await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
+    // ── Building ──────────────────────────────────────────────────────────
+    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+    const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
+    let building = buildings.find((b) => b.name === BUILDING_NAME);
+    if (!building) {
+      const res = await api.post("/api/admin/buildings", {
+        data: { name: BUILDING_NAME, manager_email: "ml-mgr@test.com" },
+      });
+      building = (await res.json()) as { id: string; name: string };
     }
-  }, { timeout: 180000 });
+    const buildingId = building.id;
+
+    // ── Lot owners ────────────────────────────────────────────────────────
+    const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
+    const lotOwners = (await lotOwnersRes.json()) as {
+      id: string;
+      lot_number: string;
+      emails: string[];
+      financial_position: string;
+    }[];
+
+    // Lot ML-1
+    let lo1 = lotOwners.find((l) => l.lot_number === LOT_NUMBER_1);
+    if (!lo1) {
+      const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
+        data: {
+          lot_number: LOT_NUMBER_1,
+          emails: [LOT_EMAIL],
+          unit_entitlement: LOT_ENTITLEMENT_1,
+          financial_position: "normal",
+        },
+      });
+      lo1 = (await res.json()) as { id: string; lot_number: string; emails: string[]; financial_position: string };
+    } else {
+      if (!lo1.emails?.includes(LOT_EMAIL)) {
+        await api.post(`/api/admin/lot-owners/${lo1.id}/emails`, {
+          data: { email: LOT_EMAIL },
+        });
+      }
+    }
+
+    // Lot ML-2
+    let lo2 = lotOwners.find((l) => l.lot_number === LOT_NUMBER_2);
+    if (!lo2) {
+      const res = await api.post(`/api/admin/buildings/${buildingId}/lot-owners`, {
+        data: {
+          lot_number: LOT_NUMBER_2,
+          emails: [LOT_EMAIL],
+          unit_entitlement: LOT_ENTITLEMENT_2,
+          financial_position: "normal",
+        },
+      });
+      lo2 = (await res.json()) as { id: string; lot_number: string; emails: string[]; financial_position: string };
+    } else {
+      if (!lo2.emails?.includes(LOT_EMAIL)) {
+        await api.post(`/api/admin/lot-owners/${lo2.id}/emails`, {
+          data: { email: LOT_EMAIL },
+        });
+      }
+    }
+
+    // ── Close any existing open/pending AGMs for this building ─────────────
+    const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+    const agms = (await agmsRes.json()) as {
+      id: string;
+      status: string;
+      building_id: string;
+    }[];
+    const openAgms = agms.filter(
+      (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+    );
+    for (const agm of openAgms) {
+      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+    }
+
+    // ── Create a fresh AGM with two motions ────────────────────────────────
+    const meetingStarted = new Date();
+    meetingStarted.setHours(meetingStarted.getHours() - 1);
+    const closesAt = new Date();
+    closesAt.setFullYear(closesAt.getFullYear() + 1);
+
+    const createRes = await api.post("/api/admin/general-meetings", {
+      data: {
+        building_id: buildingId,
+        title: AGM_TITLE,
+        meeting_at: meetingStarted.toISOString(),
+        voting_closes_at: closesAt.toISOString(),
+        motions: [
+          {
+            title: "Motion 1 — Annual Budget",
+            description: "Do you approve the annual budget?",
+            display_order: 1,
+            motion_type: "general",
+          },
+          {
+            title: "Motion 2 — Special Resolution",
+            description: "Do you approve the special resolution?",
+            display_order: 2,
+            motion_type: "special",
+          },
+        ],
+      },
+    });
+    const newAgm = (await createRes.json()) as { id: string };
+    meetingId = newAgm.id;
+
+    // Clear any prior ballots for a clean slate
+    await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
+    await api.dispose();
+  });
 
   // ── Helper: navigate to the auth page for this AGM ──────────────────────────
   async function goToAuthPage(page: import("@playwright/test").Page) {

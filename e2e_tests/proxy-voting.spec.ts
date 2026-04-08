@@ -21,7 +21,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getTestOtp, makeAdminApi, withRetry } from "./workflows/helpers";
+import { getTestOtp, makeAdminApi } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -72,130 +72,125 @@ test.describe("Proxy voter journey", () => {
 
     const api = await makeAdminApi(baseURL);
 
-    try {
-      await withRetry(async () => {
-        // ── Seed Scenario 2 data: mixed voter building ──────────────────────────
-        const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
-        const buildings = (await buildingsRes.json()) as {
-          id: string;
-          name: string;
-        }[];
-        let building = buildings.find((b) => b.name === MIXED_BUILDING_NAME);
-        if (!building) {
-          const res = await api.post("/api/admin/buildings", {
-            data: {
-              name: MIXED_BUILDING_NAME,
-              manager_email: "mixed-mgr@test.com",
-            },
-          });
-          building = (await res.json()) as { id: string; name: string };
-        }
-        mixedBuildingId = building.id;
-
-        const lotOwnersRes = await api.get(
-          `/api/admin/buildings/${mixedBuildingId}/lot-owners`
-        );
-        const lotOwners = (await lotOwnersRes.json()) as {
-          id: string;
-          lot_number: string;
-          emails: string[];
-        }[];
-
-        // MX-A: owned directly by mixed-voter@test.com
-        let mxA = lotOwners.find((l) => l.lot_number === MIXED_LOT_A_NUMBER);
-        if (!mxA) {
-          const res = await api.post(
-            `/api/admin/buildings/${mixedBuildingId}/lot-owners`,
-            {
-              data: {
-                lot_number: MIXED_LOT_A_NUMBER,
-                emails: [MIXED_LOT_A_OWNER_EMAIL],
-                unit_entitlement: 15,
-              },
-            }
-          );
-          mxA = (await res.json()) as {
-            id: string;
-            lot_number: string;
-            emails: string[];
-          };
-        } else if (!mxA.emails?.includes(MIXED_LOT_A_OWNER_EMAIL)) {
-          await api.post(`/api/admin/lot-owners/${mxA.id}/emails`, {
-            data: { email: MIXED_LOT_A_OWNER_EMAIL },
-          });
-        }
-
-        // MX-C: owned by lotC-owner, proxied to mixed-voter@test.com
-        let mxC = lotOwners.find((l) => l.lot_number === MIXED_LOT_C_NUMBER);
-        if (!mxC) {
-          const res = await api.post(
-            `/api/admin/buildings/${mixedBuildingId}/lot-owners`,
-            {
-              data: {
-                lot_number: MIXED_LOT_C_NUMBER,
-                emails: [MIXED_LOT_C_OWNER_EMAIL],
-                unit_entitlement: 25,
-              },
-            }
-          );
-          mxC = (await res.json()) as {
-            id: string;
-            lot_number: string;
-            emails: string[];
-          };
-        } else if (!mxC.emails?.includes(MIXED_LOT_C_OWNER_EMAIL)) {
-          await api.post(`/api/admin/lot-owners/${mxC.id}/emails`, {
-            data: { email: MIXED_LOT_C_OWNER_EMAIL },
-          });
-        }
-
-        const proxyCsv = `Lot#,Proxy Email\n${MIXED_LOT_C_NUMBER},${MIXED_LOT_A_OWNER_EMAIL}\n`;
-        await uploadProxyCsv(api, mixedBuildingId, proxyCsv);
-
-        const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
-        const agms = (await agmsRes.json()) as {
-          id: string;
-          status: string;
-          building_id: string;
-        }[];
-        const openAgms = agms.filter(
-          (a) =>
-            a.building_id === mixedBuildingId &&
-            (a.status === "open" || a.status === "pending")
-        );
-        for (const agm of openAgms) {
-          await api.post(`/api/admin/general-meetings/${agm.id}/close`);
-        }
-
-        const meetingStarted = new Date();
-        meetingStarted.setHours(meetingStarted.getHours() - 1);
-        const closesAt = new Date();
-        closesAt.setFullYear(closesAt.getFullYear() + 1);
-
-        const createRes = await api.post("/api/admin/general-meetings", {
-          data: {
-            building_id: mixedBuildingId,
-            title: MIXED_AGM_TITLE,
-            meeting_at: meetingStarted.toISOString(),
-            voting_closes_at: closesAt.toISOString(),
-            motions: [
-              {
-                title: "Mixed Proxy Test Motion — Bylaw",
-                description: "Do you approve the bylaw change?",
-                display_order: 1,
-                motion_type: "general",
-              },
-            ],
-          },
-        });
-        const newAgm = (await createRes.json()) as { id: string };
-        mixedAgmId = newAgm.id;
-        await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
+    // ── Seed Scenario 2 data: mixed voter building ──────────────────────────
+    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+    const buildings = (await buildingsRes.json()) as {
+      id: string;
+      name: string;
+    }[];
+    let building = buildings.find((b) => b.name === MIXED_BUILDING_NAME);
+    if (!building) {
+      const res = await api.post("/api/admin/buildings", {
+        data: {
+          name: MIXED_BUILDING_NAME,
+          manager_email: "mixed-mgr@test.com",
+        },
+      });
+      building = (await res.json()) as { id: string; name: string };
     }
-  }, { timeout: 180000 });
+    mixedBuildingId = building.id;
+
+    const lotOwnersRes = await api.get(
+      `/api/admin/buildings/${mixedBuildingId}/lot-owners`
+    );
+    const lotOwners = (await lotOwnersRes.json()) as {
+      id: string;
+      lot_number: string;
+      emails: string[];
+    }[];
+
+    // MX-A: owned directly by mixed-voter@test.com
+    let mxA = lotOwners.find((l) => l.lot_number === MIXED_LOT_A_NUMBER);
+    if (!mxA) {
+      const res = await api.post(
+        `/api/admin/buildings/${mixedBuildingId}/lot-owners`,
+        {
+          data: {
+            lot_number: MIXED_LOT_A_NUMBER,
+            emails: [MIXED_LOT_A_OWNER_EMAIL],
+            unit_entitlement: 15,
+          },
+        }
+      );
+      mxA = (await res.json()) as {
+        id: string;
+        lot_number: string;
+        emails: string[];
+      };
+    } else if (!mxA.emails?.includes(MIXED_LOT_A_OWNER_EMAIL)) {
+      await api.post(`/api/admin/lot-owners/${mxA.id}/emails`, {
+        data: { email: MIXED_LOT_A_OWNER_EMAIL },
+      });
+    }
+
+    // MX-C: owned by lotC-owner, proxied to mixed-voter@test.com
+    let mxC = lotOwners.find((l) => l.lot_number === MIXED_LOT_C_NUMBER);
+    if (!mxC) {
+      const res = await api.post(
+        `/api/admin/buildings/${mixedBuildingId}/lot-owners`,
+        {
+          data: {
+            lot_number: MIXED_LOT_C_NUMBER,
+            emails: [MIXED_LOT_C_OWNER_EMAIL],
+            unit_entitlement: 25,
+          },
+        }
+      );
+      mxC = (await res.json()) as {
+        id: string;
+        lot_number: string;
+        emails: string[];
+      };
+    } else if (!mxC.emails?.includes(MIXED_LOT_C_OWNER_EMAIL)) {
+      await api.post(`/api/admin/lot-owners/${mxC.id}/emails`, {
+        data: { email: MIXED_LOT_C_OWNER_EMAIL },
+      });
+    }
+
+    const proxyCsv = `Lot#,Proxy Email\n${MIXED_LOT_C_NUMBER},${MIXED_LOT_A_OWNER_EMAIL}\n`;
+    await uploadProxyCsv(api, mixedBuildingId, proxyCsv);
+
+    const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+    const agms = (await agmsRes.json()) as {
+      id: string;
+      status: string;
+      building_id: string;
+    }[];
+    const openAgms = agms.filter(
+      (a) =>
+        a.building_id === mixedBuildingId &&
+        (a.status === "open" || a.status === "pending")
+    );
+    for (const agm of openAgms) {
+      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+    }
+
+    const meetingStarted = new Date();
+    meetingStarted.setHours(meetingStarted.getHours() - 1);
+    const closesAt = new Date();
+    closesAt.setFullYear(closesAt.getFullYear() + 1);
+
+    const createRes = await api.post("/api/admin/general-meetings", {
+      data: {
+        building_id: mixedBuildingId,
+        title: MIXED_AGM_TITLE,
+        meeting_at: meetingStarted.toISOString(),
+        voting_closes_at: closesAt.toISOString(),
+        motions: [
+          {
+            title: "Mixed Proxy Test Motion — Bylaw",
+            description: "Do you approve the bylaw change?",
+            display_order: 1,
+            motion_type: "general",
+          },
+        ],
+      },
+    });
+    const newAgm = (await createRes.json()) as { id: string };
+    mixedAgmId = newAgm.id;
+    await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
+    await api.dispose();
+  });
 
   // ── Test 2: mixed voter (own lot + proxy lot) ──────────────────────────────
   test(

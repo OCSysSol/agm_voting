@@ -30,7 +30,6 @@ import {
   authenticateVoter,
   getTestOtp,
   submitBallot,
-  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `NMB Building-${RUN_SUFFIX}`;
@@ -55,39 +54,34 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, `nmb-mgr-${RUN_SUFFIX}@test.com`);
+    const buildingId = await seedBuilding(api, BUILDING, `nmb-mgr-${RUN_SUFFIX}@test.com`);
 
-        // Both lots share the same voter email so a single auth sees both
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_A,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_B,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 20,
-          financialPosition: "normal",
-        });
+    // Both lots share the same voter email so a single auth sees both
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_A,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_B,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 20,
+      financialPosition: "normal",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, `NMB Meeting-${RUN_SUFFIX}`, [
-          {
-            title: MOTION1,
-            description: "Do you approve the annual budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, `NMB Meeting-${RUN_SUFFIX}`, [
+      {
+        title: MOTION1,
+        description: "Do you approve the annual budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // ── NMB.1: voter votes Motion 1 for both lots → confirmation ───────────────
   test("NMB.1: voter votes Motion 1 for both lots and lands on confirmation", async ({ page }) => {

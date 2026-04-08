@@ -38,7 +38,6 @@ import {
   closeMeeting,
   deleteMeeting,
   clearBallots,
-  withRetry,
 } from "./helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,15 +70,10 @@ test.describe("WF1: Admin building setup lifecycle", () => {
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    try {
-      await withRetry(async () => {
-        // Pre-create the building so we know its ID for detail-page navigation
-        buildingId = await seedBuilding(api, BUILDING_NAME, MANAGER_EMAIL);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    // Pre-create the building so we know its ID for detail-page navigation
+    buildingId = await seedBuilding(api, BUILDING_NAME, MANAGER_EMAIL);
+    await api.dispose();
+  });
 
   // WF1.1: Create building via admin UI form (building was also pre-created in beforeAll;
   // this test verifies the building is accessible by navigating to its detail page)
@@ -226,40 +220,35 @@ test.describe("WF2: Meeting creation and motion management", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        wf2BuildingId = await seedBuilding(api, WF2_BUILDING, "wf2-manager@test.com");
+    wf2BuildingId = await seedBuilding(api, WF2_BUILDING, "wf2-manager@test.com");
 
-        // Seed a lot owner so the building is valid for meeting creation
-        await seedLotOwner(api, wf2BuildingId, {
-          lotNumber: "WF2-1",
-          emails: ["wf2-voter@test.com"],
-          unitEntitlement: 100,
-          financialPosition: "normal",
-        });
+    // Seed a lot owner so the building is valid for meeting creation
+    await seedLotOwner(api, wf2BuildingId, {
+      lotNumber: "WF2-1",
+      emails: ["wf2-voter@test.com"],
+      unitEntitlement: 100,
+      financialPosition: "normal",
+    });
 
-        // Create the open meeting via API
-        wf2MeetingId = await createOpenMeeting(api, wf2BuildingId, WF2_MEETING_TITLE, [
-          {
-            title: "Motion 1 — Budget",
-            description: "Do you approve the budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-          {
-            title: "Motion 2 — Special",
-            description: "Do you approve the special resolution?",
-            orderIndex: 2,
-            motionType: "special",
-          },
-        ]);
-        wf2MeetingIds.push(wf2MeetingId);
-        await clearBallots(api, wf2MeetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    // Create the open meeting via API
+    wf2MeetingId = await createOpenMeeting(api, wf2BuildingId, WF2_MEETING_TITLE, [
+      {
+        title: "Motion 1 — Budget",
+        description: "Do you approve the budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: "Motion 2 — Special",
+        description: "Do you approve the special resolution?",
+        orderIndex: 2,
+        motionType: "special",
+      },
+    ]);
+    wf2MeetingIds.push(wf2MeetingId);
+    await clearBallots(api, wf2MeetingId);
+    await api.dispose();
+  });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";

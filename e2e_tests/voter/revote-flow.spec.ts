@@ -27,7 +27,6 @@ import {
   getTestOtp,
   submitBallot,
   submitBallotViaApi,
-  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `RV01 Revote Building-${RUN_SUFFIX}`;
@@ -50,38 +49,33 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT,
-          emails: [LOT_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT,
+      emails: [LOT_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, `RV01 Meeting-${RUN_SUFFIX}`, [
-          {
-            title: MOTION1_TITLE,
-            description: "Do you approve the annual budget?",
-            orderIndex: 0,
-            motionType: "general",
-          },
-          {
-            title: MOTION2_TITLE,
-            description: "Do you approve the bylaw change?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, `RV01 Meeting-${RUN_SUFFIX}`, [
+      {
+        title: MOTION1_TITLE,
+        description: "Do you approve the annual budget?",
+        orderIndex: 0,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "Do you approve the bylaw change?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // ── Step 1: voter submits on all 2 visible motions ─────────────────────────
   test("RV01.1: voter submits on both visible motions — lands on confirmation", async ({ page }) => {
@@ -232,29 +226,24 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, WF9_BUILDING, `wf9-mgr-${RUN_SUFFIX}@test.com`);
+    const buildingId = await seedBuilding(api, WF9_BUILDING, `wf9-mgr-${RUN_SUFFIX}@test.com`);
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: WF9_LOT,
-          emails: [WF9_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: WF9_LOT,
+      emails: [WF9_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
 
-        wf9MeetingId = await createOpenMeeting(api, buildingId, `WF9 Meeting-${RUN_SUFFIX}`, [
-          { title: WF9_MOTION1, description: "Approve the annual budget.", orderIndex: 0, motionType: "general" },
-          { title: WF9_MOTION2, description: "Approve the bylaw change.", orderIndex: 1, motionType: "general" },
-          { title: WF9_MOTION3, description: "Approve the safety policy.", orderIndex: 2, motionType: "general" },
-        ]);
+    wf9MeetingId = await createOpenMeeting(api, buildingId, `WF9 Meeting-${RUN_SUFFIX}`, [
+      { title: WF9_MOTION1, description: "Approve the annual budget.", orderIndex: 0, motionType: "general" },
+      { title: WF9_MOTION2, description: "Approve the bylaw change.", orderIndex: 1, motionType: "general" },
+      { title: WF9_MOTION3, description: "Approve the safety policy.", orderIndex: 2, motionType: "general" },
+    ]);
 
-        await clearBallots(api, wf9MeetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, wf9MeetingId);
+    await api.dispose();
+  });
 
   // ── Step 1: voter submits motions 1–3 ─────────────────────────────────────
   test("WF9.0: voter submits motions 1, 2, 3 with distinct choices", async ({ page }) => {
@@ -422,34 +411,29 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, WF10_BUILDING, `wf10-mgr-${RUN_SUFFIX}@test.com`);
+    const buildingId = await seedBuilding(api, WF10_BUILDING, `wf10-mgr-${RUN_SUFFIX}@test.com`);
 
-        // Two lots with the same email
-        await seedLotOwner(api, buildingId, {
-          lotNumber: WF10_LOT_A,
-          emails: [WF10_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: WF10_LOT_B,
-          emails: [WF10_EMAIL],
-          unitEntitlement: 20,
-          financialPosition: "normal",
-        });
+    // Two lots with the same email
+    await seedLotOwner(api, buildingId, {
+      lotNumber: WF10_LOT_A,
+      emails: [WF10_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: WF10_LOT_B,
+      emails: [WF10_EMAIL],
+      unitEntitlement: 20,
+      financialPosition: "normal",
+    });
 
-        wf10MeetingId = await createOpenMeeting(api, buildingId, `WF10 Meeting-${RUN_SUFFIX}`, [
-          { title: WF10_MOTION1, description: "Approve the budget.", orderIndex: 0, motionType: "general" },
-        ]);
+    wf10MeetingId = await createOpenMeeting(api, buildingId, `WF10 Meeting-${RUN_SUFFIX}`, [
+      { title: WF10_MOTION1, description: "Approve the budget.", orderIndex: 0, motionType: "general" },
+    ]);
 
-        await clearBallots(api, wf10MeetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, wf10MeetingId);
+    await api.dispose();
+  });
 
   // ── Step 1: Lot A submits motion 1, Lot B does NOT ─────────────────────────
   test("WF10.0: Lot A submits motion 1 (Lot B deselected)", async ({ page }) => {

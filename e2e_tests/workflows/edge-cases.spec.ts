@@ -31,7 +31,6 @@ import {
   authenticateVoter,
   getTestOtp,
   submitBallot,
-  withRetry,
 } from "./helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,40 +56,35 @@ test.describe("WF8: Edge cases", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        buildingId = await seedBuilding(api, BUILDING, "wf8-manager@test.com");
+    buildingId = await seedBuilding(api, BUILDING, "wf8-manager@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT1,
-          emails: [LOT1_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT2,
-          emails: [LOT2_EMAIL],
-          unitEntitlement: 10,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT1,
+      emails: [LOT1_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT2,
+      emails: [LOT2_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
 
-        // Create a fresh open meeting
-        openMeetingId = await createOpenMeeting(api, buildingId, `WF8 Open Meeting-${RUN_SUFFIX}`, [
-          {
-            title: MOTION_TITLE,
-            description: "A test motion for edge case scenarios.",
-            orderIndex: 1,
-            motionType: "general",
-          },
-        ]);
+    // Create a fresh open meeting
+    openMeetingId = await createOpenMeeting(api, buildingId, `WF8 Open Meeting-${RUN_SUFFIX}`, [
+      {
+        title: MOTION_TITLE,
+        description: "A test motion for edge case scenarios.",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
 
-        // Clear any prior ballots
-        await clearBallots(api, openMeetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    // Clear any prior ballots
+    await clearBallots(api, openMeetingId);
+    await api.dispose();
+  });
 
   // ── WF8.1: Re-submission blocked after full submission ─────────────────────
   test("WF8.1: after submitting, re-auth routes to confirmation — no submit button visible", async ({

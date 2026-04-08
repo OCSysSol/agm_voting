@@ -32,7 +32,6 @@ import {
   authenticateVoter,
   getTestOtp,
   submitBallot,
-  withRetry,
 } from "./helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,50 +62,45 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "wf3-manager@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "wf3-manager@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: VOTER1_LOT,
-          emails: [VOTER1_EMAIL],
-          unitEntitlement: 100,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: VOTER2_LOT,
-          emails: [VOTER2_EMAIL],
-          unitEntitlement: 50,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: VOTER3_LOT,
-          emails: [VOTER3_EMAIL],
-          unitEntitlement: 75,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: VOTER1_LOT,
+      emails: [VOTER1_EMAIL],
+      unitEntitlement: 100,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: VOTER2_LOT,
+      emails: [VOTER2_EMAIL],
+      unitEntitlement: 50,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: VOTER3_LOT,
+      emails: [VOTER3_EMAIL],
+      unitEntitlement: 75,
+      financialPosition: "normal",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
-          {
-            title: MOTION1_TITLE,
-            description: "Do you approve the annual budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-          {
-            title: MOTION2_TITLE,
-            description: "Do you approve the bylaw change?",
-            orderIndex: 2,
-            motionType: "special",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
+      {
+        title: MOTION1_TITLE,
+        description: "Do you approve the annual budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "Do you approve the bylaw change?",
+        orderIndex: 2,
+        motionType: "special",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // WF3.2: Voter 1 votes For on both motions
   test("WF3.2: voter 1 votes For on both motions", async ({ page }) => {
@@ -258,45 +252,40 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "wf4-manager@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "wf4-manager@test.com");
 
-        // Both lots share the same voter email
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_A,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 80,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_B,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 40,
-          financialPosition: "normal",
-        });
+    // Both lots share the same voter email
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_A,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 80,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_B,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 40,
+      financialPosition: "normal",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
-          {
-            title: MOTION1_TITLE,
-            description: "Do you approve the budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-          {
-            title: MOTION2_TITLE,
-            description: "Do you approve the bylaw?",
-            orderIndex: 2,
-            motionType: "special",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
+      {
+        title: MOTION1_TITLE,
+        description: "Do you approve the budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "Do you approve the bylaw?",
+        orderIndex: 2,
+        motionType: "special",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // WF4.2: Vote both lots in one submission
   test("WF4.2: voter sees both lots pre-selected, votes For on both motions", async ({ page }) => {
@@ -402,44 +391,39 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "wf5-manager@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "wf5-manager@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_A,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 60,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_B,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 30,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_A,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 60,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_B,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 30,
+      financialPosition: "normal",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
-          {
-            title: MOTION1_TITLE,
-            description: "Do you approve the budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-          {
-            title: MOTION2_TITLE,
-            description: "Do you approve the bylaw?",
-            orderIndex: 2,
-            motionType: "special",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
+      {
+        title: MOTION1_TITLE,
+        description: "Do you approve the budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "Do you approve the bylaw?",
+        orderIndex: 2,
+        motionType: "special",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // WF5.2: Session 1 — vote WF5-A only (uncheck WF5-B)
   test("WF5.2: session 1 — votes For/Against for WF5-A only, WF5-B excluded", async ({ page }) => {
@@ -579,24 +563,22 @@ test.describe("WF6: Proxy voting with tally verification", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "wf6-manager@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "wf6-manager@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_X,
-          emails: [LOT_X_OWNER_EMAIL],
-          unitEntitlement: 60,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_Y,
-          emails: [LOT_Y_EMAIL],
-          unitEntitlement: 40,
-          financialPosition: "normal",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_X,
+      emails: [LOT_X_OWNER_EMAIL],
+      unitEntitlement: 60,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_Y,
+      emails: [LOT_Y_EMAIL],
+      unitEntitlement: 40,
+      financialPosition: "normal",
+    });
 
-        // Upload proxy nomination: WF6-X proxied to PROXY_EMAIL
+    // Upload proxy nomination: WF6-X proxied to PROXY_EMAIL
         const proxyCsv = `Lot#,Proxy Email\n${LOT_X},${PROXY_EMAIL}\n`;
         await uploadProxyCsv(api, buildingId, proxyCsv);
 
@@ -609,12 +591,9 @@ test.describe("WF6: Proxy voting with tally verification", () => {
           },
         ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // WF6.2: Proxy voter authenticates and votes For
   test("WF6.2: proxy voter sees via Proxy badge, votes For on Motion 1", async ({ page }) => {
@@ -729,44 +708,39 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
       storageState: ADMIN_AUTH_PATH,
     });
 
-    try {
-      await withRetry(async () => {
-        const buildingId = await seedBuilding(api, BUILDING, "wf7-manager@test.com");
+    const buildingId = await seedBuilding(api, BUILDING, "wf7-manager@test.com");
 
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_A,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 90,
-          financialPosition: "normal",
-        });
-        await seedLotOwner(api, buildingId, {
-          lotNumber: LOT_B,
-          emails: [VOTER_EMAIL],
-          unitEntitlement: 45,
-          financialPosition: "in_arrear",
-        });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_A,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 90,
+      financialPosition: "normal",
+    });
+    await seedLotOwner(api, buildingId, {
+      lotNumber: LOT_B,
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 45,
+      financialPosition: "in_arrear",
+    });
 
-        meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
-          {
-            title: MOTION1_TITLE,
-            description: "Do you approve the general budget?",
-            orderIndex: 1,
-            motionType: "general",
-          },
-          {
-            title: MOTION2_TITLE,
-            description: "Do you approve the special resolution?",
-            orderIndex: 2,
-            motionType: "special",
-          },
-        ]);
+    meetingId = await createOpenMeeting(api, buildingId, MEETING_TITLE, [
+      {
+        title: MOTION1_TITLE,
+        description: "Do you approve the general budget?",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "Do you approve the special resolution?",
+        orderIndex: 2,
+        motionType: "special",
+      },
+    ]);
 
-        await clearBallots(api, meetingId);
-      }, 3, 30000);
-    } finally {
-      await api.dispose();
-    }
-  }, { timeout: 180000 });
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  });
 
   // WF7.2: Voter authenticates and sees in-arrear banner
   test("WF7.2: voter sees amber in-arrear banner and In Arrear badge on WF7-B", async ({ page }) => {
