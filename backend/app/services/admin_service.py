@@ -14,7 +14,7 @@ import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1247,6 +1247,26 @@ _MEETINGS_SORT_COLUMNS = {
 }
 
 
+def _effective_status_case():
+    """SQL CASE expression mirroring get_effective_status() for use in WHERE clauses.
+
+    Precedence (mirrors get_effective_status):
+      1. stored status = 'closed'  → 'closed'
+      2. voting_closes_at < NOW()  → 'closed'
+      3. meeting_at > NOW()        → 'pending'
+      4. otherwise                 → 'open'
+
+    Returns a fresh expression on each call so func.now() is evaluated at
+    query-execution time, not import time.
+    """
+    return case(
+        (GeneralMeeting.status == GeneralMeetingStatus.closed.value, literal("closed")),
+        (GeneralMeeting.voting_closes_at < func.now(), literal("closed")),
+        (GeneralMeeting.meeting_at > func.now(), literal("pending")),
+        else_=literal("open"),
+    )
+
+
 def _meetings_order_clause(sort_by: str | None, sort_dir: str | None):
     key = sort_by or "created_at"
     col = _MEETINGS_SORT_COLUMNS.get(key, GeneralMeeting.created_at)
@@ -1276,15 +1296,14 @@ async def list_general_meetings(
         q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
     if building_id is not None:
         q = q.where(GeneralMeeting.building_id == building_id)
+    if status is not None:
+        q = q.where(_effective_status_case() == status)
     result = await db.execute(q.offset(offset).limit(limit))
     rows = result.all()
     items = []
     for general_meeting, building_name in rows:
         effective = get_effective_status(general_meeting)
         effective_str = effective.value if hasattr(effective, "value") else effective
-        # Post-filter by effective status when requested (computed field, not a DB column)
-        if status is not None and effective_str != status:
-            continue
         items.append(
             {
                 "id": general_meeting.id,
@@ -1316,21 +1335,13 @@ async def count_general_meetings(
       3. meeting_at > NOW()        → 'pending'
       4. otherwise                 → 'open'
     """
-    from sqlalchemy import case, literal
-    now_expr = func.now()
-    effective_status_expr = case(
-        (GeneralMeeting.status == GeneralMeetingStatus.closed.value, literal("closed")),
-        (GeneralMeeting.voting_closes_at < now_expr, literal("closed")),
-        (GeneralMeeting.meeting_at > now_expr, literal("pending")),
-        else_=literal("open"),
-    )
     q = select(func.count()).select_from(GeneralMeeting)
     if name is not None:
         q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
     if building_id is not None:
         q = q.where(GeneralMeeting.building_id == building_id)
     if status is not None:
-        q = q.where(effective_status_expr == status)
+        q = q.where(_effective_status_case() == status)
     result = await db.execute(q)
     return result.scalar_one()
 

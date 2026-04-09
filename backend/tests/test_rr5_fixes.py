@@ -38,7 +38,7 @@ from app.schemas.admin import (
     MotionAddRequest,
     SetProxyRequest,
 )
-from app.services.admin_service import count_general_meetings, import_proxies
+from app.services.admin_service import count_general_meetings, import_proxies, list_general_meetings
 
 
 # ---------------------------------------------------------------------------
@@ -515,3 +515,321 @@ class TestBuildingCreateApiMaxLength:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/admin/buildings", json=payload)
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Pagination correctness fix: _effective_status_case() in list_general_meetings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestListGeneralMeetingsPagination:
+    """Regression tests for the pagination correctness fix.
+
+    Before the fix, list_general_meetings applied the status filter in Python
+    AFTER SQL LIMIT/OFFSET, causing pages to be shorter than requested when
+    rows in the SQL window had a different effective status.
+
+    After the fix, _effective_status_case() is pushed into a WHERE clause
+    so LIMIT/OFFSET operate over the already-filtered set.
+    """
+
+    async def _create_building(self, db: AsyncSession, name: str) -> Building:
+        b = Building(name=name, manager_email=f"pag_{name.lower().replace(' ', '_')[:40]}@test.com")
+        db.add(b)
+        await db.flush()
+        await db.refresh(b)
+        return b
+
+    async def _add_open_meeting(
+        self, db: AsyncSession, building: Building, title_suffix: str
+    ) -> GeneralMeeting:
+        """Open effective status: stored=open, meeting_at in past, voting_closes_at in future."""
+        m = GeneralMeeting(
+            building_id=building.id,
+            title=f"Pag Open {title_suffix}",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=2),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        db.add(m)
+        await db.flush()
+        await db.refresh(m)
+        return m
+
+    async def _add_closed_meeting(
+        self, db: AsyncSession, building: Building, title_suffix: str
+    ) -> GeneralMeeting:
+        """Closed via stored status."""
+        m = GeneralMeeting(
+            building_id=building.id,
+            title=f"Pag Closed {title_suffix}",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=datetime.now(UTC) - timedelta(hours=2),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        db.add(m)
+        await db.flush()
+        await db.refresh(m)
+        return m
+
+    async def _add_closed_via_timestamp(
+        self, db: AsyncSession, building: Building, title_suffix: str
+    ) -> GeneralMeeting:
+        """Closed via voting_closes_at in past (stored status is open)."""
+        m = GeneralMeeting(
+            building_id=building.id,
+            title=f"Pag ClosedTS {title_suffix}",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=10),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db.add(m)
+        await db.flush()
+        await db.refresh(m)
+        return m
+
+    async def _add_pending_meeting(
+        self, db: AsyncSession, building: Building, title_suffix: str
+    ) -> GeneralMeeting:
+        """Pending: meeting_at in future."""
+        m = GeneralMeeting(
+            building_id=building.id,
+            title=f"Pag Pending {title_suffix}",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=30),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=60),
+        )
+        db.add(m)
+        await db.flush()
+        await db.refresh(m)
+        return m
+
+    # --- Happy path ---
+
+    async def test_pagination_returns_full_page_when_open_meetings_exceed_limit(
+        self, db_session: AsyncSession
+    ):
+        """Core regression: page must contain exactly `limit` items when enough open meetings exist.
+
+        Before the fix, interleaving open and closed rows in the SQL window meant
+        the Python post-filter would discard closed rows, returning fewer than `limit`
+        items even when more open meetings existed on subsequent pages.
+        """
+        limit = 5
+        b = await self._create_building(db_session, "Pag Full Page Building")
+        # Seed limit + 5 open meetings and limit - 1 closed meetings in the same building
+        for i in range(limit + 5):
+            await self._add_open_meeting(db_session, b, f"FP{i:03d}")
+        for i in range(limit - 1):
+            await self._add_closed_meeting(db_session, b, f"FP_C{i:03d}")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=limit, offset=0, status="open", building_id=b.id
+        )
+        assert len(result) == limit, (
+            f"Expected exactly {limit} items but got {len(result)} — "
+            "pagination correctness fix may not be applied"
+        )
+
+    async def test_pagination_pages_are_non_overlapping(self, db_session: AsyncSession):
+        """Three consecutive pages must cover distinct meetings with no repeats."""
+        limit = 3
+        b = await self._create_building(db_session, "Pag Nonoverlap Building")
+        # Seed 3*limit open meetings
+        for i in range(limit * 3):
+            await self._add_open_meeting(db_session, b, f"NOP{i:03d}")
+        await db_session.commit()
+
+        page1 = await list_general_meetings(
+            db_session, limit=limit, offset=0, status="open", building_id=b.id
+        )
+        page2 = await list_general_meetings(
+            db_session, limit=limit, offset=limit, status="open", building_id=b.id
+        )
+        page3 = await list_general_meetings(
+            db_session, limit=limit, offset=limit * 2, status="open", building_id=b.id
+        )
+
+        ids1 = {m["id"] for m in page1}
+        ids2 = {m["id"] for m in page2}
+        ids3 = {m["id"] for m in page3}
+
+        assert len(page1) == limit
+        assert len(page2) == limit
+        assert len(page3) == limit
+        assert ids1.isdisjoint(ids2), "Page 1 and page 2 share meetings"
+        assert ids2.isdisjoint(ids3), "Page 2 and page 3 share meetings"
+        assert ids1.isdisjoint(ids3), "Page 1 and page 3 share meetings"
+
+    async def test_no_status_filter_returns_all_meetings(self, db_session: AsyncSession):
+        """Without a status filter all seeded meetings are returned (no accidental filtering)."""
+        b = await self._create_building(db_session, "Pag No Filter Building")
+        for i in range(3):
+            await self._add_open_meeting(db_session, b, f"NF_O{i}")
+        for i in range(2):
+            await self._add_closed_meeting(db_session, b, f"NF_C{i}")
+        await self._add_pending_meeting(db_session, b, "NF_P0")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=1000, offset=0, building_id=b.id
+        )
+        assert len(result) == 6
+
+    # --- Effective-status derivation ---
+
+    async def test_effective_status_open_stored_open_past_meeting(
+        self, db_session: AsyncSession
+    ):
+        """stored=open, meeting_at past, voting_closes_at future → effective open."""
+        b = await self._create_building(db_session, "Pag ESOpen Building")
+        await self._add_open_meeting(db_session, b, "ESO1")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="open", building_id=b.id
+        )
+        assert len(result) >= 1
+        assert all(m["status"] == "open" for m in result)
+
+    async def test_effective_status_closed_via_stored_status(
+        self, db_session: AsyncSession
+    ):
+        """stored=closed, voting_closes_at future → effective closed (stored status wins)."""
+        b = await self._create_building(db_session, "Pag ESClosed Stored Building")
+        m = GeneralMeeting(
+            building_id=b.id,
+            title="Pag ESClosed Stored",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        b_session = db_session
+        b_session.add(m)
+        await b_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="closed", building_id=b.id
+        )
+        ids = [r["id"] for r in result]
+        assert m.id in ids
+        # Confirm it does not appear under open filter
+        open_result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="open", building_id=b.id
+        )
+        open_ids = [r["id"] for r in open_result]
+        assert m.id not in open_ids
+
+    async def test_effective_status_closed_via_timestamp(
+        self, db_session: AsyncSession
+    ):
+        """stored=open, voting_closes_at in past → effective closed (timestamp overrides)."""
+        b = await self._create_building(db_session, "Pag ESClosed TS Building")
+        m = await self._add_closed_via_timestamp(db_session, b, "ETS1")
+        await db_session.commit()
+
+        closed_result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="closed", building_id=b.id
+        )
+        closed_ids = [r["id"] for r in closed_result]
+        assert m.id in closed_ids
+
+        open_result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="open", building_id=b.id
+        )
+        open_ids = [r["id"] for r in open_result]
+        assert m.id not in open_ids
+
+    async def test_effective_status_pending(self, db_session: AsyncSession):
+        """stored=pending, meeting_at future → effective pending."""
+        b = await self._create_building(db_session, "Pag ESPending Building")
+        m = await self._add_pending_meeting(db_session, b, "ESP1")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="pending", building_id=b.id
+        )
+        ids = [r["id"] for r in result]
+        assert m.id in ids
+
+    # --- List/count agreement ---
+
+    async def test_list_and_count_agree_for_open_status(self, db_session: AsyncSession):
+        """list_general_meetings and count_general_meetings return consistent results for open."""
+        b = await self._create_building(db_session, "Pag Agree Open Building")
+        for i in range(4):
+            await self._add_open_meeting(db_session, b, f"AGR_O{i}")
+        for i in range(2):
+            await self._add_closed_meeting(db_session, b, f"AGR_C{i}")
+        await db_session.commit()
+
+        list_result = await list_general_meetings(
+            db_session, limit=10000, offset=0, status="open", building_id=b.id
+        )
+        count_result = await count_general_meetings(
+            db_session, status="open", building_id=b.id
+        )
+        assert len(list_result) == count_result
+
+    async def test_list_and_count_agree_for_closed_status(self, db_session: AsyncSession):
+        """list_general_meetings and count_general_meetings return consistent results for closed."""
+        b = await self._create_building(db_session, "Pag Agree Closed Building")
+        for i in range(3):
+            await self._add_closed_meeting(db_session, b, f"AGR_CL{i}")
+        for i in range(2):
+            await self._add_open_meeting(db_session, b, f"AGR_CL_O{i}")
+        await db_session.commit()
+
+        list_result = await list_general_meetings(
+            db_session, limit=10000, offset=0, status="closed", building_id=b.id
+        )
+        count_result = await count_general_meetings(
+            db_session, status="closed", building_id=b.id
+        )
+        assert len(list_result) == count_result
+
+    async def test_list_and_count_agree_for_pending_status(self, db_session: AsyncSession):
+        """list_general_meetings and count_general_meetings return consistent results for pending."""
+        b = await self._create_building(db_session, "Pag Agree Pending Building")
+        for i in range(2):
+            await self._add_pending_meeting(db_session, b, f"AGR_P{i}")
+        await self._add_open_meeting(db_session, b, "AGR_P_O")
+        await db_session.commit()
+
+        list_result = await list_general_meetings(
+            db_session, limit=10000, offset=0, status="pending", building_id=b.id
+        )
+        count_result = await count_general_meetings(
+            db_session, status="pending", building_id=b.id
+        )
+        assert len(list_result) == count_result
+
+    # --- Edge cases ---
+
+    async def test_status_filter_no_match_returns_empty_list(
+        self, db_session: AsyncSession
+    ):
+        """list_general_meetings with a status that matches nothing returns empty list."""
+        b = await self._create_building(db_session, "Pag NoMatch Building")
+        await self._add_open_meeting(db_session, b, "NM1")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=100, offset=0, status="nonexistent_status", building_id=b.id
+        )
+        assert result == []
+
+    async def test_offset_beyond_result_set_returns_empty(
+        self, db_session: AsyncSession
+    ):
+        """Offset beyond the total count returns an empty list, not an error."""
+        b = await self._create_building(db_session, "Pag OffsetBeyond Building")
+        await self._add_open_meeting(db_session, b, "OB1")
+        await db_session.commit()
+
+        result = await list_general_meetings(
+            db_session, limit=10, offset=9999, status="open", building_id=b.id
+        )
+        assert result == []
