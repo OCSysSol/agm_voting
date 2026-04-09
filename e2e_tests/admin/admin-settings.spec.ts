@@ -286,14 +286,14 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
       await loginPage.goto("/admin/login");
       await expect(loginPage).toHaveURL(/admin\/login/, { timeout: 10000 });
 
-      // When logo_url is empty, the img src should be the fallback /logo.png
-      // (that is the documented fallback behaviour for the empty-logo case)
+      // When logo_url is empty, no img element is rendered — instead, the app
+      // name is shown as text via .admin-login-card__app-name.
       const logoImg = loginPage.locator(".admin-login-card__logo");
-      await expect(logoImg).toBeVisible({ timeout: 10000 });
+      await expect(logoImg).not.toBeVisible({ timeout: 5000 });
 
-      // The src should be defined and not point to an obviously broken external URL
-      const src = await logoImg.getAttribute("src");
-      expect(src).toBeTruthy();
+      // The app name text element should be visible instead
+      const appNameEl = loginPage.locator(".admin-login-card__app-name");
+      await expect(appNameEl).toBeVisible({ timeout: 10000 });
     } finally {
       await context.close();
     }
