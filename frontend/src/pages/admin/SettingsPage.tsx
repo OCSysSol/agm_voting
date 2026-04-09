@@ -18,8 +18,10 @@ export default function SettingsPage() {
   const [saveError, setSaveError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [uploadLogoSuccess, setUploadLogoSuccess] = useState(false);
   const [isUploadingFavicon, setIsUploadingFavicon] = useState(false);
   const [uploadFaviconError, setUploadFaviconError] = useState("");
+  const [uploadFaviconSuccess, setUploadFaviconSuccess] = useState(false);
 
   // SMTP state
   const [smtpHost, setSmtpHost] = useState("");
@@ -66,10 +68,12 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadError("");
+    setUploadLogoSuccess(false);
     setIsUploading(true);
     try {
       const result = await uploadLogo(file);
       setLogoUrl(result.url);
+      setUploadLogoSuccess(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to upload logo.";
       setUploadError(message);
@@ -82,10 +86,12 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadFaviconError("");
+    setUploadFaviconSuccess(false);
     setIsUploadingFavicon(true);
     try {
       const result = await uploadFavicon(file);
       setFaviconUrl(result.url);
+      setUploadFaviconSuccess(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to upload favicon.";
       setUploadFaviconError(message);
@@ -146,6 +152,9 @@ export default function SettingsPage() {
     setSaveError("");
     setSaveSuccess(false);
     setIsSaving(true);
+    // Clear upload success prompts when the user saves
+    setUploadLogoSuccess(false);
+    setUploadFaviconSuccess(false);
     try {
       const updated: TenantConfig = {
         app_name: appName,
@@ -229,6 +238,11 @@ export default function SettingsPage() {
                 />
               </div>
               {uploadError && <span className="field__error">{uploadError}</span>}
+              {uploadLogoSuccess && (
+                <p role="status" style={{ color: "var(--green)", fontSize: "0.875rem", marginTop: 4 }}>
+                  Logo uploaded successfully
+                </p>
+              )}
             </div>
 
             <div className="field">
@@ -258,6 +272,11 @@ export default function SettingsPage() {
                 />
               </div>
               {uploadFaviconError && <span className="field__error">{uploadFaviconError}</span>}
+              {uploadFaviconSuccess && (
+                <p role="status" style={{ color: "var(--green)", fontSize: "0.875rem", marginTop: 4 }}>
+                  Favicon uploaded successfully
+                </p>
+              )}
             </div>
 
             <div className="field">
@@ -300,6 +319,22 @@ export default function SettingsPage() {
             )}
             {saveError && (
               <p className="field__error" style={{ marginBottom: 12 }}>{saveError}</p>
+            )}
+            {(uploadLogoSuccess || uploadFaviconSuccess) && (
+              <p
+                role="status"
+                style={{
+                  color: "var(--amber)",
+                  background: "var(--amber-bg)",
+                  border: "1px solid #F6C190",
+                  borderRadius: "var(--r-md)",
+                  padding: "8px 12px",
+                  fontSize: "0.875rem",
+                  marginBottom: 12,
+                }}
+              >
+                Save settings to apply the changes
+              </p>
             )}
 
             <button

@@ -2075,6 +2075,16 @@ button, input, select, textarea {
   margin: 0 auto 16px;
 }
 
+.admin-login-card__app-name {
+  display: block;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
 .admin-login-card__title {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-size: 1.625rem;

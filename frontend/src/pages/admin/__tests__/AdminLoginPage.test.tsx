@@ -69,17 +69,18 @@ describe("AdminLoginPage", () => {
     expect(img).toHaveClass("admin-login-card__logo");
   });
 
-  it("falls back to /logo.png when logo_url is empty", () => {
+  it("shows app name text when logo_url is empty (no broken image)", () => {
     renderPage({ ...DEFAULT_CONFIG, logo_url: "", app_name: "AGM Voting" });
-    const img = screen.getByRole("img");
-    expect(img).toHaveAttribute("src", "/logo.png");
-    expect(img).toHaveAttribute("alt", "AGM Voting");
-    expect(img).toHaveClass("admin-login-card__logo");
+    expect(screen.getByText("AGM Voting")).toBeInTheDocument();
+    expect(screen.getByText("AGM Voting")).toHaveClass("admin-login-card__app-name");
+    // No fallback img element with a broken /logo.png src
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("uses config app_name as alt text on fallback logo", () => {
+  it("shows correct app_name text when logo_url is empty", () => {
     renderPage({ ...DEFAULT_CONFIG, logo_url: "", app_name: "Corp Vote" });
-    expect(screen.getByRole("img")).toHaveAttribute("alt", "Corp Vote");
+    expect(screen.getByText("Corp Vote")).toBeInTheDocument();
+    expect(screen.getByText("Corp Vote")).toHaveClass("admin-login-card__app-name");
   });
 
   // --- Input validation ---

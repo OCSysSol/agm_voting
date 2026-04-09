@@ -512,6 +512,145 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("Failed to upload favicon.")).not.toBeInTheDocument();
   });
 
+  // --- Upload success feedback ---
+
+  it("shows 'Logo uploaded successfully' after a successful logo upload", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Logo uploaded successfully")).toBeInTheDocument()
+    );
+  });
+
+  it("shows 'Favicon uploaded successfully' after a successful favicon upload", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "favicon.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload favicon image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Favicon uploaded successfully")).toBeInTheDocument()
+    );
+  });
+
+  it("shows 'Save settings to apply the changes' hint after logo upload", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Save settings to apply the changes")).toBeInTheDocument()
+    );
+  });
+
+  it("shows 'Save settings to apply the changes' hint after favicon upload", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "favicon.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload favicon image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Save settings to apply the changes")).toBeInTheDocument()
+    );
+  });
+
+  it("'Save settings to apply the changes' hint disappears after clicking Save", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() =>
+      expect(screen.getByText("Save settings to apply the changes")).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId("branding-save-btn"));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Save settings to apply the changes")).not.toBeInTheDocument()
+    );
+  });
+
+  it("upload success messages have role='status' for accessibility", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+
+    const file = new File(["fake-png"], "logo.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file);
+
+    await waitFor(() => {
+      const statuses = screen.getAllByRole("status");
+      const texts = statuses.map((el) => el.textContent);
+      expect(texts.some((t) => t?.includes("Logo uploaded successfully"))).toBe(true);
+    });
+  });
+
+  it("logo upload success clears error state first", async () => {
+    const user = userEvent.setup();
+    // First trigger an error
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/logo", () =>
+        HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
+    const file1 = new File(["fake1"], "logo1.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file1);
+    await waitFor(() => expect(screen.getByText(/HTTP 502/)).toBeInTheDocument());
+
+    // Now succeed on second upload with a different file object (avoids no-change event)
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/logo", () =>
+        HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo-test.png" })
+      )
+    );
+    const file2 = new File(["fake2"], "logo2.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload logo image"), file2);
+    await waitFor(() => expect(screen.getByText("Logo uploaded successfully")).toBeInTheDocument());
+    // Error should be gone
+    expect(screen.queryByText(/HTTP 502/)).not.toBeInTheDocument();
+  });
+
+  it("favicon upload success clears favicon error state first", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+        HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
+    const file1 = new File(["fake1"], "favicon1.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload favicon image"), file1);
+    await waitFor(() => expect(screen.getByText(/HTTP 502/)).toBeInTheDocument());
+
+    server.use(
+      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+        HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon-test.png" })
+      )
+    );
+    const file2 = new File(["fake2"], "favicon2.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Upload favicon image"), file2);
+    await waitFor(() => expect(screen.getByText("Favicon uploaded successfully")).toBeInTheDocument());
+    expect(screen.queryByText(/HTTP 502/)).not.toBeInTheDocument();
+  });
+
   // --- Mail Server (SMTP) section ---
 
   it("updates SMTP port field on user input", async () => {

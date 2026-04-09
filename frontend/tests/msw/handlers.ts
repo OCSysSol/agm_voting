@@ -520,12 +520,16 @@ export const adminHandlers = [
   http.get(`${BASE}/api/admin/buildings`, ({ request }) => {
     const url = new URL(request.url);
     const isArchivedParam = url.searchParams.get("is_archived");
+    const nameParam = url.searchParams.get("name");
     const limitParam = url.searchParams.get("limit");
     const offsetParam = url.searchParams.get("offset");
     let filtered = ADMIN_BUILDINGS;
     if (isArchivedParam !== null) {
       const isArchived = isArchivedParam === "true";
       filtered = filtered.filter((b) => b.is_archived === isArchived);
+    }
+    if (nameParam) {
+      filtered = filtered.filter((b) => b.name.toLowerCase().includes(nameParam.toLowerCase()));
     }
     const offset = offsetParam !== null ? parseInt(offsetParam, 10) : 0;
     const limit = limitParam !== null ? parseInt(limitParam, 10) : filtered.length;

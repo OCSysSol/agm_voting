@@ -35,7 +35,7 @@ export default function AdminLoginPage() {
           {config.logo_url ? (
             <img src={config.logo_url} alt={config.app_name} className="admin-login-card__logo" />
           ) : (
-            <img src="/logo.png" alt={config.app_name} className="admin-login-card__logo" />
+            <span className="admin-login-card__app-name">{config.app_name}</span>
           )}
           <h1 className="admin-login-card__title">Admin Portal</h1>
           <p className="admin-login-card__subtitle">Sign in to manage buildings and General Meetings</p>
