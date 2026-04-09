@@ -4468,7 +4468,8 @@ class TestAdminAuth:
         assert r6.status_code == 429
 
     async def test_hash_password_endpoint_returns_bcrypt_hash(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns a bcrypt hash in non-production."""
+        """POST /api/admin/auth/hash-password returns a bcrypt hash when called by authenticated admin."""
+        import bcrypt
         from unittest.mock import patch
         from app.main import create_app
 
@@ -4479,23 +4480,63 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        # Patch _bcrypt_lib to avoid real bcrypt computation in test env
-        with patch("app.routers.admin_auth._bcrypt_lib") as mock_bcrypt:
-            mock_bcrypt.hashpw.return_value = b"$2b$12$mockedhashvalue"
-            mock_bcrypt.gensalt.return_value = b"fakesalt"
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/hash-password",
-                    json={"password": "mypassword"},
-                )
+        hashed_admin_pw = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed_admin_pw,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ):
+            # Patch _bcrypt_lib only for the hash-password call itself
+            with patch("app.routers.admin_auth._bcrypt_lib") as mock_bcrypt:
+                mock_bcrypt.hashpw.return_value = b"$2b$12$mockedhashvalue"
+                mock_bcrypt.gensalt.return_value = b"fakesalt"
+                # checkpw must still work for the login step — delegate to real bcrypt
+                mock_bcrypt.checkpw.side_effect = lambda plain, stored: bcrypt.checkpw(plain, stored)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app_instance), base_url="http://test"
+                ) as c:
+                    # Establish an admin session first
+                    login_resp = await c.post(
+                        "/api/admin/auth/login",
+                        json={"username": "admin", "password": "admin"},
+                    )
+                    assert login_resp.status_code == 200
+                    response = await c.post(
+                        "/api/admin/auth/hash-password",
+                        json={"password": "mypassword"},
+                    )
         assert response.status_code == 200
         data = response.json()
         assert data["hash"] == "$2b$12$mockedhashvalue"
 
+    async def test_hash_password_endpoint_returns_401_without_auth(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns 401 when called without admin session."""
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.post(
+                "/api/admin/auth/hash-password",
+                json={"password": "mypassword"},
+            )
+        assert response.status_code == 401
+
     async def test_hash_password_endpoint_returns_404_in_production(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production."""
+        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production (even with auth)."""
+        import bcrypt
         from unittest.mock import patch
         from app.main import create_app
 
@@ -4506,10 +4547,29 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        with patch.object(__import__("app.config", fromlist=["settings"]).settings, "environment", "production"):
+        hashed_admin_pw = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed_admin_pw,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "environment",
+            "production",
+        ):
             async with AsyncClient(
                 transport=ASGITransport(app=app_instance), base_url="http://test"
             ) as c:
+                # Establish admin session first (require_admin runs before the production check)
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
                 response = await c.post(
                     "/api/admin/auth/hash-password",
                     json={"password": "mypassword"},

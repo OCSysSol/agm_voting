@@ -165,11 +165,18 @@ class HashPasswordRequest(BaseModel):
 
 
 @router.post("/auth/hash-password")
-async def hash_password(data: HashPasswordRequest) -> dict:
-    """Dev-only helper: returns the bcrypt hash for a given plaintext password.
+async def hash_password(
+    data: HashPasswordRequest,
+    _admin: None = Depends(require_admin),
+) -> dict:
+    """Dev helper: returns the bcrypt hash for a given plaintext password.
 
-    Only available when ENVIRONMENT != "production" so this endpoint is never
-    reachable in a live deployment.
+    Requires admin authentication on all non-development environments so the
+    endpoint cannot be used unauthenticated on demo or preview deployments.
+    On the local development environment the require_admin dependency is still
+    enforced (admin session cookie required), keeping the behaviour consistent
+    across all environments while blocking unauthenticated use everywhere.
+    On production the endpoint is additionally hidden behind a 404.
     """
     if settings.environment == "production":
         raise HTTPException(status_code=404, detail="Not found")

@@ -186,7 +186,47 @@ class TestAdminAuth:
         assert result is False
 
     async def test_hash_password_endpoint_returns_bcrypt_hash(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns a bcrypt hash in non-production."""
+        """POST /api/admin/auth/hash-password returns a bcrypt hash when called by an authenticated admin."""
+        import bcrypt
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                # Establish an admin session first
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                response = await c.post(
+                    "/api/admin/auth/hash-password",
+                    json={"password": "mypassword"},
+                )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["hash"].startswith("$2b$")
+
+    async def test_hash_password_endpoint_returns_401_without_auth(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns 401 when called without admin session."""
         from app.main import create_app
 
         app_instance = create_app()
@@ -203,12 +243,11 @@ class TestAdminAuth:
                 "/api/admin/auth/hash-password",
                 json={"password": "mypassword"},
             )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["hash"].startswith("$2b$")
+        assert response.status_code == 401
 
     async def test_hash_password_endpoint_returns_404_in_production(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production."""
+        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production (even with auth)."""
+        import bcrypt
         from unittest.mock import patch
         from app.main import create_app
 
@@ -219,10 +258,29 @@ class TestAdminAuth:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        with patch.object(__import__("app.config", fromlist=["settings"]).settings, "environment", "production"):
+        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "environment",
+            "production",
+        ):
             async with AsyncClient(
                 transport=ASGITransport(app=app_instance), base_url="http://test"
             ) as c:
+                # Establish admin session (require_admin runs before the production check)
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
                 response = await c.post(
                     "/api/admin/auth/hash-password",
                     json={"password": "mypassword"},
