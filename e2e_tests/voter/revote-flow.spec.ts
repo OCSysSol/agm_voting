@@ -27,6 +27,7 @@ import {
   getTestOtp,
   submitBallot,
   submitBallotViaApi,
+  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `RV01 Revote Building-${RUN_SUFFIX}`;
@@ -567,50 +568,66 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     // request. To avoid LotA inadvertently being recorded as having voted M2, we
     // temporarily hide M2, submit LotA's M1 vote, then re-show M2.
     //
-    // Step 1: clear all ballots for this meeting
-    await clearBallots(api, wf10MeetingId);
+    // The entire 7-step sequence is wrapped in withRetry so that a transient 500
+    // on any step triggers a full retry of the sequence (clearing any partial state).
+    await withRetry(async () => {
+      // Step 1: clear all ballots for this meeting
+      await clearBallots(api, wf10MeetingId);
 
-    // Step 2: fetch the meeting motions to find Motion 1 and Motion 2 IDs
-    const meetingRes = await api.get(`/api/admin/general-meetings/${wf10MeetingId}`);
-    expect(meetingRes.ok(), `get meeting: ${meetingRes.status()} ${await meetingRes.text()}`).toBe(true);
-    const meetingDetail = (await meetingRes.json()) as {
-      motions?: { id: string; title: string; is_visible: boolean }[];
-    };
-    const motion1 = meetingDetail.motions?.find((m) => m.title === WF10_MOTION1);
-    expect(motion1, `Motion 1 ("${WF10_MOTION1}") not found on meeting`).toBeTruthy();
-    const motion1Id = motion1!.id;
-    const motion2 = meetingDetail.motions?.find((m) => m.title === WF10_MOTION2);
-    expect(motion2, `Motion 2 ("${WF10_MOTION2}") not found on meeting`).toBeTruthy();
-    const motion2Id = motion2!.id;
+      // Step 2: fetch the meeting motions to find Motion 1 and Motion 2 IDs
+      const meetingRes = await api.get(`/api/admin/general-meetings/${wf10MeetingId}`);
+      if (!meetingRes.ok()) {
+        throw new Error(`get meeting: ${meetingRes.status()} ${await meetingRes.text()}`);
+      }
+      const meetingDetail = (await meetingRes.json()) as {
+        motions?: { id: string; title: string; is_visible: boolean }[];
+      };
+      const motion1 = meetingDetail.motions?.find((m) => m.title === WF10_MOTION1);
+      if (!motion1) throw new Error(`Motion 1 ("${WF10_MOTION1}") not found on meeting`);
+      const motion1Id = motion1.id;
+      const motion2 = meetingDetail.motions?.find((m) => m.title === WF10_MOTION2);
+      if (!motion2) throw new Error(`Motion 2 ("${WF10_MOTION2}") not found on meeting`);
+      const motion2Id = motion2.id;
 
-    // Step 3: temporarily hide Motion 2 so the backend does not record an abstain for it
-    // when we submit LotA's M1 vote
-    const hideRes = await api.patch(`/api/admin/motions/${motion2Id}/visibility`, {
-      data: { is_visible: false },
-    });
-    expect(hideRes.ok(), `hide motion 2: ${hideRes.status()} ${await hideRes.text()}`).toBe(true);
+      // Step 3: temporarily hide Motion 2 so the backend does not record an abstain for it
+      // when we submit LotA's M1 vote
+      const hideRes = await api.patch(`/api/admin/motions/${motion2Id}/visibility`, {
+        data: { is_visible: false },
+      });
+      if (!hideRes.ok()) {
+        throw new Error(`hide motion 2: ${hideRes.status()} ${await hideRes.text()}`);
+      }
 
-    // Step 4: fetch lot owners to find Lot A's ID
-    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
-    const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-    const wf10Building = buildings.find((b) => b.name === WF10_BUILDING);
-    expect(wf10Building, `WF10 building not found`).toBeTruthy();
-    const lotsRes = await api.get(`/api/admin/buildings/${wf10Building!.id}/lot-owners`);
-    const lots = (await lotsRes.json()) as { id: string; lot_number: string }[];
-    const lotA = lots.find((l) => l.lot_number === WF10_LOT_A);
-    expect(lotA, `Lot A (${WF10_LOT_A}) not found`).toBeTruthy();
+      // Step 4: fetch lot owners to find Lot A's ID
+      const buildingsRes = await api.get(`/api/admin/buildings?name=${encodeURIComponent(WF10_BUILDING)}`);
+      if (!buildingsRes.ok()) {
+        throw new Error(`get buildings: ${buildingsRes.status()} ${await buildingsRes.text()}`);
+      }
+      const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
+      const wf10Building = buildings.find((b) => b.name === WF10_BUILDING);
+      if (!wf10Building) throw new Error(`WF10 building not found`);
+      const lotsRes = await api.get(`/api/admin/buildings/${wf10Building.id}/lot-owners?limit=1000`);
+      if (!lotsRes.ok()) {
+        throw new Error(`get lot owners: ${lotsRes.status()} ${await lotsRes.text()}`);
+      }
+      const lots = (await lotsRes.json()) as { id: string; lot_number: string }[];
+      const lotA = lots.find((l) => l.lot_number === WF10_LOT_A);
+      if (!lotA) throw new Error(`Lot A (${WF10_LOT_A}) not found`);
 
-    // Step 5: submit LotA's "yes" vote on M1 via API (re-creates WF10.0's outcome)
-    // With M2 hidden, only M1 is recorded — no abstain for M2
-    await submitBallotViaApi(api, WF10_EMAIL, wf10MeetingId, [lotA!.id], [
-      { motion_id: motion1Id, choice: "yes" },
-    ]);
+      // Step 5: submit LotA's "yes" vote on M1 via API (re-creates WF10.0's outcome)
+      // With M2 hidden, only M1 is recorded — no abstain for M2
+      await submitBallotViaApi(api, WF10_EMAIL, wf10MeetingId, [lotA.id], [
+        { motion_id: motion1Id, choice: "yes" },
+      ]);
 
-    // Step 6: re-show Motion 2 so the voter sees both motions on the voting page
-    const showRes = await api.patch(`/api/admin/motions/${motion2Id}/visibility`, {
-      data: { is_visible: true },
-    });
-    expect(showRes.ok(), `re-show motion 2: ${showRes.status()} ${await showRes.text()}`).toBe(true);
+      // Step 6: re-show Motion 2 so the voter sees both motions on the voting page
+      const showRes = await api.patch(`/api/admin/motions/${motion2Id}/visibility`, {
+        data: { is_visible: true },
+      });
+      if (!showRes.ok()) {
+        throw new Error(`re-show motion 2: ${showRes.status()} ${await showRes.text()}`);
+      }
+    }, 3, 30000);
 
     await page.goto("/");
     await goToAuthPage(page, WF10_BUILDING);

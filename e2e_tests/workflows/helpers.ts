@@ -129,7 +129,7 @@ export async function seedLotOwner(
   seed: LotOwnerSeed
 ): Promise<string> {
   return withRetry(async () => {
-    const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners`);
+    const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners?limit=1000`);
     if (!lotOwnersRes.ok()) {
       throw new Error(
         `GET /api/admin/buildings/${buildingId}/lot-owners returned ${lotOwnersRes.status()}: ${await lotOwnersRes.text()}`

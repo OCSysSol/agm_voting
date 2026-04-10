@@ -67,7 +67,7 @@ test.describe("Admin Start Meeting button", () => {
         }
 
         // Try to find an existing building first
-        const listRes = await api.get("/api/admin/buildings?limit=1000");
+        const listRes = await api.get(`/api/admin/buildings?name=${encodeURIComponent(name)}`);
         if (listRes.ok()) {
           const buildings = (await listRes.json()) as { id: string; name: string }[];
           const existing = buildings.find((b) => b.name === name);

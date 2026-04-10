@@ -22,7 +22,8 @@ test.describe.serial("Admin Lot Owners", () => {
     });
     expect(buildingRes.ok()).toBeTruthy();
 
-    const buildingsRes = await request.get("/api/admin/buildings?limit=1000");
+    const buildingsRes = await request.get(`/api/admin/buildings?name=${encodeURIComponent(E2E_BUILDING)}`);
+    expect(buildingsRes.ok()).toBeTruthy();
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings.find((b) => b.name === E2E_BUILDING);
     expect(building).toBeDefined();
@@ -44,7 +45,8 @@ test.describe.serial("Admin Lot Owners", () => {
         },
       },
     });
-    const buildingsRes = await request.get("/api/admin/buildings?limit=1000");
+    const buildingsRes = await request.get(`/api/admin/buildings?name=${encodeURIComponent(E2E_BUILDING)}`);
+    expect(buildingsRes.ok()).toBeTruthy();
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings.find((b) => b.name === E2E_BUILDING);
     expect(building).toBeDefined();
@@ -74,7 +76,8 @@ test.describe.serial("Admin Lot Owners", () => {
         },
       },
     });
-    const buildingsRes = await request.get("/api/admin/buildings?limit=1000");
+    const buildingsRes = await request.get(`/api/admin/buildings?name=${encodeURIComponent(E2E_BUILDING)}`);
+    expect(buildingsRes.ok()).toBeTruthy();
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings.find((b) => b.name === E2E_BUILDING);
     expect(building).toBeDefined();
