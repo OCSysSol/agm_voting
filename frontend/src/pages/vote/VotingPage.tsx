@@ -512,12 +512,24 @@ export function VotingPage() {
     // Capture all submission values synchronously at confirm time and pass directly
     // into mutate() — never re-read from sessionStorage inside the async mutationFn.
     const lotsToSubmit = isMultiLot ? [...selectedIds] : allLots.map((l) => l.lot_owner_id);
+    // Exclude read-only (already-voted) motions from the payload. After multiple vote rounds,
+    // choices state includes motions from previous rounds that are now locked. Submitting
+    // those causes 422 "Voting has closed for motion: X" when voting_closed_at is set.
+    // Also exclude the "selected" sentinel used for multi-choice motions — those motions
+    // are submitted via multiChoiceVotes, not votes.
     const votes = Object.entries(choices)
-      .filter(([, choice]) => choice !== null)
+      .filter(([, choice]) => choice !== null && choice !== "selected")
+      .filter(([motion_id]) => {
+        const motion = motions?.find((m) => m.id === motion_id);
+        return !motion || !isMotionReadOnly(motion);
+      })
       .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
-    const multiChoiceVotes = Object.entries(multiChoiceSelections).map(
-      ([motion_id, choices]) => ({ motion_id, option_choices: optionChoiceMapToRequest(choices) })
-    );
+    const multiChoiceVotes = Object.entries(multiChoiceSelections)
+      .filter(([motion_id]) => {
+        const motion = motions?.find((m) => m.id === motion_id);
+        return !motion || !isMotionReadOnly(motion);
+      })
+      .map(([motion_id, choices]) => ({ motion_id, option_choices: optionChoiceMapToRequest(choices) }));
     submitMutation.mutate({ lotsToSubmit, votes, multiChoiceVotes });
   };
 

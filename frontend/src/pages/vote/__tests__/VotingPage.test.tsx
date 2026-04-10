@@ -1018,6 +1018,255 @@ describe("VotingPage", () => {
     submitSpy.mockRestore();
   });
 
+  // --- fix-vote-422: read-only motions excluded from submit payload ---
+
+  it("fix-vote-422: read-only (already-voted) motions are excluded from votes in submit payload", async () => {
+    // Scenario: multi-round voting. Motion 1 was voted in round 1 (read-only).
+    // Motion 2 is new in round 2. Only Motion 2 should appear in the submit payload.
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_1,
+            title: "Motion 1",
+            description: null,
+            display_order: 1,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: true,
+            submitted_choice: "yes",
+            option_limit: null,
+            options: [],
+            voting_closed_at: "2024-06-01T11:00:00Z",
+          },
+          {
+            id: MOTION_ID_2,
+            title: "Motion 2",
+            description: null,
+            display_order: 2,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: null,
+          },
+        ])
+      )
+    );
+    // Lot has voted on Motion 1 (makes it read-only), not on Motion 2
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo1",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: false,
+          is_proxy: false,
+          voted_motion_ids: [MOTION_ID_1],
+        },
+      ])
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 2" }));
+
+    // Vote on Motion 2 only (Motion 1 is read-only)
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    await user.click(forButtons[forButtons.length - 1]); // last For button is Motion 2
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    const callArg = submitSpy.mock.calls[0][1];
+    // Motion 1 must NOT appear in votes (it is read-only / already voted)
+    const submittedMotionIds = callArg.votes.map((v: { motion_id: string }) => v.motion_id);
+    expect(submittedMotionIds).not.toContain(MOTION_ID_1);
+    // Motion 2 must appear in votes
+    expect(submittedMotionIds).toContain(MOTION_ID_2);
+
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("fix-vote-422: read-only multi-choice motions excluded from multi_choice_votes in submit payload", async () => {
+    // Scenario: multi-round voting. MC motion was voted in round 1 (read-only).
+    // A new regular motion appears in round 2. Only the new motion should be in the payload;
+    // the already-voted MC motion must not appear in multi_choice_votes.
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_MC,
+            title: "Board Election",
+            description: null,
+            display_order: 1,
+            motion_number: null,
+            motion_type: "general",
+            is_multi_choice: true,
+            is_visible: true,
+            already_voted: true,
+            submitted_choice: "selected",
+            submitted_option_choices: { "opt-alice": "for" },
+            option_limit: 1,
+            options: [{ id: "opt-alice", text: "Alice", display_order: 1 }],
+            voting_closed_at: "2024-06-01T11:00:00Z",
+          },
+          {
+            id: MOTION_ID_2,
+            title: "Motion 2",
+            description: null,
+            display_order: 2,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: null,
+          },
+        ])
+      )
+    );
+    // Lot has voted on MC motion (makes it read-only), not on Motion 2
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo1",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: false,
+          is_proxy: false,
+          voted_motion_ids: [MOTION_ID_MC],
+        },
+      ])
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 2" }));
+
+    // Vote on Motion 2 only
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    await user.click(forButtons[forButtons.length - 1]);
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    const callArg = submitSpy.mock.calls[0][1];
+    // MC motion must NOT appear in multi_choice_votes (it is read-only)
+    const mcMotionIds = (callArg.multi_choice_votes ?? []).map(
+      (v: { motion_id: string }) => v.motion_id
+    );
+    expect(mcMotionIds).not.toContain(MOTION_ID_MC);
+    // Motion 2 must appear in regular votes
+    const regularMotionIds = callArg.votes.map((v: { motion_id: string }) => v.motion_id);
+    expect(regularMotionIds).toContain(MOTION_ID_2);
+
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("fix-vote-422: 'selected' sentinel in choices is excluded from votes array", async () => {
+    // Multi-choice motions set choices[motionId] = "selected" as a sentinel.
+    // This must never appear in the votes array sent to the backend.
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_MC,
+            title: "Board Election",
+            description: null,
+            display_order: 1,
+            motion_number: null,
+            motion_type: "general",
+            is_multi_choice: true,
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            submitted_option_choices: {},
+            option_limit: 1,
+            options: [{ id: "opt-alice", text: "Alice", display_order: 1 }],
+            voting_closed_at: null,
+          },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo1",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: false,
+          is_proxy: false,
+          voted_motion_ids: [],
+        },
+      ])
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByText("Alice"));
+
+    // Vote For Alice (this internally sets choices[MOTION_ID_MC] = "selected" as sentinel)
+    await user.click(screen.getByTestId("mc-for-opt-alice"));
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    const submitButtons = screen.getAllByRole("button", { name: "Submit ballot" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    const callArg = submitSpy.mock.calls[0][1];
+    // The "selected" sentinel must NOT appear as a vote choice in the votes array
+    const sentinelVotes = callArg.votes.filter(
+      (v: { motion_id: string; choice: string }) => v.choice === "selected"
+    );
+    expect(sentinelVotes).toHaveLength(0);
+    // The MC motion should appear in multi_choice_votes instead
+    const mcVote = (callArg.multi_choice_votes ?? []).find(
+      (v: { motion_id: string }) => v.motion_id === MOTION_ID_MC
+    );
+    expect(mcVote).toBeDefined();
+
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   // --- In-arrear warning banner ---
 
   it("arrear banner not shown when no lots are in arrear", async () => {
