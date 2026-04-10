@@ -336,7 +336,7 @@ export default function GeneralMeetingDetailPage() {
 
   const deleteMotionMutation = useMutation({
     mutationFn: (motionId: string) => deleteMotion(motionId),
-    onSuccess: (_data, motionId) => {
+    onSuccess: async (_data, motionId) => {
       setDeleteMotionErrors((prev) => {
         const next = { ...prev };
         delete next[motionId];
@@ -359,7 +359,7 @@ export default function GeneralMeetingDetailPage() {
       setPendingCloseMotionId(motionId);
       return closeMotion(motionId);
     },
-    onSuccess: (_data, motionId) => {
+    onSuccess: async (_data, motionId) => {
       setPendingCloseMotionId(null);
       setCloseMotionErrors((prev) => {
         const next = { ...prev };
@@ -545,7 +545,7 @@ export default function GeneralMeetingDetailPage() {
         <AdminVoteEntryPanel
           meeting={meeting}
           onClose={() => setShowVoteEntryPanel(false)}
-          onSuccess={() => {
+          onSuccess={async () => {
             setShowVoteEntryPanel(false);
             setVoteEntrySuccess("In-person votes submitted successfully.");
             await queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
