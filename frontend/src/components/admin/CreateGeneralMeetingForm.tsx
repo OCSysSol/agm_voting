@@ -1,21 +1,14 @@
 import React, { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { listBuildings, createGeneralMeeting } from "../../api/admin";
+import { createGeneralMeeting } from "../../api/admin";
 import type { GeneralMeetingOut, GeneralMeetingCreateRequest } from "../../api/admin";
-import type { Building } from "../../types";
 import MotionEditor, { type MotionFormEntry } from "./MotionEditor";
 import MotionExcelUpload from "./MotionExcelUpload";
+import BuildingSearchCombobox from "./BuildingSearchCombobox";
 
 export default function CreateGeneralMeetingForm() {
   const navigate = useNavigate();
-
-  const { data: buildings = [] } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings"],
-    queryFn: () => listBuildings(),
-  });
-
-  const activeBuildings = buildings.filter((b) => !b.is_archived);
 
   const [buildingId, setBuildingId] = useState("");
   const [title, setTitle] = useState("");
@@ -100,19 +93,12 @@ export default function CreateGeneralMeetingForm() {
       </p>
       <div className="field">
         <label className="field__label field__label--required" htmlFor="agm-building">Building</label>
-        <select
+        <BuildingSearchCombobox
           id="agm-building"
-          className="field__select"
           value={buildingId}
-          onChange={(e) => setBuildingId(e.target.value)}
-          aria-required="true"
-          required
-        >
-          <option value="">-- Select a building --</option>
-          {activeBuildings.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+          onChange={(id) => setBuildingId(id)}
+          placeholder="Search buildings"
+        />
       </div>
 
       <div className="field">

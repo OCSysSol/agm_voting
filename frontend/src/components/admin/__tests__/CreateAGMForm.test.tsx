@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -33,12 +33,29 @@ function renderComponent() {
   );
 }
 
+/** Select a building via the combobox (waits for the option to appear after API response) */
+async function selectBuilding(buildingName: string) {
+  const combobox = screen.getByRole("combobox", { name: "Building" });
+  fireEvent.click(combobox);
+  await waitFor(() => {
+    expect(screen.getByRole("listbox", { name: "Buildings" })).toBeInTheDocument();
+  });
+  await waitFor(() => {
+    expect(screen.getByRole("option", { name: buildingName })).toBeInTheDocument();
+  });
+  fireEvent.mouseDown(screen.getByRole("option", { name: buildingName }));
+}
+
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
-  // Wait for buildings to load
+  // Wait for buildings to load in combobox
+  await waitFor(() => {
+    expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByRole("combobox", { name: "Building" }));
   await waitFor(() => {
     expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
   });
-  await user.selectOptions(screen.getByLabelText("Building"), "b1");
+  fireEvent.mouseDown(screen.getByRole("option", { name: "Alpha Tower" }));
   await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
   await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
   await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T12:00");
@@ -47,27 +64,36 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
 describe("CreateGeneralMeetingForm", () => {
   it("renders all form fields", async () => {
     renderComponent();
-    expect(screen.getByLabelText("Building")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title", { selector: "#agm-title" })).toBeInTheDocument();
     expect(screen.getByLabelText("Meeting Date / Time")).toBeInTheDocument();
     expect(screen.getByLabelText("Voting Closes At")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create General Meeting" })).toBeInTheDocument();
   });
 
-  it("loads buildings into dropdown", async () => {
+  it("loads buildings into combobox dropdown", async () => {
     renderComponent();
+    fireEvent.click(screen.getByRole("combobox", { name: "Building" }));
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
       expect(screen.getByRole("option", { name: "Beta Court" })).toBeInTheDocument();
     });
   });
 
-  it("does not show archived buildings in the dropdown", async () => {
+  it("does not show archived buildings in the combobox dropdown", async () => {
     renderComponent();
+    fireEvent.click(screen.getByRole("combobox", { name: "Building" }));
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
     });
     expect(screen.queryByRole("option", { name: "Gamma House" })).not.toBeInTheDocument();
+  });
+
+  it("shows selected building name in combobox input after selection", async () => {
+    renderComponent();
+    await selectBuilding("Alpha Tower");
+    const input = screen.getByRole("combobox", { name: "Building" }) as HTMLInputElement;
+    expect(input.value).toBe("Alpha Tower");
   });
 
   it("shows error when building not selected", async () => {
@@ -82,9 +108,9 @@ describe("CreateGeneralMeetingForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     });
-    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await selectBuilding("Alpha Tower");
     await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
     expect(screen.getByText("Title is required.")).toBeInTheDocument();
   });
@@ -93,9 +119,9 @@ describe("CreateGeneralMeetingForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     });
-    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await selectBuilding("Alpha Tower");
     await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
     expect(screen.getByText("Meeting date/time is required.")).toBeInTheDocument();
@@ -105,9 +131,9 @@ describe("CreateGeneralMeetingForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     });
-    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await selectBuilding("Alpha Tower");
     await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
     await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
@@ -118,9 +144,9 @@ describe("CreateGeneralMeetingForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     });
-    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await selectBuilding("Alpha Tower");
     await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T12:00");
     await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T10:00");
@@ -142,9 +168,9 @@ describe("CreateGeneralMeetingForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Building" })).toBeInTheDocument();
     });
-    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await selectBuilding("Alpha Tower");
     await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
     await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T12:00");
@@ -259,7 +285,6 @@ describe("CreateGeneralMeetingForm", () => {
     await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "Election");
 
     // Just attempt to submit with empty options
-    // (options default to 2 empty strings, which won't pass validation since they're empty)
     await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
     expect(screen.getByText(/multi-choice requires at least 2 options/i)).toBeInTheDocument();
   });
