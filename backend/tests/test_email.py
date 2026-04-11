@@ -1393,6 +1393,54 @@ class TestRequeuePendingOnStartup:
 
     # --- Happy path ---
 
+    async def test_startup_summary_warning_logged_when_pending_found(
+        self, db_session: AsyncSession, mocker
+    ):
+        """startup_email_requeue warning is emitted at WARNING level when emails are requeued.
+
+        A single 'startup_email_requeue count=N' line is immediately visible in function
+        logs; a burst of N individual requeueing_pending_email lines is easy to scroll past.
+        """
+        await self._clear_pending_deliveries(db_session)
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        delivery = await _create_email_delivery(db_session, agm)
+        delivery.status = EmailDeliveryStatus.pending
+        delivery.total_attempts = 2
+        await db_session.commit()
+
+        mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+
+        warning_events: list[str] = []
+
+        def capture(event: str, **kw: object) -> None:
+            warning_events.append(event)
+
+        import app.services.email_service as _email_svc
+        mocker.patch.object(_email_svc.logger, "warning", side_effect=capture)
+
+        service = EmailService()
+        await service.requeue_pending_on_startup(db_session)
+        await asyncio.sleep(0)
+
+        assert "startup_email_requeue" in warning_events
+
+    async def test_no_summary_warning_when_nothing_pending(
+        self, db_session: AsyncSession, mocker
+    ):
+        """No startup_email_requeue log emitted when there are no due pending emails."""
+        await self._clear_pending_deliveries(db_session)
+        mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+
+        import app.services.email_service as _email_svc
+        warning_events: list[str] = []
+        mocker.patch.object(_email_svc.logger, "warning", side_effect=lambda e, **kw: warning_events.append(e))
+
+        service = EmailService()
+        await service.requeue_pending_on_startup(db_session)
+
+        assert "startup_email_requeue" not in warning_events
+
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
         """Pending deliveries due for retry are launched as background tasks (non-blocking)."""
         await self._clear_pending_deliveries(db_session)

@@ -4,6 +4,24 @@ Use this runbook when the AGM Voting App is returning errors or is completely un
 
 ---
 
+## Step 0: Check Vercel function logs FIRST
+
+**Before checking Neon metrics or CI/E2E failure messages, read the raw Lambda logs.** Infrastructure symptoms (ETIMEDOUT, Lambda timeout, slow cold starts) frequently mask application-level bugs that are only visible in the function log stream.
+
+In the Vercel dashboard: Deployments → current deployment → Functions tab → select any recent failing invocation → expand the log.
+
+**Key startup events to look for (emitted in the first ~1s of a cold start):**
+
+| Log event | Meaning | Action |
+|---|---|---|
+| `startup_email_requeue count=N` (N > 0) | Stale pending emails are being retried on cold start — this is **normal** but a large count (> 5) indicates test data was not cleaned up | Delete stale records via the SQL in `email-delivery-failures.md` |
+| `email_delivery_attempt status=failed error="…Authentication…"` | SMTP credentials are wrong — emails fail permanently | Fix SMTP credentials in Admin → Settings → Mail server |
+| `migration_head_check_failed` | Alembic cannot find the migration folder | Check `DATABASE_URL` / `DATABASE_URL_UNPOOLED` env vars |
+
+**Rule:** If the Lambda is slow or timing out, the answer is almost always in the first 2 seconds of the function log, not the Neon compute dashboard.
+
+---
+
 ## Step 1: Determine failure type
 
 ```bash

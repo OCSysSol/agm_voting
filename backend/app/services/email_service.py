@@ -410,6 +410,16 @@ class EmailService:
         )
         pending_deliveries = list(result.scalars().all())
 
+        if pending_deliveries:
+            # WARNING-level summary so the scale is immediately visible in function logs.
+            # A burst of 35 individual requeueing_pending_email lines is easy to miss;
+            # a single startup_email_requeue count=35 line is not.
+            logger.warning(
+                "startup_email_requeue",
+                count=len(pending_deliveries),
+                meeting_ids=[str(d.general_meeting_id) for d in pending_deliveries],
+            )
+
         for delivery in pending_deliveries:
             logger.info(
                 "requeueing_pending_email",
