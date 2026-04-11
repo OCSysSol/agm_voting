@@ -175,6 +175,18 @@ On E2E failure: `gh run download <run-id>` to retrieve the Playwright HTML repor
 E2E tests seed data using these naming patterns — the cleanup agent deletes them after runs:
 - **Test meetings**: titles matching `WF*`, `E2E*`, `Test*`, `Delete Test*`
 - **Test buildings**: names matching `E2E*`, `WF*`, `Test*`
+- **Pending email deliveries**: `email_deliveries` rows with `status='pending'` linked to test meetings must also be deleted. These records are re-queued on every Lambda cold start via `requeue_pending_on_startup()` — leaving them behind causes real email retry attempts for test meetings in subsequent deployments, which can trigger false E2E failures and pollute logs.
+
+After every E2E run (or at least every merge cleanup), delete pending email records for test meetings:
+
+```sql
+DELETE FROM email_deliveries
+WHERE status = 'pending'
+  AND general_meeting_id IN (
+    SELECT id FROM general_meetings
+    WHERE title SIMILAR TO '(WF|E2E|Test|Delete Test)%'
+  );
+```
 
 Do NOT delete/archive real production data. Known real buildings: "The Vale", "SBT", "Sandridge Bay Towers".
 
@@ -226,8 +238,8 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 - **Never** run `vercel deploy --prod` or target production from the CLI
 - The `demo` branch deploys to the **Demo** Vercel environment (for stakeholder review)
 - Feature and fix branches deploy to the **Preview** Vercel environment
-- **Neon DB mapping:** Demo env → `demo` Neon branch (`br-restless-truth-a7rjsd35`); Preview env (feature branches) → `preview` Neon branch (`br-bold-cherry-a7yzlzj1`)
-- When setting branch-scoped env vars for feature branches, target `["preview"]`; the demo env DATABASE_URL is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
+- **Neon DB mapping:** Demo env → `demo` Neon branch (`br-restless-truth-a7rjsd35`); Preview env (feature branches) → the **Neon-Vercel integration** automatically creates a `preview/<branch-name>` Neon branch (from `main`) for each preview deployment and injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` into the build and Lambda environment. No manual env var setup is needed for preview branches.
+- The demo env `DATABASE_URL` is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
 - Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SMTP_ENCRYPTION_KEY`, `ALLOWED_ORIGIN`
 - SMTP settings (host, port, username, password, from_email) are now configured via the admin Settings page and stored encrypted in the database — no longer needed as env vars
 
@@ -262,70 +274,20 @@ Retrieve with: `security find-generic-password -s "agm-survey" -a "<account>" -w
 
 **Operational docs:** Service level objectives are defined in [`docs/slo.md`](docs/slo.md). Incident runbooks are in [`docs/runbooks/`](docs/runbooks/).
 
-### All branches — Vercel env var setup (required for every branch)
+### Neon-Vercel integration — automatic per-branch DB provisioning
 
-The Vercel `buildCommand` runs `scripts/migrate.sh` which calls `alembic upgrade head` and requires `DATABASE_URL_UNPOOLED` to be set — even on branches with no schema migrations (alembic runs as a no-op but the env var must be present). Without it the Vercel build fails immediately with `BUILD_FAILED`.
+The Neon-Vercel integration (configured in the Neon console UI under Project → Integrations) automatically provisions a database for every preview deployment:
 
-**Every branch** must have branch-scoped `DATABASE_URL` and `DATABASE_URL_UNPOOLED` Vercel env vars set before pushing:
-- **No migrations**: point to the `preview` Neon branch connection strings (direct, no pooler) — `ep-floral-silence-a71yigr8.ap-southeast-2.aws.neon.tech` — branch `br-bold-cherry-a7yzlzj1`
-- **Has migrations**: create a new Neon DB branch first (step 1 below), then use those connection strings
+- On every branch push, the integration creates a `preview/<branch-name>` Neon branch (from `main`) and starts its compute
+- It injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` directly into the Vercel build and Lambda environment — these take precedence over any project-level env vars
+- The Vercel `buildCommand` runs `alembic upgrade head` against this branch, applying all migrations from scratch — no manual DB setup needed
+- **No manual Vercel env var setup is required for any branch** (migration or non-migration)
+- **No manual Neon DB branch creation is required** — the integration handles it
 
-**Connection string guidance:** The demo endpoint (`ep-square-flower-a7wd7rz5`) has `pooler_enabled=true` (transaction mode). `DATABASE_URL` uses the pooler hostname (`-pooler.` suffix); `DATABASE_URL_UNPOOLED` uses the direct hostname. The preview endpoint (`ep-floral-silence-a71yigr8`) has `pooler_enabled=false` — use direct connection strings only for preview branches.
+### Cleanup — delete `preview/<branch>` Neon branch (required after every merge)
 
-### Schema migration branches — Neon DB branch + Vercel env var setup
+The integration creates a `preview/<branch-name>` Neon branch for **every** push. Always delete it after merge:
 
-Run before `git push`. For non-migration branches, skip step 1 and use the `demo` Neon branch connection strings directly in step 2.
-
-**1. Create Neon DB branch** (branched off `demo`):
-```bash
-NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
-NEON_PROJECT_ID="divine-dust-41291876"
-BRANCH="<branch-name>"   # e.g. feat/my-feature
-
-# Get the demo branch ID
-DEMO_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
-  -H "Authorization: Bearer $NEON_API_KEY" \
-  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; print(next(b['id'] for b in bs if b['name']=='demo'))")
-
-# Create branch
-RESPONSE=$(curl -s -X POST "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
-  -H "Authorization: Bearer $NEON_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"branch\":{\"name\":\"demo/${BRANCH}\",\"parent_id\":\"${DEMO_ID}\"},\"endpoints\":[{\"type\":\"read_write\"}]}")
-
-# Extract connection strings (strip channel_binding=require, use ssl=require)
-DATABASE_URL=$(echo "$RESPONSE" | python3 -c "
-import sys,json,re; d=json.load(sys.stdin)
-uri=d['connection_uris'][0]['connection_uri']
-uri=re.sub(r'channel_binding=require&?','',uri).rstrip('?&')
-uri=uri.replace('postgresql://','postgresql+asyncpg://')
-if 'ssl=' not in uri: uri+='?ssl=require'
-print(uri)")
-DATABASE_URL_UNPOOLED=$(echo "$RESPONSE" | python3 -c "
-import sys,json,re; d=json.load(sys.stdin)
-uri=d['connection_uris'][1]['connection_uri'] if len(d.get('connection_uris',[])) > 1 else d['connection_uris'][0]['connection_uri']
-uri=re.sub(r'channel_binding=require&?','',uri).rstrip('?&')
-uri=uri.replace('postgresql://','postgresql+asyncpg://')
-if 'ssl=' not in uri: uri+='?ssl=require'
-print(uri)")
-```
-
-**2. Set branch-scoped Vercel env vars**:
-```bash
-VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
-VERCEL_PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
-
-for KEY in DATABASE_URL DATABASE_URL_UNPOOLED; do
-  VALUE="${!KEY}"
-  curl -s -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env" \
-    -H "Authorization: Bearer $VERCEL_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"key\":\"${KEY}\",\"value\":\"${VALUE}\",\"type\":\"encrypted\",\"target\":[\"preview\"],\"gitBranch\":\"${BRANCH}\"}" \
-    > /dev/null
-done
-```
-
-**3. Delete Neon DB branch (cleanup — after merge)**:
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
 NEON_PROJECT_ID="divine-dust-41291876"
@@ -333,27 +295,11 @@ BRANCH="<branch-name>"
 
 BRANCH_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
   -H "Authorization: Bearer $NEON_API_KEY" \
-  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; b=next((b for b in bs if b['name']==f'demo/${BRANCH}'),None); print(b['id'] if b else '')")
+  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; b=next((b for b in bs if b['name']==f'preview/${BRANCH}'),None); print(b['id'] if b else '')")
 
 [ -n "$BRANCH_ID" ] && curl -s -X DELETE \
   "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${BRANCH_ID}" \
   -H "Authorization: Bearer $NEON_API_KEY" > /dev/null
-```
-
-**4. Delete branch-scoped Vercel env vars (cleanup — after merge)**:
-```bash
-VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
-VERCEL_PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
-BRANCH="<branch-name>"
-
-# List env vars scoped to this branch and delete them
-curl -s "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?gitBranch=${BRANCH}" \
-  -H "Authorization: Bearer $VERCEL_TOKEN" \
-  | python3 -c "import sys,json; [print(e['id']) for e in json.load(sys.stdin).get('envs',[])]" \
-  | while read ID; do
-      curl -s -X DELETE "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env/${ID}" \
-        -H "Authorization: Bearer $VERCEL_TOKEN" > /dev/null
-    done
 ```
 
 ---
