@@ -1440,6 +1440,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             if row[1] and row[0] in lot_info:
                 lot_info[row[0]]["emails"].append(row[1])
 
+    # Track whether the weight snapshot exists; SQL aggregation entitlement sums are only
+    # accurate when the snapshot rows exist (they JOIN on GeneralMeetingLotWeight).
+    has_weight_snapshot = bool(lot_entitlement)
+
     # Fallback: if snapshot is empty
     if not lot_entitlement:
         current_result = await db.execute(
@@ -1481,14 +1485,50 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         s.lot_owner_id: s for s in submissions if s.is_absent
     }
 
-    # Load submitted votes (joined with lot owner info via voter_email)
-    votes_result = await db.execute(
-        select(Vote).where(
+    # SQL GROUP BY aggregation: compute tally counts and entitlement sums directly in the DB
+    # instead of loading every Vote row into Python (eliminates O(V×M) in-memory scan).
+    tally_agg_result = await db.execute(
+        select(
+            Vote.motion_id,
+            Vote.choice,
+            Vote.motion_option_id,
+            func.count().label("voter_count"),
+            func.coalesce(
+                func.sum(GeneralMeetingLotWeight.unit_entitlement_snapshot), 0
+            ).label("entitlement_sum"),
+        )
+        .join(
+            GeneralMeetingLotWeight,
+            (GeneralMeetingLotWeight.lot_owner_id == Vote.lot_owner_id)
+            & (GeneralMeetingLotWeight.general_meeting_id == Vote.general_meeting_id),
+            isouter=True,
+        )
+        .where(
+            Vote.general_meeting_id == general_meeting_id,
+            Vote.status == VoteStatus.submitted,
+        )
+        .group_by(Vote.motion_id, Vote.choice, Vote.motion_option_id)
+    )
+    # tally_map: (motion_id, choice_str_or_None, option_id_or_None) -> (voter_count, entitlement_sum)
+    tally_map: dict[tuple[uuid.UUID, str | None, uuid.UUID | None], tuple[int, int]] = {}
+    for row in tally_agg_result.all():
+        choice_str: str | None = row.choice.value if row.choice and hasattr(row.choice, "value") else row.choice
+        tally_map[(row.motion_id, choice_str, row.motion_option_id)] = (row.voter_count, int(row.entitlement_sum))
+
+    # Lightweight projection: load only the columns needed to build per-lot voter_lists
+    # and compute the set of lot_owner_ids per motion (for implicit-abstained calculation).
+    vote_proj_result = await db.execute(
+        select(
+            Vote.lot_owner_id,
+            Vote.motion_id,
+            Vote.choice,
+            Vote.motion_option_id,
+        ).where(
             Vote.general_meeting_id == general_meeting_id,
             Vote.status == VoteStatus.submitted,
         )
     )
-    submitted_votes = list(votes_result.scalars().all())
+    vote_projections = vote_proj_result.all()
 
     def _tally(lot_owner_ids: set[uuid.UUID]) -> dict:
         return {
@@ -1546,19 +1586,17 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     is_closed = get_effective_status(general_meeting) == GeneralMeetingStatus.closed
     absent_ids_global: set[uuid.UUID] = set(absent_submissions.keys()) if is_closed else set()
 
-    # RR4-10: Pre-index submitted_votes by motion_id so per-motion filtering is O(1)
-    # lookup rather than O(V) linear scan repeated for each motion (O(V×M) total).
-    votes_by_motion: dict[uuid.UUID, list] = {}
-    for _v in submitted_votes:
-        if _v.lot_owner_id in submitted_lot_owner_ids:
-            votes_by_motion.setdefault(_v.motion_id, []).append(_v)
-    # Also index by (motion_id, choice) for General/Special motion tally
-    votes_by_motion_choice: dict[tuple[uuid.UUID, str], set[uuid.UUID]] = {}
-    for _v in submitted_votes:
-        _choice = _v.choice.value if hasattr(_v.choice, "value") else _v.choice
-        _key = (_v.motion_id, _choice)
-        if _v.lot_owner_id in submitted_lot_owner_ids and _v.lot_owner_id is not None:
-            votes_by_motion_choice.setdefault(_key, set()).add(_v.lot_owner_id)
+    # Build per-motion indexes from the lightweight vote projection (for voter_lists and
+    # implicit-abstained computation). Replaces the O(V×M) scan over full Vote objects.
+    # votes_by_motion: motion_id -> list of (lot_owner_id, choice_str, option_id) tuples
+    VoteRow = tuple[uuid.UUID, str | None, uuid.UUID | None]
+    votes_by_motion: dict[uuid.UUID, list[VoteRow]] = {}
+    for vp in vote_projections:
+        if vp.lot_owner_id in submitted_lot_owner_ids:
+            choice_str = vp.choice.value if vp.choice and hasattr(vp.choice, "value") else vp.choice
+            votes_by_motion.setdefault(vp.motion_id, []).append(
+                (vp.lot_owner_id, choice_str, vp.motion_option_id)
+            )
 
     motion_details = []
     for motion in motions:
@@ -1566,58 +1604,47 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         motion_opts = motion_options_map.get(motion.id, [])
 
         if motion.is_multi_choice:
-            # Multi-choice: per-option tallying
-            # Collect votes for this motion using the pre-built index (O(1))
+            # Multi-choice: per-option tallying using lightweight vote projection tuples
+            # (lot_owner_id, choice_str, motion_option_id)
             motion_vote_rows = votes_by_motion.get(motion.id, [])
 
             # not_eligible lots
             not_eligible_ids: set[uuid.UUID] = {
-                v.lot_owner_id for v in motion_vote_rows
-                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "not_eligible"
-            }
-
-            # lots with at least one selected vote
-            selected_lot_ids: set[uuid.UUID] = {
-                v.lot_owner_id for v in motion_vote_rows
-                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "selected"
+                lot_id for lot_id, choice_s, _ in motion_vote_rows
+                if choice_s == "not_eligible"
             }
 
             # abstained = submitted but no selected and not not_eligible
             # Derived from this motion's own vote rows to avoid incorrectly including
             # lots that simply didn't have a vote row for this motion (e.g. not yet submitted).
             abstained_ids: set[uuid.UUID] = {
-                v.lot_owner_id for v in motion_vote_rows
-                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "abstained"
+                lot_id for lot_id, choice_s, _ in motion_vote_rows
+                if choice_s == "abstained"
             }
 
-            # Per-option tally
+            # Per-option tally — use SQL aggregation results via tally_map where available,
+            # fall back to in-memory projection count (same as before for voter_lists).
             option_tallies = []
             option_for_voter_lists: dict[str, list] = {}
             option_against_voter_lists: dict[str, list] = {}
             option_abstained_voter_lists: dict[str, list] = {}
             for opt in motion_opts:
                 opt_for_ids = {
-                    v.lot_owner_id for v in motion_vote_rows
-                    if v.motion_option_id == opt.id
-                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "selected"
+                    lot_id for lot_id, choice_s, opt_id in motion_vote_rows
+                    if opt_id == opt.id and choice_s == "selected"
                 }
                 opt_against_ids = {
-                    v.lot_owner_id for v in motion_vote_rows
-                    if v.motion_option_id == opt.id
-                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "against"
+                    lot_id for lot_id, choice_s, opt_id in motion_vote_rows
+                    if opt_id == opt.id and choice_s == "against"
                 }
                 opt_abstained_ids = {
-                    v.lot_owner_id for v in motion_vote_rows
-                    if v.motion_option_id == opt.id
-                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "abstained"
+                    lot_id for lot_id, choice_s, opt_id in motion_vote_rows
+                    if opt_id == opt.id and choice_s == "abstained"
                 }
-                # Use stored snapshot values when available (post-close), fall back to live compute
-                for_vc = int(opt.for_voter_count) if opt.for_voter_count else len(opt_for_ids)
-                for_es = int(opt.for_entitlement_sum) if opt.for_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_for_ids)
-                against_vc = int(opt.against_voter_count) if opt.against_voter_count else len(opt_against_ids)
-                against_es = int(opt.against_entitlement_sum) if opt.against_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_against_ids)
-                abstained_vc = int(opt.abstained_voter_count) if opt.abstained_voter_count else len(opt_abstained_ids)
-                abstained_es = int(opt.abstained_entitlement_sum) if opt.abstained_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_abstained_ids)
+                # Use stored snapshot values when available (post-close), fall back to SQL aggregation
+                for_vc, for_es = (int(opt.for_voter_count), int(opt.for_entitlement_sum)) if opt.for_voter_count else tally_map.get((motion.id, "selected", opt.id), (0, 0))  # type: ignore[assignment]
+                against_vc, against_es = (int(opt.against_voter_count), int(opt.against_entitlement_sum)) if opt.against_voter_count else tally_map.get((motion.id, "against", opt.id), (0, 0))  # type: ignore[assignment]
+                abstained_vc, abstained_es = (int(opt.abstained_voter_count), int(opt.abstained_entitlement_sum)) if opt.abstained_voter_count else tally_map.get((motion.id, "abstained", opt.id), (0, 0))  # type: ignore[assignment]
                 option_tallies.append({
                     "option_id": opt.id,
                     "option_text": opt.text,
@@ -1674,16 +1701,15 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 },
             })
         else:
-            # General / Special: existing yes/no/abstained/not_eligible logic
-            # RR4-10: Build motion_votes from the pre-indexed dict (O(1)) instead
-            # of scanning all submitted_votes again (O(V)).
+            # General / Special: use SQL aggregation for tally numbers; use lightweight
+            # projection tuples (lot_owner_id, choice_str, option_id) for voter_lists.
             motion_vote_rows_standard = votes_by_motion.get(motion.id, [])
-            motion_votes: dict[uuid.UUID, str] = {}
-            for vote in motion_vote_rows_standard:
-                lot_id = vote.lot_owner_id
-                if lot_id is not None:
-                    choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
-                    motion_votes[lot_id] = choice or "abstained"
+            # motion_votes_map: lot_owner_id -> choice_str (for voter_lists and implicit-abstained)
+            motion_votes_map: dict[uuid.UUID, str] = {
+                lot_id: (choice_s or "abstained")
+                for lot_id, choice_s, _ in motion_vote_rows_standard
+                if lot_id is not None
+            }
 
             yes_ids: set[uuid.UUID] = set()
             no_ids: set[uuid.UUID] = set()
@@ -1691,9 +1717,9 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             not_eligible_ids: set[uuid.UUID] = set()
 
             for lot_id in submitted_lot_owner_ids:
-                if not motion.is_visible and lot_id not in motion_votes:
+                if not motion.is_visible and lot_id not in motion_votes_map:
                     continue  # hidden motion: voter had no visibility, do not infer abstained
-                choice = motion_votes.get(lot_id, "abstained")
+                choice = motion_votes_map.get(lot_id, "abstained")
                 if choice == "yes":
                     yes_ids.add(lot_id)
                 elif choice in ("no", "against"):
@@ -1705,6 +1731,30 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 else:
                     abstained_ids.add(lot_id)
 
+            # Use SQL aggregation results for tally numbers (voter_count, entitlement_sum).
+            # The lot_owner_id sets (yes_ids, no_ids, etc.) are still needed for voter_lists.
+            # SQL entitlement sums are accurate only when the weight snapshot exists; fall back
+            # to in-memory _tally() when the snapshot is absent (defensive edge case).
+            if has_weight_snapshot:
+                # "against" maps to "no" bucket — combine both for the tally lookup
+                no_vc = (
+                    tally_map.get((motion.id, "no", None), (0, 0))[0]
+                    + tally_map.get((motion.id, "against", None), (0, 0))[0]
+                )
+                no_es = (
+                    tally_map.get((motion.id, "no", None), (0, 0))[1]
+                    + tally_map.get((motion.id, "against", None), (0, 0))[1]
+                )
+                yes_tally = {"voter_count": tally_map.get((motion.id, "yes", None), (0, 0))[0], "entitlement_sum": tally_map.get((motion.id, "yes", None), (0, 0))[1]}
+                no_tally = {"voter_count": no_vc, "entitlement_sum": no_es}
+                not_eligible_tally = {"voter_count": tally_map.get((motion.id, "not_eligible", None), (0, 0))[0], "entitlement_sum": tally_map.get((motion.id, "not_eligible", None), (0, 0))[1]}
+            else:
+                yes_tally = _tally(yes_ids)
+                no_tally = _tally(no_ids)
+                not_eligible_tally = _tally(not_eligible_ids)
+            # Implicit abstained (submitted but no vote row for this visible motion)
+            # is not in the DB, so we always use _tally(abstained_ids) which covers both
+            # explicit abstained rows and implicit abstained (inferred from submissions).
             motion_details.append(
                 {
                     "id": motion.id,
@@ -1719,11 +1769,11 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "voting_closed_at": motion.voting_closed_at,
                     "options": [],
                     "tally": {
-                        "yes": _tally(yes_ids),
-                        "no": _tally(no_ids),
+                        "yes": yes_tally,
+                        "no": no_tally,
                         "abstained": _tally(abstained_ids),
                         "absent": _tally(absent_ids_global),
-                        "not_eligible": _tally(not_eligible_ids),
+                        "not_eligible": not_eligible_tally,
                         "options": [],
                     },
                     "voter_lists": {
