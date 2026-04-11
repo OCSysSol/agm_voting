@@ -207,6 +207,56 @@ def reset_config_cache():
     config_service._config_cache.cached_at = None
 
 
+@pytest.fixture(autouse=True)
+def patch_parallel_lot_lookup(db_session: AsyncSession):
+    """Patch the parallel lot-lookup helpers in auth_service to use the test session.
+
+    _load_direct_lot_owner_ids and _load_proxy_lot_owner_ids use AsyncSessionLocal()
+    to open separate sessions for concurrent execution.  In tests the test data is
+    only flushed (not committed) inside db_session's transaction, so a separate
+    connection would see no data.  Patching both helpers to run their queries on
+    db_session ensures they see the same test data as the rest of the test suite.
+    """
+    import uuid
+    from unittest.mock import patch
+    from sqlalchemy import select
+    from app.models.lot_owner import LotOwner
+    from app.models.lot_owner_email import LotOwnerEmail
+    from app.models.lot_proxy import LotProxy
+
+    async def _direct_ids_via_test_session(voter_email: str, building_id: uuid.UUID) -> set[uuid.UUID]:
+        r = await db_session.execute(
+            select(LotOwnerEmail.lot_owner_id)
+            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+            .where(
+                LotOwnerEmail.email.isnot(None),
+                LotOwnerEmail.email == voter_email,
+                LotOwner.building_id == building_id,
+            )
+        )
+        return {row[0] for row in r.all()}
+
+    async def _proxy_ids_via_test_session(voter_email: str, building_id: uuid.UUID) -> set[uuid.UUID]:
+        r = await db_session.execute(
+            select(LotProxy.lot_owner_id)
+            .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+            .where(
+                LotProxy.proxy_email == voter_email,
+                LotOwner.building_id == building_id,
+            )
+        )
+        return {row[0] for row in r.all()}
+
+    with patch(
+        "app.routers.auth._load_direct_lot_owner_ids",
+        side_effect=_direct_ids_via_test_session,
+    ), patch(
+        "app.routers.auth._load_proxy_lot_owner_ids",
+        side_effect=_proxy_ids_via_test_session,
+    ):
+        yield
+
+
 @pytest.fixture
 def app(db_session: AsyncSession):
     """

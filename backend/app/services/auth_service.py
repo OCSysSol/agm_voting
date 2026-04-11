@@ -11,7 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database import AsyncSessionLocal
 from app.logging_config import get_logger
+from app.models.lot_owner import LotOwner
+from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot_proxy import LotProxy
 from app.models.session_record import SessionRecord
 
 logger = get_logger(__name__)
@@ -63,6 +67,47 @@ def _unsign_token(signed_token: str) -> str:
         )
 
 
+async def _load_direct_lot_owner_ids(
+    voter_email: str, building_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """Load lot_owner_ids for direct lot owners matching voter_email within building_id.
+
+    Opens its own AsyncSession so it can be run concurrently via asyncio.gather
+    without sharing a session with another coroutine.
+    """
+    async with AsyncSessionLocal() as s:
+        r = await s.execute(
+            select(LotOwnerEmail.lot_owner_id)
+            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+            .where(
+                LotOwnerEmail.email.isnot(None),
+                LotOwnerEmail.email == voter_email,
+                LotOwner.building_id == building_id,
+            )
+        )
+        return {row[0] for row in r.all()}
+
+
+async def _load_proxy_lot_owner_ids(
+    voter_email: str, building_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """Load lot_owner_ids for proxy lots where proxy_email matches within building_id.
+
+    Opens its own AsyncSession so it can be run concurrently via asyncio.gather
+    without sharing a session with another coroutine.
+    """
+    async with AsyncSessionLocal() as s:
+        r = await s.execute(
+            select(LotProxy.lot_owner_id)
+            .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+            .where(
+                LotProxy.proxy_email == voter_email,
+                LotOwner.building_id == building_id,
+            )
+        )
+        return {row[0] for row in r.all()}
+
+
 async def create_session(
     db: AsyncSession,
     voter_email: str,
@@ -86,6 +131,24 @@ async def create_session(
     db.add(session)
     await db.flush()
     return _sign_token(raw_token)
+
+
+async def extend_session(
+    db: AsyncSession,
+    session_record: SessionRecord,
+) -> str:
+    """Extend the expiry of an existing session and return a freshly signed token.
+
+    The raw token in the DB is reused; only expires_at is updated.
+    The returned signed token is re-signed with a fresh timestamp so that
+    the client cookie max_age resets from now.
+
+    Use this in restore_session instead of create_session to avoid inserting
+    a new row on every page reload — each voter has at most one active session.
+    """
+    session_record.expires_at = datetime.now(UTC) + SESSION_DURATION
+    await db.flush()
+    return _sign_token(session_record.session_token)
 
 
 async def get_session(
@@ -124,3 +187,4 @@ async def get_session(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     return session
+#

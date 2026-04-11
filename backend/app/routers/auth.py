@@ -35,7 +35,14 @@ from app.schemas.auth import (
     OtpRequestResponse,
     SessionRestoreRequest,
 )
-from app.services.auth_service import _TOKEN_MAX_AGE_SECONDS, _unsign_token, create_session
+from app.services.auth_service import (
+    _TOKEN_MAX_AGE_SECONDS,
+    _load_direct_lot_owner_ids,
+    _load_proxy_lot_owner_ids,
+    _unsign_token,
+    create_session,
+    extend_session,
+)
 from app.services.email_service import send_otp_email
 
 logger = get_logger(__name__)
@@ -75,30 +82,14 @@ async def _resolve_voter_state(
       - visible_motions: list[Motion]
       - unvoted_visible_count: int
     """
-    # Find all LotOwnerEmail records matching email for this building (direct owners)
-    emails_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
-        .where(
-            LotOwnerEmail.email.isnot(None),
-            LotOwnerEmail.email == voter_email,
-            LotOwner.building_id == building_id,
-        )
+    # Fire direct-owner and proxy-lot lookups concurrently.
+    # Each helper opens its own AsyncSession so they can run in parallel without
+    # sharing a connection — a single AsyncSession must not be used across
+    # concurrent coroutines (SQLAlchemy asyncio safety requirement).
+    direct_lot_owner_ids, proxy_lot_owner_ids = await asyncio.gather(
+        _load_direct_lot_owner_ids(voter_email, building_id),
+        _load_proxy_lot_owner_ids(voter_email, building_id),
     )
-    email_records = list(emails_result.scalars().all())
-    direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
-
-    # Find all LotProxy records where proxy_email matches and lot is in this building
-    proxy_result = await db.execute(
-        select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
-        .where(
-            LotProxy.proxy_email == voter_email,
-            LotOwner.building_id == building_id,
-        )
-    )
-    proxy_records = list(proxy_result.scalars().all())
-    proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
 
     # Merge: union of direct and proxy lots
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
@@ -574,13 +565,10 @@ async def restore_session(
     )
     building = building_result.scalar_one()
 
-    # 6. Re-issue a new session token and set the cookie
-    new_token = await create_session(
-        db=db,
-        voter_email=voter_email,
-        building_id=building_id,
-        general_meeting_id=request.general_meeting_id,
-    )
+    # 6. Extend the existing session (update expires_at) instead of inserting a new row.
+    #    This avoids session row proliferation — each voter has at most one active
+    #    SessionRecord at any time.  The raw token is reused; only expires_at is updated.
+    new_token = await extend_session(db=db, session_record=session_record)
     await db.commit()
 
     response.set_cookie(
