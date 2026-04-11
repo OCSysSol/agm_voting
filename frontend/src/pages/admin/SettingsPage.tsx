@@ -164,12 +164,13 @@ export default function SettingsPage() {
         support_email: supportEmail,
       };
       await updateAdminConfig(updated);
-      // Update the cache immediately so branding re-renders without a page refresh,
-      // then invalidate to trigger a background re-fetch confirming server state.
-      queryClient.setQueryData(["public-config"], updated);
-      await queryClient.invalidateQueries({ queryKey: ["public-config"] });
+      // Show success immediately — don't block on cache refresh.
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
+      // Update the cache immediately so branding re-renders without a page refresh,
+      // then trigger a background re-fetch to confirm server state.
+      queryClient.setQueryData(["public-config"], updated);
+      void queryClient.invalidateQueries({ queryKey: ["public-config"] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save settings.";
       setSaveError(message);
