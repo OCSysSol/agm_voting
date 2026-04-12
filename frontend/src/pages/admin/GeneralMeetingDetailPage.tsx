@@ -782,15 +782,17 @@ export default function GeneralMeetingDetailPage() {
 
       {/* Fix 2: collapsible Results Report section */}
       <div style={{ marginTop: 32 }}>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          aria-expanded={showResults}
-          onClick={() => setShowResults((v) => !v)}
-          style={{ fontSize: "1.25rem", fontWeight: 700, padding: "0 0 16px 0", width: "100%", textAlign: "left" }}
-        >
-          {showResults ? "▼" : "▶"} Results Report
-        </button>
+        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0 }}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            aria-expanded={showResults}
+            onClick={() => setShowResults((v) => !v)}
+            style={{ fontSize: "inherit", fontWeight: "inherit", padding: "0 0 16px 0", width: "100%", textAlign: "left" }}
+          >
+            {showResults ? "▼" : "▶"} Results Report
+          </button>
+        </h2>
         {showResults && (
           <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
         )}

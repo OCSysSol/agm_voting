@@ -191,23 +191,28 @@ describe("AdminLayout", () => {
 
   // --- Branding: logo rendering (Fix 11: always renders img with effectiveLogoUrl) ---
 
-  it("renders app name text when logo_url is empty", () => {
-    // Fix 11: when logo_url is empty, the OCSS fallback logo is used — app name text is no longer
-    // shown as a text fallback because effectiveLogoUrl is always non-empty.
+  it("renders app name text span when logo_url is empty", () => {
+    // When logo_url is empty, the OCSS fallback img is still rendered (Fix 11),
+    // and the .admin-sidebar__app-name span is also rendered with the app name text.
     renderLayout("/admin/buildings", "", "My AGM");
     const imgs = screen.getAllByRole("img");
     expect(imgs.length).toBeGreaterThan(0);
-    // All img elements use the OCSS fallback logo URL
+    // img uses the OCSS fallback logo URL, alt is set to app name
     expect(imgs[0]).toHaveAttribute("alt", "My AGM");
-    // App name text is not rendered as a visible text node (only as img alt)
+    // App name span is rendered when logo_url is empty
+    const appNameSpans = document.querySelectorAll(".admin-sidebar__app-name");
+    expect(appNameSpans.length).toBeGreaterThan(0);
+    expect(appNameSpans[0]).toHaveTextContent("My AGM");
   });
 
-  it("renders logo img when logo_url is set", () => {
+  it("renders logo img when logo_url is set and does not render app name span", () => {
     renderLayout("/admin/buildings", "https://example.com/logo.png", "My AGM");
     const imgs = screen.getAllByRole("img");
     expect(imgs.length).toBeGreaterThan(0);
     expect(imgs[0]).toHaveAttribute("src", "https://example.com/logo.png");
     expect(imgs[0]).toHaveAttribute("alt", "My AGM");
+    // App name span is hidden when logo_url is set — logo takes its place
+    expect(document.querySelectorAll(".admin-sidebar__app-name").length).toBe(0);
   });
 
   // --- SMTP unconfigured banner ---

@@ -97,6 +97,9 @@ export default function AdminLayout() {
         <div className="admin-sidebar__header">
           {/* Fix 11: always render an img using effectiveLogoUrl (OCSS fallback when no logo configured) */}
           <img src={effectiveLogoUrl} alt={config.app_name} className="admin-sidebar__logo" />
+          {!config.logo_url && (
+            <span className="admin-sidebar__app-name">{config.app_name || "General Meeting"}</span>
+          )}
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <NavContent />
@@ -126,6 +129,9 @@ export default function AdminLayout() {
         <div className="admin-sidebar__header">
           {/* Fix 11: always render an img using effectiveLogoUrl (OCSS fallback when no logo configured) */}
           <img src={effectiveLogoUrl} alt={config.app_name} className="admin-sidebar__logo" />
+          {!config.logo_url && (
+            <span className="admin-sidebar__app-name">{config.app_name || "General Meeting"}</span>
+          )}
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <button
