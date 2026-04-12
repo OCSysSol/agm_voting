@@ -174,7 +174,8 @@ describe("GeneralMeetingDetailPage", () => {
   it("renders meeting report view with motions", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Results Report")).toBeInTheDocument();
+      // Fix 2: Results Report is now a collapsible section — the heading is inside a toggle button
+      expect(screen.getByRole("button", { name: /Results Report/ })).toBeInTheDocument();
     });
     // "Motion 1" appears in both the merged motions table and the report view
     expect(screen.getAllByText(/Motion 1/).length).toBeGreaterThanOrEqual(1);

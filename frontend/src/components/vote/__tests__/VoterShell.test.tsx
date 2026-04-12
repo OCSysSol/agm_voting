@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { VoterShell } from "../VoterShell";
-import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
+import { BrandingContext, DEFAULT_CONFIG, FALLBACK_LOGO_URL, FALLBACK_FAVICON_URL } from "../../../context/BrandingContext";
 import type { TenantConfig } from "../../../api/config";
 
 function renderShell(config: TenantConfig = DEFAULT_CONFIG, isLoading = false) {
+  const effectiveLogoUrl = config.logo_url || FALLBACK_LOGO_URL;
+  const effectiveFaviconUrl = config.favicon_url || FALLBACK_FAVICON_URL;
   return render(
-    <BrandingContext.Provider value={{ config, isLoading }}>
+    <BrandingContext.Provider value={{ config, isLoading, effectiveLogoUrl, effectiveFaviconUrl }}>
       <MemoryRouter>
         <VoterShell />
       </MemoryRouter>
@@ -28,12 +30,14 @@ describe("VoterShell", () => {
     expect(container.querySelector(".app-header")).toBeInTheDocument();
   });
 
-  // --- Conditional logo/app-name rendering ---
+  // --- Logo rendering (Fix 11: always renders img with effectiveLogoUrl) ---
 
   it("renders app-name text when logo_url is empty", () => {
+    // Fix 11: effectiveLogoUrl falls back to FALLBACK_LOGO_URL; img is always rendered
     renderShell({ ...DEFAULT_CONFIG, logo_url: "" });
-    expect(screen.getByText("General Meeting")).toBeInTheDocument();
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("src", FALLBACK_LOGO_URL);
+    expect(img).toHaveAttribute("alt", "General Meeting");
   });
 
   it("renders img element when logo_url is set", () => {
@@ -41,7 +45,6 @@ describe("VoterShell", () => {
     const img = screen.getByRole("img");
     expect(img).toHaveAttribute("src", "https://example.com/logo.png");
     expect(img).toHaveAttribute("alt", "General Meeting");
-    expect(screen.queryByText("General Meeting")).not.toBeInTheDocument();
   });
 
   it("uses config app_name as alt text for logo img", () => {
@@ -49,16 +52,20 @@ describe("VoterShell", () => {
     expect(screen.getByRole("img")).toHaveAttribute("alt", "Corp Vote");
   });
 
-  it("renders custom app_name as text when no logo", () => {
+  it("renders custom app_name as img alt when no logo_url (uses fallback)", () => {
+    // Fix 11: app name text is no longer rendered as visible text — it appears as img alt only
     renderShell({ ...DEFAULT_CONFIG, app_name: "My Organisation AGM", logo_url: "" });
-    expect(screen.getByText("My Organisation AGM")).toBeInTheDocument();
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("alt", "My Organisation AGM");
   });
 
   // --- Loading state ---
 
   it("renders with default config during loading state", () => {
+    // Fix 11: default config has FALLBACK_LOGO_URL; img is always rendered
     renderShell(DEFAULT_CONFIG, true);
-    expect(screen.getByText("General Meeting")).toBeInTheDocument();
+    const img = screen.getByRole("img");
+    expect(img).toBeInTheDocument();
   });
 
   // --- US-ACC-07: Skip link ---

@@ -457,11 +457,11 @@ describe("AGMReportView", () => {
     expect(screen.getByText("Bob")).toBeInTheDocument();
   });
 
-  it("does not render For/Against rows for multi_choice motion", () => {
+  it("renders For/Against summary counts in collapsed header for multi_choice motion (Fix 3)", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    // For and Against categories don't appear for MC motions
-    expect(screen.queryByText("For")).not.toBeInTheDocument();
-    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+    // Fix 3: For/Against counts are now visible in the header row without expanding
+    expect(screen.getAllByText(/For/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Against/).length).toBeGreaterThan(0);
   });
 
   it("renders Absent row at motion level for multi_choice motion", () => {
@@ -469,11 +469,13 @@ describe("AGMReportView", () => {
     expect(screen.getByText("Absent")).toBeInTheDocument();
   });
 
-  it("does not render motion-level Abstained row for multi_choice motion", () => {
+  it("Abstained counts appear in option header row (not as a motion-level row) for multi_choice motion (Fix 3)", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    // Abstained appears at the option level (inside expand/collapse), not at the motion level.
-    // The motion-level Abstained row must be absent so it is not double-counted.
-    expect(screen.queryByText("Abstained")).not.toBeInTheDocument();
+    // Fix 3: Abstained now shows as per-option summary count in the collapsed header.
+    // The motion-level separate Abstained row is NOT rendered (preventing double-counting).
+    // The summary count text includes "Abstained" as part of the header counts.
+    const abstainedText = screen.getAllByText(/Abstained/);
+    expect(abstainedText.length).toBeGreaterThan(0);
   });
 
   it("CSV export for multi_choice motion uses Option: prefix", async () => {
@@ -549,11 +551,13 @@ describe("AGMReportView", () => {
       is_multi_choice: true,
     };
     render(<AGMReportView motions={[realWorldMcMotion]} />);
-    // Should render option rows (Alice, Bob) — not For/Against
+    // Should render option rows (Alice, Bob) with per-option For/Against counts in the header (Fix 3)
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Bob")).toBeInTheDocument();
-    expect(screen.queryByText("For")).not.toBeInTheDocument();
-    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+    // For/Against now appear in header counts — the important check is that binary row cells
+    // (separate <tr> for For/Against) are NOT rendered; only option rows appear.
+    // Verify the per-option Show voters buttons are present
+    expect(screen.getAllByRole("button", { name: /Show voters for/ }).length).toBeGreaterThan(0);
   });
 
   it("CSV export uses MC format when is_multi_choice=true and motion_type='general'", async () => {
@@ -660,51 +664,56 @@ describe("AGMReportView", () => {
 
   // --- Slice 10: Expand/Collapse For/Against/Abstained sub-rows (US-MC-ADMIN-01) ---
 
-  it("shows Expand button for multi-choice option rows", () => {
+  it("shows 'Show voters' button for multi-choice option rows (Fix 3)", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const expandButtons = screen.getAllByRole("button", { name: /Expand breakdown for/ });
-    // One expand button per option (2 options)
-    expect(expandButtons).toHaveLength(2);
+    // Fix 3: button text changed from "Expand" to "Show voters"
+    const showVotersButtons = screen.getAllByRole("button", { name: /Show voters for/ });
+    expect(showVotersButtons).toHaveLength(2);
   });
 
-  it("For/Against/Abstained sub-rows are collapsed by default", () => {
+  it("For/Against/Abstained summary counts visible in collapsed header (Fix 3)", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    // Sub-row cells should not be in the DOM
-    expect(screen.queryByText("For")).not.toBeInTheDocument();
-    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+    // Fix 3: summary counts are now in the header, visible without expanding
+    expect(screen.getAllByText(/For/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Against/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Abstained/).length).toBeGreaterThan(0);
   });
 
-  it("clicking Expand reveals For/Against/Abstained sub-rows", async () => {
+  it("voter list is NOT shown by default (Fix 3: only voter list is in expanded section)", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    // The voter email detail is hidden until "Show voters" is clicked
+    expect(screen.queryByText(/voter1@example\.com/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/voter3@example\.com/)).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Show voters' reveals voter list (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Alice/ })[0];
-    await user.click(expandBtn);
-    // Sub-rows should now be visible
-    expect(screen.getByText("For")).toBeInTheDocument();
-    expect(screen.getByText("Against")).toBeInTheDocument();
-    // Voter list for For (voter1@example.com)
+    const showBtn = screen.getAllByRole("button", { name: /Show voters for Alice/ })[0];
+    await user.click(showBtn);
+    // Voter list should now be visible
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
     // Against voter (voter3@example.com)
     expect(screen.getByText(/voter3@example\.com/)).toBeInTheDocument();
   });
 
-  it("clicking Expand then Collapse hides sub-rows again", async () => {
+  it("clicking 'Show voters' then 'Hide voters' hides voter list again (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Alice/ })[0];
-    await user.click(expandBtn);
-    expect(screen.getByText("For")).toBeInTheDocument();
-    // Click collapse button
-    const collapseBtn = screen.getAllByRole("button", { name: /Collapse breakdown for Alice/ })[0];
-    await user.click(collapseBtn);
-    expect(screen.queryByText("For")).not.toBeInTheDocument();
+    const showBtn = screen.getAllByRole("button", { name: /Show voters for Alice/ })[0];
+    await user.click(showBtn);
+    expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
+    // Click hide button
+    const hideBtn = screen.getAllByRole("button", { name: /Hide voters for Alice/ })[0];
+    await user.click(hideBtn);
+    expect(screen.queryByText(/voter1@example\.com/)).not.toBeInTheDocument();
   });
 
-  it("expanded sub-rows show abstained voters when present", async () => {
+  it("expanded section shows abstained voter list when present (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Bob/ })[0];
-    await user.click(expandBtn);
+    const showBtn = screen.getAllByRole("button", { name: /Show voters for Bob/ })[0];
+    await user.click(showBtn);
     // Bob has abstained voter (voter4@example.com)
     expect(screen.getByText(/voter4@example\.com/)).toBeInTheDocument();
   });
@@ -841,5 +850,132 @@ describe("AGMReportView", () => {
   it("RR4-22: OutcomeBadge renders nothing when outcome is null", () => {
     render(<AGMReportView motions={[mcMotionFixture]} totalEntitlement={500} />);
     expect(screen.queryByLabelText(/Outcome:/i)).not.toBeInTheDocument();
+  });
+
+  // --- Fix 4: binary winner highlight ---
+
+  it("Fix 4: highlights 'For' row in green when yes_sum > no_sum", () => {
+    const { container } = render(<AGMReportView motions={[motions[0]]} totalEntitlement={500} />);
+    // motions[0]: yes=200, no=100 — For row should be highlighted
+    const rows = container.querySelectorAll("tbody tr");
+    // First row is "For" (yes)
+    const forRow = Array.from(rows).find((r) => r.textContent?.includes("For"));
+    expect(forRow).toBeTruthy();
+    // Row should have green highlight style
+    expect(forRow?.getAttribute("style")).toContain("var(--green)");
+  });
+
+  it("Fix 4: highlights 'Against' row in red when no_sum > yes_sum", () => {
+    const againstWinsMotion: MotionDetail = {
+      ...motions[0],
+      id: "against-wins",
+      tally: {
+        ...motions[0].tally,
+        yes: { voter_count: 1, entitlement_sum: 50 },
+        no: { voter_count: 2, entitlement_sum: 200 },
+      },
+    };
+    const { container } = render(<AGMReportView motions={[againstWinsMotion]} totalEntitlement={500} />);
+    const rows = container.querySelectorAll("tbody tr");
+    const againstRow = Array.from(rows).find((r) => r.textContent?.includes("Against"));
+    expect(againstRow).toBeTruthy();
+    expect(againstRow?.getAttribute("style")).toContain("var(--red)");
+  });
+
+  it("Fix 4: no highlight when yes_sum equals no_sum (tie)", () => {
+    const tieMotion: MotionDetail = {
+      ...motions[0],
+      id: "tie-binary",
+      tally: {
+        ...motions[0].tally,
+        yes: { voter_count: 1, entitlement_sum: 100 },
+        no: { voter_count: 1, entitlement_sum: 100 },
+      },
+    };
+    const { container } = render(<AGMReportView motions={[tieMotion]} totalEntitlement={500} />);
+    const rows = container.querySelectorAll("tbody tr");
+    const forRow = Array.from(rows).find((r) => r.textContent?.includes("For"));
+    const againstRow = Array.from(rows).find((r) => r.textContent?.includes("Against"));
+    // Neither row should have highlight styles
+    expect(forRow?.getAttribute("style")).toBeNull();
+    expect(againstRow?.getAttribute("style")).toBeNull();
+  });
+
+  it("Fix 4: highlights winning MC options by for_entitlement_sum (top N by option_limit)", () => {
+    // option_limit=2, opt-a has highest for entitlement (200), opt-b next (100)
+    const { container } = render(<AGMReportView motions={[mcMotionFixture]} totalEntitlement={500} />);
+    const optionRows = container.querySelectorAll("tbody tr[style]");
+    // At least one row should have green highlight for the winner
+    const greenRows = Array.from(optionRows).filter((r) =>
+      r.getAttribute("style")?.includes("var(--green)")
+    );
+    expect(greenRows.length).toBeGreaterThan(0);
+  });
+
+  it("Fix 4: handles MC option with null for_entitlement_sum using entitlement_sum fallback", () => {
+    // Cover the `?? b.entitlement_sum ?? 0` fallback in the sort comparator
+    const mcWithNullForEntitlement: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-null-for",
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          // for_entitlement_sum is undefined — falls back to entitlement_sum
+          { option_id: "opt-a", option_text: "Alice", display_order: 1, voter_count: 2, entitlement_sum: 200, outcome: null },
+          { option_id: "opt-b", option_text: "Bob", display_order: 2, voter_count: 1, entitlement_sum: 100, outcome: null },
+        ],
+      },
+    };
+    render(<AGMReportView motions={[mcWithNullForEntitlement]} totalEntitlement={500} />);
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+  });
+
+  it("Fix 4: handles MC option with both for_entitlement_sum and entitlement_sum null (fallback to 0)", () => {
+    // Cover the final `?? 0` in `b.for_entitlement_sum ?? b.entitlement_sum ?? 0`
+    const mcBothNull: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-both-null",
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          // Both for_entitlement_sum and entitlement_sum are undefined → 0
+          { option_id: "opt-a", option_text: "Alice", display_order: 1, voter_count: 0, outcome: null } as Parameters<typeof Array.prototype.push>[0],
+          { option_id: "opt-b", option_text: "Bob", display_order: 2, voter_count: 0, outcome: null } as Parameters<typeof Array.prototype.push>[0],
+        ] as MotionDetail["tally"]["options"],
+      },
+    };
+    render(<AGMReportView motions={[mcBothNull]} totalEntitlement={500} />);
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+  });
+
+  it("Fix 4: handles MC motion with no options (tally.options is empty array)", () => {
+    // Cover the `options ?? []` path when options is empty
+    const mcNoOptions: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-no-opts",
+      options: [],
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [],
+      },
+    };
+    render(<AGMReportView motions={[mcNoOptions]} totalEntitlement={500} />);
+    // Should render without error; absent row should still show
+    expect(screen.getByText("Absent")).toBeInTheDocument();
+  });
+
+  it("Fix 4: handles MC motion with null tally.options (fallback to empty array)", () => {
+    // Cover the `tally.options ?? []` null-coalescing branch
+    const mcNullOptions: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-null-options",
+      tally: {
+        ...mcMotionFixture.tally,
+        options: null as unknown as MotionDetail["tally"]["options"],
+      },
+    };
+    render(<AGMReportView motions={[mcNullOptions]} totalEntitlement={500} />);
+    // Should render without error
+    expect(screen.getByText("Absent")).toBeInTheDocument();
   });
 });

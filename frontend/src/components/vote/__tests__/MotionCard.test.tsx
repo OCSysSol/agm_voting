@@ -504,7 +504,7 @@ describe("MotionCard", () => {
     expect(screen.getByText("Carol")).toBeInTheDocument();
   });
 
-  it("shows Multi-Choice badge for multi_choice motion", () => {
+  it("shows Multi-Choice badge as a supplementary badge for multi_choice motion (Fix 6)", () => {
     render(
       <MotionCard
         motion={motionMultiChoice}
@@ -517,8 +517,92 @@ describe("MotionCard", () => {
         onMultiChoiceChange={() => {}}
       />
     );
-    const badge = screen.getByLabelText("Motion type: Multi-Choice");
-    expect(badge).toHaveClass("motion-type-badge--multi_choice");
+    // Fix 6: primary badge shows motion_type ("General"), secondary badge shows "Multi-Choice"
+    const typeBadge = screen.getByLabelText("Motion type: General");
+    expect(typeBadge).toHaveClass("motion-type-badge--general");
+    const mcBadge = screen.getByLabelText("Multi-choice motion");
+    expect(mcBadge).toHaveClass("motion-type-badge--multi_choice");
+  });
+
+  it("shows only General badge (no Multi-Choice badge) for a general non-multi-choice motion", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.getByLabelText("Motion type: General")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Multi-choice motion")).not.toBeInTheDocument();
+  });
+
+  it("shows votingClosed badge inside card when votingClosed=true (Fix 10)", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={true}
+        highlight={false}
+        votingClosed={true}
+      />
+    );
+    const badge = screen.getByRole("status", { name: "Motion voting is closed" });
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass("motion-type-badge--closed");
+    expect(badge).toHaveTextContent("Motion Closed");
+  });
+
+  it("does not show votingClosed badge when votingClosed=false (default)", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.queryByRole("status", { name: "Motion voting is closed" })).not.toBeInTheDocument();
+  });
+
+  it("renders multi-choice options even when onMultiChoiceChange is not provided (fallback)", () => {
+    // Exercises the `onMultiChoiceChange ?? (() => {})` fallback (line 106)
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        multiChoiceOptionChoices={{}}
+        // onMultiChoiceChange intentionally omitted
+      />
+    );
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+  });
+
+  it("shows motion_type as label for unknown motion type (fallback branch)", () => {
+    // Exercises the `?? motion.motion_type` fallback in MOTION_TYPE_LABELS lookup
+    const unknownTypeMotion = { ...motion, motion_type: "unknown_type" as "general" };
+    render(
+      <MotionCard
+        motion={unknownTypeMotion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    // Badge label falls back to "unknown_type"
+    expect(screen.getByLabelText("Motion type: unknown_type")).toBeInTheDocument();
   });
 
   it("calls onMultiChoiceChange when MC For button is clicked", async () => {

@@ -66,9 +66,10 @@ interface MultiChoiceOptionRowsProps {
   optTally: OptionTallyEntry;
   motion: MotionDetail;
   totalEntitlement: number;
+  isWinner: boolean;
 }
 
-function MultiChoiceOptionRows({ optTally, motion, totalEntitlement }: MultiChoiceOptionRowsProps) {
+function MultiChoiceOptionRows({ optTally, motion, totalEntitlement, isWinner }: MultiChoiceOptionRowsProps) {
   const [expanded, setExpanded] = useState(false);
 
   const forVoters = motion.voter_lists.options_for?.[optTally.option_id] ?? motion.voter_lists.options?.[optTally.option_id] ?? [];
@@ -84,51 +85,49 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement }: MultiChoi
 
   return (
     <>
-      {/* Option header row */}
-      <tr>
-        <td colSpan={3} style={{ padding: "8px 10px", background: "var(--surface-raised, #f7f7f7)", borderBottom: "1px solid var(--border, #e0e0e0)" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--navy)", flexShrink: 0 }} />
-            {optTally.option_text}
-            <OutcomeBadge outcome={optTally.outcome} />
-          </span>
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "Collapse" : "Expand"} breakdown for ${optTally.option_text}`}
-            onClick={() => setExpanded((v) => !v)}
-            style={{
-              marginLeft: 10,
-              fontSize: "0.75rem",
-              cursor: "pointer",
-              background: "none",
-              border: "1px solid var(--border, #ccc)",
-              borderRadius: "var(--r-sm, 4px)",
-              padding: "1px 6px",
-              color: "var(--text-muted, #555)",
-            }}
-          >
-            {expanded ? "▲ Collapse" : "▶ Expand"}
-          </button>
+      {/* Fix 3 & 4: option header row now includes summary counts; highlight winning options */}
+      <tr style={isWinner ? { borderLeft: "4px solid var(--green)", background: "var(--green-bg)" } : undefined}>
+        <td colSpan={3} style={{ padding: "8px 10px", background: isWinner ? undefined : "var(--surface-raised, #f7f7f7)", borderBottom: "1px solid var(--border, #e0e0e0)" }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontWeight: 600 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--navy)", flexShrink: 0 }} />
+              {optTally.option_text}
+              <OutcomeBadge outcome={optTally.outcome} />
+            </span>
+            {/* Fix 3: summary counts visible in collapsed state */}
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "inline-flex", gap: 8 }}>
+              <span style={{ color: "var(--green)" }}>{forVoterCount} For ({formatEntitlementPct(forEntitlementSum, totalEntitlement)})</span>
+              <span style={{ color: "var(--red)" }}>{againstVoterCount} Against ({formatEntitlementPct(againstEntitlementSum, totalEntitlement)})</span>
+              <span>{abstainedVoterCount} Abstained ({formatEntitlementPct(abstainedEntitlementSum, totalEntitlement)})</span>
+            </span>
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={`${expanded ? "Hide voters" : "Show voters"} for ${optTally.option_text}`}
+              onClick={() => setExpanded((v) => !v)}
+              style={{
+                marginLeft: "auto",
+                fontSize: "0.75rem",
+                cursor: "pointer",
+                background: "none",
+                border: "1px solid var(--border, #ccc)",
+                borderRadius: "var(--r-sm, 4px)",
+                padding: "1px 6px",
+                color: "var(--text-muted, #555)",
+              }}
+            >
+              {expanded ? "▲ Hide voters" : "▶ Show voters"}
+            </button>
+          </div>
         </td>
       </tr>
-      {/* For/Against/Abstained sub-rows — collapsed by default */}
+      {/* Fix 3: expanded section shows voter list only (summary counts moved to header) */}
       {expanded && (
         <>
-          <tr>
-            <td style={{ paddingLeft: 24, fontSize: "0.85rem", color: "var(--green)", fontWeight: 500 }}>
-              For
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {forVoterCount}
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {formatEntitlementPct(forEntitlementSum, totalEntitlement)}
-            </td>
-          </tr>
           {forVoters.length > 0 && (
             <tr>
-              <td colSpan={3} style={{ paddingLeft: 36, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                <span style={{ fontWeight: 600, color: "var(--green)", display: "block", marginBottom: 2 }}>For voters:</span>
                 {forVoters.map((v) => (
                   <span key={`${v.lot_number}-for`} style={{ display: "block" }}>
                     Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
@@ -137,20 +136,10 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement }: MultiChoi
               </td>
             </tr>
           )}
-          <tr>
-            <td style={{ paddingLeft: 24, fontSize: "0.85rem", color: "var(--red)", fontWeight: 500 }}>
-              Against
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {againstVoterCount}
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {formatEntitlementPct(againstEntitlementSum, totalEntitlement)}
-            </td>
-          </tr>
           {againstVoters.length > 0 && (
             <tr>
-              <td colSpan={3} style={{ paddingLeft: 36, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                <span style={{ fontWeight: 600, color: "var(--red)", display: "block", marginBottom: 2 }}>Against voters:</span>
                 {againstVoters.map((v) => (
                   <span key={`${v.lot_number}-against`} style={{ display: "block" }}>
                     Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
@@ -159,20 +148,10 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement }: MultiChoi
               </td>
             </tr>
           )}
-          <tr>
-            <td style={{ paddingLeft: 24, fontSize: "0.85rem", color: "var(--amber, #f57c00)", fontWeight: 500 }}>
-              Abstained
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {abstainedVoterCount}
-            </td>
-            <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.85rem" }}>
-              {formatEntitlementPct(abstainedEntitlementSum, totalEntitlement)}
-            </td>
-          </tr>
           {abstainedVoters.length > 0 && (
             <tr>
-              <td colSpan={3} style={{ paddingLeft: 36, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                <span style={{ fontWeight: 600, display: "block", marginBottom: 2 }}>Abstained voters:</span>
                 {abstainedVoters.map((v) => (
                   <span key={`${v.lot_number}-abs`} style={{ display: "block" }}>
                     Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
@@ -265,103 +244,136 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
         </button>
       </div>
 
-      {motions.map((motion) => (
-        <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
-          <div className="admin-card__header">
-            <h3 className="admin-card__title">
-              {motion.motion_number?.trim() || String(motion.display_order)}. {motion.title}
-            </h3>
-            <span
-              className={`motion-type-badge motion-type-badge--${motion.motion_type === "special" ? "special" : "general"}`}
-              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
-            >
-              {motion.motion_type === "special" ? "Special" : "General"}
-            </span>
-            {motion.is_multi_choice === true && (
-              <span className="motion-type-badge motion-type-badge--multi_choice" aria-label="Multi-choice motion">Multi-Choice</span>
-            )}
-            {!motion.is_visible && (
-              <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
-                Hidden
+      {motions.map((motion) => {
+        // Fix 4: compute winning rows/options before rendering
+        let winningOptionIds: Set<string> | null = null;
+        if (motion.is_multi_choice === true) {
+          const options = motion.tally.options ?? [];
+          const limit = motion.option_limit ?? 1;
+          // Sort by descending for_entitlement_sum; top N are winners
+          const sorted = [...options].sort(
+            (a, b) =>
+              (b.for_entitlement_sum ?? b.entitlement_sum ?? 0) -
+              (a.for_entitlement_sum ?? a.entitlement_sum ?? 0)
+          );
+          winningOptionIds = new Set(sorted.slice(0, limit).map((o) => o.option_id));
+        }
+
+        // Fix 4: determine binary winner
+        const yesSumBinary = motion.tally.yes.entitlement_sum;
+        const noSumBinary = motion.tally.no.entitlement_sum;
+
+        return (
+          <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
+            <div className="admin-card__header">
+              <h3 className="admin-card__title">
+                {motion.motion_number?.trim() || String(motion.display_order)}. {motion.title}
+              </h3>
+              <span
+                className={`motion-type-badge motion-type-badge--${motion.motion_type === "special" ? "special" : "general"}`}
+                aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
+              >
+                {motion.motion_type === "special" ? "Special" : "General"}
               </span>
-            )}
-          </div>
-          {motion.description && (
-            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem", padding: "0 20px" }}>
-              {motion.description}
-            </p>
-          )}
-          <div className="admin-table-wrapper">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Voter Count</th>
-                <th>Entitlement Sum (UOE)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {motion.is_multi_choice === true ? (
-                <>
-                  {(motion.tally.options ?? []).map((optTally: OptionTallyEntry) => (
-                    <MultiChoiceOptionRows
-                      key={optTally.option_id}
-                      optTally={optTally}
-                      motion={motion}
-                      totalEntitlement={totalEntitlement}
-                    />
-                  ))}
-                  {(["absent", "not_eligible"] as const).map((cat) => (
-                    <tr key={cat}>
-                      <td>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: CATEGORY_COLORS[cat], flexShrink: 0 }} />
-                          {CATEGORY_LABELS[cat]}
-                        </span>
-                      </td>
-                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                        {motion.tally[cat].voter_count}
-                      </td>
-                      <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                        {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
-                      </td>
-                    </tr>
-                  ))}
-                </>
-              ) : (
-                (["yes", "no", "abstained", "absent", "not_eligible"] as const).map((cat) => (
-                  <tr key={cat}>
-                    <td>
-                      <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 7,
-                        fontWeight: cat === "yes" || cat === "no" ? 600 : undefined,
-                      }}>
-                        <span style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background: CATEGORY_COLORS[cat],
-                          flexShrink: 0,
-                        }} />
-                        {CATEGORY_LABELS[cat]}
-                      </span>
-                    </td>
-                    <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                      {motion.tally[cat].voter_count}
-                    </td>
-                    <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
-                      {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
-                    </td>
-                  </tr>
-                ))
+              {motion.is_multi_choice === true && (
+                <span className="motion-type-badge motion-type-badge--multi_choice" aria-label="Multi-choice motion">Multi-Choice</span>
               )}
-            </tbody>
-          </table>
+              {!motion.is_visible && (
+                <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
+                  Hidden
+                </span>
+              )}
+            </div>
+            {motion.description && (
+              <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem", padding: "0 20px" }}>
+                {motion.description}
+              </p>
+            )}
+            <div className="admin-table-wrapper">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Voter Count</th>
+                  <th>Entitlement Sum (UOE)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {motion.is_multi_choice === true ? (
+                  <>
+                    {(motion.tally.options ?? []).map((optTally: OptionTallyEntry) => (
+                      <MultiChoiceOptionRows
+                        key={optTally.option_id}
+                        optTally={optTally}
+                        motion={motion}
+                        totalEntitlement={totalEntitlement}
+                        isWinner={winningOptionIds?.has(optTally.option_id) ?? false}
+                      />
+                    ))}
+                    {(["absent", "not_eligible"] as const).map((cat) => (
+                      <tr key={cat}>
+                        <td>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: CATEGORY_COLORS[cat], flexShrink: 0 }} />
+                            {CATEGORY_LABELS[cat]}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                          {motion.tally[cat].voter_count}
+                        </td>
+                        <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                          {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                ) : (
+                  (["yes", "no", "abstained", "absent", "not_eligible"] as const).map((cat) => {
+                    // Fix 4: highlight winning binary row
+                    const isWinnerYes = cat === "yes" && yesSumBinary > noSumBinary;
+                    const isWinnerNo = cat === "no" && noSumBinary > yesSumBinary;
+                    const rowStyle =
+                      isWinnerYes
+                        ? { borderLeft: "4px solid var(--green)", background: "var(--green-bg)" }
+                        : isWinnerNo
+                        ? { borderLeft: "4px solid var(--red)", background: "var(--red-bg)" }
+                        : undefined;
+
+                    return (
+                      <tr key={cat} style={rowStyle}>
+                        <td>
+                          <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 7,
+                            fontWeight: cat === "yes" || cat === "no" ? 600 : undefined,
+                          }}>
+                            <span style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: CATEGORY_COLORS[cat],
+                              flexShrink: 0,
+                            }} />
+                            {CATEGORY_LABELS[cat]}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                          {motion.tally[cat].voter_count}
+                        </td>
+                        <td style={{ fontFamily: "'Overpass Mono', monospace" }}>
+                          {formatEntitlementPct(motion.tally[cat].entitlement_sum, totalEntitlement)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

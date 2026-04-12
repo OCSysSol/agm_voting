@@ -3102,6 +3102,19 @@ describe("VotingPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("RR3-27: back button in meeting-not-found state navigates to auth page", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage("non-existent-meeting-id");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("meeting-not-found-error")).toBeInTheDocument();
+    });
+    // Back button is rendered in the error state
+    const backBtn = screen.getByRole("button", { name: "← Back" });
+    await user.click(backBtn);
+    expect(mockNavigate).toHaveBeenCalledWith("/vote/non-existent-meeting-id/auth");
+  });
+
   it("RR5-07: only one API call made on mount (no buildings waterfall)", async () => {
     // Verify that VotingPage uses a single fetchGeneralMeeting call on mount,
     // not the old buildings → meetings waterfall.
@@ -3158,8 +3171,9 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
+      // Fix 10: motion-closed-label is now inside MotionCard with text "Motion Closed"
       expect(screen.getByTestId(`motion-closed-label-${MOTION_ID_1}`)).toBeInTheDocument();
-      expect(screen.getByTestId(`motion-closed-label-${MOTION_ID_1}`)).toHaveTextContent("Voting closed");
+      expect(screen.getByTestId(`motion-closed-label-${MOTION_ID_1}`)).toHaveTextContent("Motion Closed");
       // Motion 2 is not closed
       expect(screen.queryByTestId(`motion-closed-label-${MOTION_ID_2}`)).not.toBeInTheDocument();
     });

@@ -356,6 +356,14 @@ export function VotingPage() {
         return next;
       });
 
+      // Fix 8: Clear multiChoiceSelections so the next lot starts with a clean slate.
+      // The choices seeding effect will re-seed read-only motions from submitted_option_choices
+      // once the query invalidation resolves.
+      setMultiChoiceSelections({});
+      if (meetingId) {
+        sessionStorage.removeItem(`meeting_mc_selections_${meetingId}`);
+      }
+
       navigate(`/vote/${meetingId}/confirmation`);
     },
     onError: (error: Error) => {
@@ -722,15 +730,7 @@ export function VotingPage() {
                     const motionClosed = isMotionIndividuallyClosed(motion);
                     return (
                       <div key={motion.id}>
-                        {motionClosed && (
-                          <div
-                            className="motion-closed-label"
-                            data-testid={`motion-closed-label-${motion.id}`}
-                            role="status"
-                          >
-                            Voting closed
-                          </div>
-                        )}
+                        {/* Fix 10: motion-closed indicator now lives inside MotionCard via votingClosed prop */}
                         <MotionCard
                           motion={motion}
                           position={motion.display_order}
@@ -746,6 +746,7 @@ export function VotingPage() {
                               : !choices[motion.id])
                           }
                           readOnly={isMotionReadOnly(motion)}
+                          votingClosed={motionClosed}
                           multiChoiceOptionChoices={multiChoiceSelections[motion.id] ?? {}}
                           onMultiChoiceChange={handleMultiChoiceChange}
                         />

@@ -638,6 +638,8 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                         // US-AVE2-01: per-option For/Against/Abstain buttons
                         const motionChoices = votes_data.multiChoiceChoices[motion.id] ?? {};
                         const forCount = Object.values(motionChoices).filter((c) => c === "for").length;
+                        // Fix 1: mirror voter-side limitReached guard — block "For" when limit reached
+                        const limitReached = motion.option_limit != null && forCount >= motion.option_limit;
 
                         return (
                           <td key={lo.id} style={{ verticalAlign: "top", padding: "8px" }}>
@@ -658,14 +660,20 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                     <div style={{ display: "flex", gap: 3 }}>
                                       {(["for", "against", "abstained"] as OptionChoice[]).map((choice) => {
                                         const isActive = currentChoice === choice;
+                                        // Fix 1: disable "For" when limit reached and not already selected For
+                                        const isForDisabled = choice === "for" && limitReached && currentChoice !== "for";
+                                        const ariaLabel = isForDisabled
+                                          ? `For option ${opt.text} lot ${lo.lot_number} (limit reached)`
+                                          : `${choice === "for" ? "For" : choice === "against" ? "Against" : "Abstain"} option ${opt.text} lot ${lo.lot_number}`;
                                         return (
                                           <button
                                             key={choice}
                                             type="button"
+                                            disabled={isForDisabled}
                                             onClick={() =>
                                               setOptionChoice(lo.id, motion.id, opt.id, choice)
                                             }
-                                            aria-label={`${choice === "for" ? "For" : choice === "against" ? "Against" : "Abstain"} option ${opt.text} lot ${lo.lot_number}`}
+                                            aria-label={ariaLabel}
                                             aria-pressed={isActive}
                                             style={{
                                               padding: "2px 6px",
@@ -673,7 +681,8 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                               fontWeight: isActive ? 700 : 400,
                                               borderRadius: "var(--r-sm)",
                                               border: "1px solid",
-                                              cursor: "pointer",
+                                              cursor: isForDisabled ? "not-allowed" : "pointer",
+                                              opacity: isForDisabled ? 0.4 : 1,
                                               background: isActive
                                                 ? choice === "for"
                                                   ? "var(--green)"

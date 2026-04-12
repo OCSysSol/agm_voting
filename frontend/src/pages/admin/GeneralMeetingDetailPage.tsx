@@ -156,7 +156,9 @@ export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { config: branding } = useBranding();
+  const { config: branding, effectiveLogoUrl } = useBranding();
+  // Fix 2: collapsible Results Report — expanded by default
+  const [showResults, setShowResults] = useState(true);
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
   const [showDeleteMeetingModal, setShowDeleteMeetingModal] = useState(false);
@@ -629,7 +631,7 @@ export default function GeneralMeetingDetailPage() {
               onClick={() => setShowQrModal(true)}
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
             >
-              <AgmQrCode agmId={meetingId!} logoUrl={branding.logo_url || null} size={120} />
+              <AgmQrCode agmId={meetingId!} logoUrl={effectiveLogoUrl} size={120} />
             </button>
           </Suspense>
         </span>
@@ -778,8 +780,21 @@ export default function GeneralMeetingDetailPage() {
       )}
 
 
-      <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
-      <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+      {/* Fix 2: collapsible Results Report section */}
+      <div style={{ marginTop: 32 }}>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          aria-expanded={showResults}
+          onClick={() => setShowResults((v) => !v)}
+          style={{ fontSize: "1.25rem", fontWeight: 700, padding: "0 0 16px 0", width: "100%", textAlign: "left" }}
+        >
+          {showResults ? "▼" : "▶"} Results Report
+        </button>
+        {showResults && (
+          <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+        )}
+      </div>
 
       {/* Close Motion Confirmation Modal */}
       {pendingCloseMotionConfirmId && (
@@ -1066,7 +1081,7 @@ export default function GeneralMeetingDetailPage() {
         <Suspense fallback={null}>
           <AgmQrCodeModal
             agmId={meetingId!}
-            logoUrl={branding.logo_url || null}
+            logoUrl={effectiveLogoUrl}
             onClose={() => setShowQrModal(false)}
           />
         </Suspense>

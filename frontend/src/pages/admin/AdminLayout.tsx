@@ -56,7 +56,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isNavOpen, setIsNavOpen] = useState(false);
-  const { config } = useBranding();
+  const { config, effectiveLogoUrl } = useBranding();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
@@ -95,11 +95,8 @@ export default function AdminLayout() {
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
-          {config.logo_url ? (
-            <img src={config.logo_url} alt={config.app_name} className="admin-sidebar__logo" />
-          ) : (
-            <span className="admin-sidebar__app-name">{config.app_name}</span>
-          )}
+          {/* Fix 11: always render an img using effectiveLogoUrl (OCSS fallback when no logo configured) */}
+          <img src={effectiveLogoUrl} alt={config.app_name} className="admin-sidebar__logo" />
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <NavContent />
@@ -127,11 +124,8 @@ export default function AdminLayout() {
         data-testid="admin-nav-drawer"
       >
         <div className="admin-sidebar__header">
-          {config.logo_url ? (
-            <img src={config.logo_url} alt={config.app_name} className="admin-sidebar__logo" />
-          ) : (
-            <span className="admin-sidebar__app-name">{config.app_name}</span>
-          )}
+          {/* Fix 11: always render an img using effectiveLogoUrl (OCSS fallback when no logo configured) */}
+          <img src={effectiveLogoUrl} alt={config.app_name} className="admin-sidebar__logo" />
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <button

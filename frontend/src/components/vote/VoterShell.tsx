@@ -2,17 +2,14 @@ import { Outlet } from "react-router-dom";
 import { useBranding } from "../../context/BrandingContext";
 
 export function VoterShell() {
-  const { config } = useBranding();
+  const { config, effectiveLogoUrl } = useBranding();
 
   return (
     <div className="voter-layout">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <header className="app-header">
-        {config.logo_url ? (
-          <img src={config.logo_url} alt={config.app_name} className="app-header__logo" />
-        ) : (
-          <span className="app-header__app-name">{config.app_name}</span>
-        )}
+        {/* Fix 11: always render an img using effectiveLogoUrl (OCSS fallback when no logo configured) */}
+        <img src={effectiveLogoUrl} alt={config.app_name} className="app-header__logo" />
       </header>
       <main id="main-content">
         <Outlet />

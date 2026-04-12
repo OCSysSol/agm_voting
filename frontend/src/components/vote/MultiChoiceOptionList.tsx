@@ -41,8 +41,9 @@ export function MultiChoiceOptionList({
 
   return (
     <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
-      {/* RR3-24: legend associates the group of buttons with the motion question for screen readers */}
-      <legend className="motion-card__title" style={{ float: "left", width: "100%", marginBottom: 8 }}>
+      {/* RR3-24 / Fix 7: sr-only legend retains screen reader association without visual duplication.
+          The visible title is already rendered by MotionCard's <h3>. */}
+      <legend className="sr-only">
         {motion.title}
       </legend>
       <p className="multi-choice-counter" data-testid="mc-counter">

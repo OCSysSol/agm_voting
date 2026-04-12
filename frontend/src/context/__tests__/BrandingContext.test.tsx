@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { server } from "../../../tests/msw/server";
-import { BrandingProvider, useBranding, DEFAULT_CONFIG } from "../BrandingContext";
+import { BrandingProvider, useBranding, DEFAULT_CONFIG, FALLBACK_LOGO_URL, FALLBACK_FAVICON_URL } from "../BrandingContext";
 import { resetConfigFixture, configFixture } from "../../../tests/msw/handlers";
 
 const BASE = "http://localhost:8000";
@@ -201,8 +201,10 @@ describe("BrandingContext", () => {
 
   it("DEFAULT_CONFIG has expected shape", () => {
     expect(DEFAULT_CONFIG.app_name).toBe("General Meeting");
-    expect(DEFAULT_CONFIG.logo_url).toBe("");
-    expect(DEFAULT_CONFIG.favicon_url).toBeNull();
+    // Fix 11: DEFAULT_CONFIG now uses FALLBACK_LOGO_URL instead of ""
+    expect(DEFAULT_CONFIG.logo_url).toBe(FALLBACK_LOGO_URL);
+    // Fix 11: DEFAULT_CONFIG now uses FALLBACK_FAVICON_URL instead of null
+    expect(DEFAULT_CONFIG.favicon_url).toBe(FALLBACK_FAVICON_URL);
     expect(DEFAULT_CONFIG.primary_colour).toBe("#005f73");
     expect(DEFAULT_CONFIG.support_email).toBe("");
   });
@@ -223,7 +225,8 @@ describe("BrandingContext", () => {
     expect(link?.href).toContain("https://cdn.example.com/logo.png");
   });
 
-  it("sets link[rel=icon] href to /favicon.ico when both logo_url and favicon_url are empty", async () => {
+  it("sets link[rel=icon] href to FALLBACK_FAVICON_URL when both logo_url and favicon_url are empty", async () => {
+    // Fix 11: when both are empty, falls back to FALLBACK_FAVICON_URL (OCSS favicon)
     server.use(
       http.get(`${BASE}/api/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#000000", support_email: "" })
@@ -234,7 +237,7 @@ describe("BrandingContext", () => {
       expect(screen.getByTestId("is-loading").textContent).toBe("ready")
     );
     const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
-    expect(link?.href).toContain("/favicon.ico");
+    expect(link?.href).toContain(FALLBACK_FAVICON_URL);
   });
 
   it("does not update favicon when no link[rel=icon] element exists", async () => {
@@ -291,7 +294,8 @@ describe("BrandingContext", () => {
     expect(link?.href).toContain("https://cdn.example.com/logo.png");
   });
 
-  it("uses /favicon.ico when both favicon_url and logo_url are absent", async () => {
+  it("uses FALLBACK_FAVICON_URL when both favicon_url and logo_url are absent", async () => {
+    // Fix 11: falls back to FALLBACK_FAVICON_URL (OCSS favicon), not /favicon.ico
     server.use(
       http.get(`${BASE}/api/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#000000", support_email: "" })
@@ -302,7 +306,7 @@ describe("BrandingContext", () => {
       expect(screen.getByTestId("is-loading").textContent).toBe("ready")
     );
     const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
-    expect(link?.href).toContain("/favicon.ico");
+    expect(link?.href).toContain(FALLBACK_FAVICON_URL);
   });
 
   it("favicon_url takes priority even when logo_url is also set", async () => {

@@ -1150,6 +1150,164 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ---
 
+### US-AUIF-01: Admin vote entry respects multi-choice option limit
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a meeting admin entering in-person votes, I want the For selection limit to be enforced in the vote entry grid so I cannot accidentally record more For votes than the motion allows.
+
+**Acceptance Criteria:**
+
+- [ ] In the admin in-person vote entry grid (step 2), for a multi-choice motion with `option_limit = N`, the "For" button for any option is disabled once N options have already been voted For for that lot
+- [ ] A disabled "For" button shows an `aria-label` indicating the limit has been reached
+- [ ] Clicking an already-selected "For" button deselects it and re-enables other "For" buttons (toggle-off unblocks the limit)
+- [ ] "Against" and "Abstain" buttons are never disabled due to the For limit
+- [ ] Existing unit and integration tests updated; 100% coverage maintained
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-02: Admin meeting view — collapsible results report section
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a meeting admin, I want to collapse the Results Report section on the meeting detail page so I can focus on motions management without scrolling past a long report.
+
+**Acceptance Criteria:**
+
+- [ ] The Results Report section on the admin meeting detail page has a toggle button that collapses/expands the section
+- [ ] The section is expanded by default
+- [ ] The toggle button shows a clear visual indicator of collapsed vs expanded state (e.g. ▶/▼ chevron)
+- [ ] The button has an `aria-expanded` attribute that reflects the current state
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-03: Admin results report — multi-choice counts visible without expanding
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a meeting admin, I want to see the For/Against/Abstained voter counts for each multi-choice option at a glance (collapsed), and only expand to see individual voter details.
+
+**Acceptance Criteria:**
+
+- [ ] In the Results Report, each multi-choice option row shows For count, Against count, and Abstained count in the collapsed header (without needing to click Expand)
+- [ ] Clicking the expand button ("Show voters") reveals the voter list (lot number, voter email, entitlement UOE) for that option
+- [ ] The expand button toggles between "Show voters" and "Hide voters"
+- [ ] The summary counts remain visible in the header when the voter list is expanded
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-04: Admin results report — highlight winning option(s) per motion
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a meeting admin, I want the winning option to be visually highlighted in the Results Report so I can see outcomes at a glance.
+
+**Acceptance Criteria:**
+
+- [ ] For binary (non-multi-choice) motions: the "For" row is highlighted in green when For has higher weighted entitlement sum; the "Against" row is highlighted in red when Against has higher weighted entitlement sum; no highlight on a tie
+- [ ] For multi-choice motions: the top N options by For weighted entitlement sum (where N = `motion.option_limit`) are highlighted in green
+- [ ] Abstained, Absent, and Not eligible rows/options are never highlighted
+- [ ] Highlighting uses the existing design system tokens (`var(--green-bg)`, `var(--green)`, etc.) — no custom colours
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-05: Voter view — multi-choice motions show correct motion type label
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a voter, I want to see the correct motion resolution type ("General" or "Special") on multi-choice motions so I understand the voting requirements, rather than seeing only "Multi-Choice" which does not convey the resolution type.
+
+**Acceptance Criteria:**
+
+- [ ] In the voter voting view, a multi-choice motion with `motion_type = "general"` shows a "General" type badge (neutral pill) and a separate "Multi-Choice" badge (blue pill)
+- [ ] A multi-choice motion with `motion_type = "special"` shows a "Special" type badge (amber pill) and a separate "Multi-Choice" badge
+- [ ] Non-multi-choice motions are unaffected
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-06: Voter view — multi-choice motion title no longer duplicated
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a voter, I want to see each motion's title only once on the voting page so the UI is clean and unambiguous.
+
+**Acceptance Criteria:**
+
+- [ ] For multi-choice motions, the motion title appears exactly once on screen in the voter voting view
+- [ ] The fieldset grouping the multi-choice option buttons retains an accessible (visually hidden) legend for screen reader association
+- [ ] Non-multi-choice motions are unaffected
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-07: Voter view — multi-choice motions do not pre-fill between lots
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a voter submitting ballots for multiple lots sequentially, I want each lot's multi-choice selections to start empty so I am not misled into thinking a previous lot's choices have been recorded for the current lot.
+
+**Acceptance Criteria:**
+
+- [ ] After successfully submitting votes for one lot, the multi-choice option selections are cleared for the remaining unvoted lots
+- [ ] Previously voted (read-only) motions continue to show the submitted choices for review
+- [ ] The cleared state persists if the voter refreshes the page between lot submissions
+- [ ] Binary (non-multi-choice) vote selections are unaffected
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-08: Admin view — closed motion shows a styled "Voting Closed" badge
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a meeting admin, I want the "Voting Closed" status for individually closed motions to be displayed as a styled pill badge (consistent with other status elements) rather than plain unstyled text.
+
+**Acceptance Criteria:**
+
+- [ ] When a motion's voting has been closed (`voting_closed_at` is set), the "Close Motion" button is replaced by a styled red pill badge labelled "Voting Closed"
+- [ ] The badge uses the design system's red status colour (`var(--red)` on `var(--red-bg)`) with a pill border radius (`999px`)
+- [ ] The badge has `aria-label="Motion voting closed"` for accessibility
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-09: Voter view — individually closed motion shows "Motion Closed" inside the card
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a voter, I want to see a clear "Motion Closed" indicator inside the motion card (not above it as plain text) so the closed state is visually associated with the correct motion.
+
+**Acceptance Criteria:**
+
+- [ ] When a motion's voting has been individually closed, a styled "Motion Closed" badge appears inside the motion card, below the title/description and above the (disabled) vote buttons
+- [ ] The badge uses the red status pill style (matching US-AUIF-08)
+- [ ] The external plain-text "Voting closed" label above the card is removed
+- [ ] The `role="status"` attribute is retained on the closed indicator
+- [ ] Typecheck/lint passes
+
+---
+
+### US-AUIF-10: Logo and favicon fall back to OCSS branding when unconfigured
+
+**Status:** ✅ Implemented — branch: `fix/admin-ui-fixes`, committed 2026-04-12
+
+**Description:** As a platform operator, I want the voter portal and admin portal to display the OCSS logo and favicon when no tenant branding has been configured, rather than showing plain app-name text or a broken image.
+
+**Acceptance Criteria:**
+
+- [ ] When `logo_url` is empty or not set in admin settings, the voter portal header and admin sidebar display the OCSS fallback logo (`https://sentw3x37yabsacv.public.blob.vercel-storage.com/ocss-logo-C9E81q9ZrYhx9aARiYOvaF3gn1cqp1.svg`)
+- [ ] When `favicon_url` is empty or not set, the browser tab favicon uses the OCSS fallback favicon (`https://sentw3x37yabsacv.public.blob.vercel-storage.com/ocss-favicon-4CMVReCEFGq06d9bG9Q8NqTrZqRosj.svg`)
+- [ ] When tenant branding is configured with a custom logo or favicon, the custom values continue to take priority
+- [ ] The fallback logic is centralised in `BrandingContext` — no per-component fallback code
+- [ ] Typecheck/lint passes
+
+---
+
 ## Non-Goals
 
 - No proxy voting

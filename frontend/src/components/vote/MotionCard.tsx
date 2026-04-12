@@ -20,6 +20,7 @@ interface MotionCardProps {
   disabled: boolean;
   highlight: boolean;
   readOnly?: boolean;
+  votingClosed?: boolean;
   // Multi-choice state (only used for multi_choice motion type)
   multiChoiceOptionChoices?: OptionChoiceMap;
   onMultiChoiceChange?: (motionId: string, choices: OptionChoiceMap) => void;
@@ -33,6 +34,7 @@ export function MotionCard({
   disabled,
   highlight,
   readOnly = false,
+  votingClosed = false,
   multiChoiceOptionChoices = {},
   onMultiChoiceChange,
 }: MotionCardProps) {
@@ -48,14 +50,9 @@ export function MotionCard({
   const isSpecial = motion.motion_type === "special";
   const isEffectivelyDisabled = disabled || readOnly;
 
-  const badgeClass = isSpecial
-    ? "motion-type-badge--special"
-    : isMultiChoice
-    ? "motion-type-badge--multi_choice"
-    : "motion-type-badge--general";
-  const typeLabel = isMultiChoice
-    ? "Multi-Choice"
-    : MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
+  // Fix 6: badge class and label always derived from motion_type, never from isMultiChoice
+  const badgeClass = isSpecial ? "motion-type-badge--special" : "motion-type-badge--general";
+  const typeLabel = MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
 
   return (
     <div
@@ -70,6 +67,12 @@ export function MotionCard({
         >
           {typeLabel}
         </span>
+        {/* Fix 6: render Multi-Choice as a second supplementary badge */}
+        {isMultiChoice && (
+          <span className="motion-type-badge motion-type-badge--multi_choice" aria-label="Multi-choice motion">
+            Multi-Choice
+          </span>
+        )}
         {highlight && (
           <span className="motion-card__unanswered-badge" aria-label="Unanswered">
             ! Unanswered
@@ -84,6 +87,17 @@ export function MotionCard({
       <h3 className="motion-card__title">{motion.title}</h3>
       {motion.description && (
         <p className="motion-card__description">{motion.description}</p>
+      )}
+      {/* Fix 10: styled "Motion Closed" badge inside the card */}
+      {votingClosed && (
+        <span
+          className="motion-type-badge motion-type-badge--closed"
+          role="status"
+          aria-label="Motion voting is closed"
+          data-testid={`motion-closed-label-${motion.id}`}
+        >
+          Motion Closed
+        </span>
       )}
       {isMultiChoice ? (
         <MultiChoiceOptionList

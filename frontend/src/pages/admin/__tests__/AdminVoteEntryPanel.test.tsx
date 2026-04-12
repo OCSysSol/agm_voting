@@ -601,14 +601,23 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     expect(againstAlice).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("For buttons remain enabled even when option_limit is reached (limit is for tally only)", async () => {
+  it("For button is disabled for unselected options when option_limit is reached (Fix 1)", async () => {
     const user = await goToStepTwo();
     // option_limit = 2; vote For on Alice and Bob
     await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
     await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
-    // Carol's For button should still be enabled — unlimited For selections allowed
-    const forCarol = screen.getByRole("button", { name: "For option Carol lot 1A" });
-    expect(forCarol).not.toBeDisabled();
+    // Carol's For button is now disabled — limit reached (Fix 1)
+    const forCarol = screen.getByRole("button", { name: "For option Carol lot 1A (limit reached)" });
+    expect(forCarol).toBeDisabled();
+  });
+
+  it("already-selected For buttons remain enabled after limit reached (deselect toggle)", async () => {
+    const user = await goToStepTwo();
+    await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
+    await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
+    // Alice and Bob are already For — their For buttons must remain enabled for toggling off
+    expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "For option Bob lot 1A" })).not.toBeDisabled();
   });
 
   it("Against button is always enabled regardless of For count", async () => {
@@ -627,14 +636,15 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     expect(screen.getByText("1 of 2 voted For")).toBeInTheDocument();
   });
 
-  it("all For buttons remain enabled regardless of how many are already selected", async () => {
+  it("For button count stays within option_limit after limit is reached (Fix 1)", async () => {
     const user = await goToStepTwo();
     await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
     await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
-    // All For buttons remain enabled — no cap on For votes
+    // Limit reached — Alice and Bob For buttons remain enabled; Carol's is disabled
     expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "For option Bob lot 1A" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "For option Carol lot 1A" })).not.toBeDisabled();
+    // Carol's button gets (limit reached) label suffix when disabled
+    expect(screen.getByRole("button", { name: "For option Carol lot 1A (limit reached)" })).toBeDisabled();
   });
 
   it("submission sends option_choices array (not option_ids)", async () => {

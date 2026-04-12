@@ -725,6 +725,12 @@ button, input, select, textarea {
   border-radius: 999px;
 }
 
+.motion-type-badge--closed {
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid #F5C6C0;
+}
+
 /* Motion visibility toggle */
 .motion-visibility-toggle {
   display: inline-flex;

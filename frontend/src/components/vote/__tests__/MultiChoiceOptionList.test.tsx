@@ -305,7 +305,7 @@ describe("MultiChoiceOptionList", () => {
     expect(container.querySelector("fieldset")).toBeInTheDocument();
   });
 
-  it("renders a legend with the motion title", () => {
+  it("renders a sr-only legend with the motion title (Fix 7: no visual duplication)", () => {
     render(
       <MultiChoiceOptionList
         motion={mcMotion}
@@ -317,6 +317,9 @@ describe("MultiChoiceOptionList", () => {
     const legend = document.querySelector("legend");
     expect(legend).toBeInTheDocument();
     expect(legend?.textContent).toBe("Board Election");
+    // Fix 7: legend must be sr-only (not visually rendered as a title)
+    expect(legend).toHaveClass("sr-only");
+    expect(legend).not.toHaveClass("motion-card__title");
   });
 
   it("For button has aria-pressed=true when option is voted For", () => {

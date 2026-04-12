@@ -252,11 +252,11 @@ function SortableRow({
             {onCloseMotion && (
               isMotionVotingClosed ? (
                 <span
-                  className="motion-voting-closed-badge"
+                  className="motion-type-badge motion-type-badge--closed motion-voting-closed-badge"
                   data-testid={`motion-voting-closed-badge-${motion.id}`}
                   aria-label="Motion voting closed"
                 >
-                  Closed
+                  Voting Closed
                 </span>
               ) : (
                 <button

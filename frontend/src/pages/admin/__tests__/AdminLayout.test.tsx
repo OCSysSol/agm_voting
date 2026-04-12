@@ -23,8 +23,9 @@ function renderLayout(path = "/admin/buildings", logoUrl = "", appName = "Genera
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const effectiveLogoUrl = logoUrl || DEFAULT_CONFIG.logo_url;
   return render(
-    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, logo_url: logoUrl, app_name: appName }, isLoading: false }}>
+    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, logo_url: logoUrl, app_name: appName }, isLoading: false, effectiveLogoUrl, effectiveFaviconUrl: DEFAULT_CONFIG.favicon_url || "" }}>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[path]}>
           <AdminLayout />
@@ -180,12 +181,25 @@ describe("AdminLayout", () => {
     expect(screen.getAllByRole("link", { name: "Settings" }).length).toBeGreaterThan(0);
   });
 
-  // --- Branding: logo vs app-name ---
+  it("Settings link has active class when on settings path", () => {
+    // Covers the active class branch on the Settings NavLink (line 38)
+    renderLayout("/admin/settings");
+    const settingsLinks = screen.getAllByRole("link", { name: "Settings" });
+    const activeLink = settingsLinks.find((l) => l.classList.contains("admin-nav__link--active"));
+    expect(activeLink).toBeTruthy();
+  });
+
+  // --- Branding: logo rendering (Fix 11: always renders img with effectiveLogoUrl) ---
 
   it("renders app name text when logo_url is empty", () => {
+    // Fix 11: when logo_url is empty, the OCSS fallback logo is used — app name text is no longer
+    // shown as a text fallback because effectiveLogoUrl is always non-empty.
     renderLayout("/admin/buildings", "", "My AGM");
-    expect(screen.getAllByText("My AGM").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    const imgs = screen.getAllByRole("img");
+    expect(imgs.length).toBeGreaterThan(0);
+    // All img elements use the OCSS fallback logo URL
+    expect(imgs[0]).toHaveAttribute("alt", "My AGM");
+    // App name text is not rendered as a visible text node (only as img alt)
   });
 
   it("renders logo img when logo_url is set", () => {
@@ -245,5 +259,21 @@ describe("AdminLayout", () => {
     renderLayout();
     await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
     expect(screen.queryByText(/Mail server not configured/)).not.toBeInTheDocument();
+  });
+
+  it("Sign out button in mobile drawer navigates to login", async () => {
+    // Covers the Sign out button inside the drawer (line 143 in AdminLayout)
+    const user = userEvent.setup();
+    mockNavigate.mockClear();
+    renderLayout();
+    // Open the drawer first
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    // The drawer Sign out button is the second "Sign out" button in the DOM
+    const signOutButtons = screen.getAllByRole("button", { name: "Sign out" });
+    expect(signOutButtons.length).toBeGreaterThanOrEqual(2);
+    await user.click(signOutButtons[signOutButtons.length - 1]);
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin/login", { replace: true });
+    });
   });
 });
