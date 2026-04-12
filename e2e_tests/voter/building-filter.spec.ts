@@ -108,12 +108,14 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
     test.setTimeout(60000);
 
     await page.goto("/");
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible({ timeout: 15000 });
+    const combobox = page.getByLabel("Select your building");
+    await expect(combobox).toBeVisible({ timeout: 15000 });
 
-    // The open-meeting building must be a selectable option
-    const option = select.locator(`option`, { hasText: BUILDING_OPEN });
-    await expect(option).toBeAttached({ timeout: 15000 });
+    // Fill the combobox — the open-meeting building must appear as a listbox option
+    await combobox.fill(BUILDING_OPEN);
+    await expect(
+      page.getByRole("option", { name: BUILDING_OPEN, exact: true })
+    ).toBeVisible({ timeout: 15000 });
   });
 
   // ── Scenario B: Building with only closed meetings excluded from dropdown ───
@@ -129,12 +131,14 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
     }
 
     await page.goto("/");
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible({ timeout: 15000 });
+    const combobox = page.getByLabel("Select your building");
+    await expect(combobox).toBeVisible({ timeout: 15000 });
 
-    // The closed-only building must NOT be a selectable option
-    const option = select.locator(`option`, { hasText: BUILDING_CLOSED_ONLY });
-    await expect(option).not.toBeAttached({ timeout: 15000 });
+    // Fill the combobox — the closed-only building must NOT appear as a listbox option
+    await combobox.fill(BUILDING_CLOSED_ONLY);
+    await expect(
+      page.getByRole("option", { name: BUILDING_CLOSED_ONLY, exact: true })
+    ).not.toBeVisible({ timeout: 15000 });
   });
 
   // ── Scenario C: Building with no meetings excluded from dropdown ─────────────
@@ -150,12 +154,14 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
     }
 
     await page.goto("/");
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible({ timeout: 15000 });
+    const combobox = page.getByLabel("Select your building");
+    await expect(combobox).toBeVisible({ timeout: 15000 });
 
-    // The no-meetings building must NOT be a selectable option
-    const option = select.locator(`option`, { hasText: BUILDING_NO_MEETINGS });
-    await expect(option).not.toBeAttached({ timeout: 15000 });
+    // Fill the combobox — the no-meetings building must NOT appear as a listbox option
+    await combobox.fill(BUILDING_NO_MEETINGS);
+    await expect(
+      page.getByRole("option", { name: BUILDING_NO_MEETINGS, exact: true })
+    ).not.toBeVisible({ timeout: 15000 });
   });
 
   // ── Scenario A verify: selecting the open-meeting building shows Enter Voting button
