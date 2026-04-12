@@ -554,6 +554,40 @@ This document covers all building management, lot owner management, CSV/Excel im
 
 ---
 
+### US-UI-FIX-09: Admin buildings list has a name search filter
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As an admin, I want to filter the buildings list by name so I can quickly find a specific building when there are many in the system.
+
+**Acceptance Criteria:**
+
+- [ ] A text filter input labelled "Search buildings" appears in the buildings list page header row (alongside the "Show archived" toggle)
+- [ ] Typing in the filter narrows the list to buildings whose names contain the typed text (case-insensitive, server-side)
+- [ ] The filter value is debounced (≥ 300ms) before triggering a new API request
+- [ ] Changing the filter resets pagination to page 1
+- [ ] The filter state is persisted in the URL as a `name` search param so it survives page refresh and back navigation
+- [ ] Clearing the filter removes the `name` param from the URL and shows the full (or archived-toggled) list
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-10: Admin lot owner table shows named owner alongside each email
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As a building manager, I want to see each email address displayed alongside its associated owner name in the lot owner table so I can identify which person each email belongs to at a glance.
+
+**Acceptance Criteria:**
+
+- [ ] In the admin lot owner table (building detail page), the Email column renders each `owner_emails` entry on its own line in the format: `Given Surname <email@example.com>` when a name is available
+- [ ] When an email entry has no given name or surname, only the email address is shown (no angle-bracket wrapper)
+- [ ] Multiple email entries for the same lot each appear on their own line
+- [ ] The Name column (showing `LotOwner.given_name` / `LotOwner.surname`) is unchanged
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ## Functional Requirements
 
 - FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form or bulk-created/updated via CSV or Excel upload. Building names must be globally unique (case-insensitive).

@@ -45,8 +45,10 @@ function initialLotVotes(): LotVotes {
 function isLotAnswered(lotVotes: LotVotes, visibleMotions: MotionDetail[]): boolean {
   return visibleMotions.every((m) => {
     if (m.is_multi_choice) {
-      // multi-choice: any selection (including empty = abstain) counts as answered
-      return true;
+      // Fix 7: answered only when the admin has explicitly interacted with this motion
+      // (i.e. at least one option has a choice set)
+      const motionChoices = lotVotes.multiChoiceChoices[m.id];
+      return motionChoices !== undefined && Object.keys(motionChoices).length > 0;
     }
     return m.id in lotVotes.choices;
   });
@@ -311,7 +313,15 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
     },
     onError: (err: Error) => {
       setShowConfirm(false);
-      setSubmitError(err.message || "Submission failed. Please try again.");
+      // Fix 8: surface a clear message when a lot was already submitted (409)
+      const is409 = err.message.includes("409") || err.message.toLowerCase().includes("already submitted");
+      if (is409) {
+        setSubmitError(
+          "One or more selected lots already have a submitted ballot. Go back to step 1 and deselect those lots."
+        );
+      } else {
+        setSubmitError(err.message || "Submission failed. Please try again.");
+      }
     },
   });
 
@@ -589,6 +599,22 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                             }}
                           >
                             In arrear
+                          </span>
+                        )}
+                        {/* Fix 8: pre-flight warning for already-submitted lots */}
+                        {appSubmittedLotNumbers.has(lo.lot_number) && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontSize: "0.65rem",
+                              background: "var(--red-bg)",
+                              color: "var(--red)",
+                              borderRadius: "var(--r-sm)",
+                              padding: "1px 6px",
+                              marginTop: 2,
+                            }}
+                          >
+                            Already submitted
                           </span>
                         )}
                       </th>

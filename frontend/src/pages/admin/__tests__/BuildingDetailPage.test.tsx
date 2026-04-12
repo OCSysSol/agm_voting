@@ -46,7 +46,8 @@ describe("BuildingDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("1A")).toBeInTheDocument();
     });
-    expect(screen.getByText("owner1@example.com")).toBeInTheDocument();
+    // Email column now shows "Name <email>" when owner name is present
+    expect(screen.getByText("Alice Smith <owner1@example.com>")).toBeInTheDocument();
     expect(screen.getByText("2B")).toBeInTheDocument();
   });
 

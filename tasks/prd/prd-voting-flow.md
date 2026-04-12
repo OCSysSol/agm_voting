@@ -583,6 +583,60 @@ This document covers the complete voter journey: email OTP authentication, persi
 
 ---
 
+### US-UI-FIX-06: Building selector on voter home page is a search combobox
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As a voter, I want a search-enabled combobox for selecting my building on the home page so I can quickly find my building by typing part of its name, consistent with the admin portal's building search experience.
+
+**Acceptance Criteria:**
+
+- [ ] The building selector on the voter home page (`BuildingSelectPage`) is a text input with `role="combobox"` (not a `<select>` dropdown)
+- [ ] Typing in the input filters the building list by name (case-insensitive substring match on the pre-fetched list)
+- [ ] A dropdown listbox appears below the input showing matching buildings (maximum 5–10 visible at a time with scroll)
+- [ ] Selecting a building from the dropdown sets the building ID and triggers the meeting list query
+- [ ] A "clear" or "All buildings" option is available to deselect the current building
+- [ ] Keyboard navigation: Arrow Down/Up moves between options; Enter selects; Escape closes without selecting
+- [ ] Error message (if any) appears below the input in the `.field__error` style
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-07: Voter confirmation page shows per-option colour-coded choices for multi-choice motions
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As a voter reviewing my submitted ballot, I want each option on a multi-choice motion to appear on its own line with colour coding consistent with the voting page (For=green, Against=red, Abstained=grey) so I can easily read my choices.
+
+**Acceptance Criteria:**
+
+- [ ] On the voter confirmation page, multi-choice motions with `option_choices` render each option as a separate line
+- [ ] Each option line shows the option text and the voter's choice, colour-coded: For → green, Against → red, Abstained → grey
+- [ ] The colour tokens used are `var(--green)`, `var(--red)`, and `var(--text-muted)` from the design system
+- [ ] The `not_eligible` case for an entire motion continues to render as a single muted line
+- [ ] The `abstained` case (zero options selected) continues to render as a single "Abstained" line
+- [ ] Multi-lot and single-lot confirmation views are both updated
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-08: "View Submission" button visible as soon as any lot is submitted
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As a voter with multiple lots who has already submitted for some lots, I want a "View Submission" button visible on the voting page so I can review my submitted votes at any time without finishing all remaining lots first.
+
+**Acceptance Criteria:**
+
+- [ ] On the voting page, the "View Submission" button appears as soon as at least one lot has a submitted ballot (not only after all lots are done)
+- [ ] The button appears below the "Submit ballot" button when there are still unvoted motions
+- [ ] Clicking "View Submission" navigates to the confirmation page
+- [ ] For single-lot voters who have not yet submitted, the button remains hidden
+- [ ] The existing "all voted" message with its "View Submission" button (shown when `unvotedCount === 0` and `!showSidebar`) is unchanged
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ### US-SO-01: Voter sign-out from voting page
 
 **Status:** ✅ Implemented — branch: `fix/sign-out`, committed 2026-04-12

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMyBallot } from "../../api/voter";
@@ -18,20 +19,63 @@ const OPTION_CHOICE_LABELS: Record<string, string> = {
   abstained: "Abstained",
 };
 
-function renderChoiceLabel(vote: BallotVoteItem): string {
+/** Maps an option-level choice to the matching binary vote CSS class suffix */
+function optionChoiceClass(choice: string): string {
+  if (choice === "for") return "yes";
+  if (choice === "against") return "no";
+  return "abstained";
+}
+
+function renderChoiceContent(vote: BallotVoteItem): ReactNode {
   if (vote.is_multi_choice) {
-    if (vote.choice === "not_eligible") return "Not eligible";
-    // Use option_choices if present (Slice 3 format)
+    if (vote.choice === "not_eligible") {
+      return (
+        <span className="vote-item__choice vote-item__choice--abstained">
+          Not eligible
+        </span>
+      );
+    }
+    // Use option_choices if present (Slice 3 format) — render per-option coloured list
     if (vote.option_choices && vote.option_choices.length > 0) {
-      return vote.option_choices
-        .map((oc) => `${oc.option_text}: ${OPTION_CHOICE_LABELS[oc.choice] ?? oc.choice}`)
-        .join(", ");
+      return (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {vote.option_choices.map((oc) => (
+            <li
+              key={oc.option_id}
+              style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 4 }}
+            >
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                {oc.option_text}
+              </span>
+              <span
+                className={`vote-item__choice vote-item__choice--${optionChoiceClass(oc.choice)}`}
+              >
+                {OPTION_CHOICE_LABELS[oc.choice] ?? oc.choice}
+              </span>
+            </li>
+          ))}
+        </ul>
+      );
     }
     // Fallback to selected_options (backward compat for legacy abstain rows)
-    if (vote.choice === "abstained" || !vote.selected_options || vote.selected_options.length === 0) return "Abstained";
-    return vote.selected_options.map((o) => o.text).join(", ");
+    if (vote.choice === "abstained" || !vote.selected_options || vote.selected_options.length === 0) {
+      return (
+        <span className="vote-item__choice vote-item__choice--abstained">
+          Abstained
+        </span>
+      );
+    }
+    return (
+      <span className="vote-item__choice vote-item__choice--abstained">
+        {vote.selected_options.map((o) => o.text).join(", ")}
+      </span>
+    );
   }
-  return CHOICE_LABELS[vote.choice] ?? vote.choice;
+  return (
+    <span className={`vote-item__choice vote-item__choice--${vote.choice}`}>
+      {CHOICE_LABELS[vote.choice] ?? vote.choice}
+    </span>
+  );
 }
 
 export function ConfirmationPage() {
@@ -143,9 +187,7 @@ export function ConfirmationPage() {
                       {[...lot.votes].sort((a, b) => a.display_order - b.display_order).map((v) => (
                         <li className="vote-item" key={v.motion_id}>
                           <span className="vote-item__motion">Motion {v.motion_number?.trim() || v.display_order}. {v.motion_title}</span>
-                          <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
-                            {renderChoiceLabel(v)}
-                          </span>
+                          {renderChoiceContent(v)}
                         </li>
                       ))}
                     </ul>
@@ -161,9 +203,7 @@ export function ConfirmationPage() {
                   {sortedVotes.map((v) => (
                     <li className="vote-item" key={v.motion_id}>
                       <span className="vote-item__motion">Motion {v.motion_number?.trim() || v.display_order}. {v.motion_title}</span>
-                      <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
-                        {renderChoiceLabel(v)}
-                      </span>
+                      {renderChoiceContent(v)}
                     </li>
                   ))}
                 </ul>

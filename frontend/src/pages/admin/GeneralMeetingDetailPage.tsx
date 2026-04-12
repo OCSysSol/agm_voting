@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -152,13 +152,67 @@ function DeleteMeetingConfirmModal({ meetingTitle, deleting, error, onConfirm, o
   );
 }
 
+// Fix 9: modal dialog to replace the green banner after in-person vote submission
+function VoteEntrySuccessModal({ onClose }: { onClose: () => void }) {
+  const handleClose = useCallback(() => onClose(), [onClose]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") handleClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [handleClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="vest-success-title"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1200,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+    >
+      <div
+        style={{
+          background: "var(--white)",
+          borderRadius: "var(--r-lg)",
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "var(--shadow-lg)",
+        }}
+      >
+        <h2 id="vest-success-title" style={{ marginTop: 0, marginBottom: 12 }}>
+          Votes submitted
+        </h2>
+        <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
+          In-person votes have been recorded successfully.
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--primary" onClick={handleClose}>
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { config: branding, effectiveLogoUrl } = useBranding();
-  // Fix 2: collapsible Results Report — expanded by default
-  const [showResults, setShowResults] = useState(true);
+  // Fix 10: per-motion drill-down — no global collapse needed
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
   const [showDeleteMeetingModal, setShowDeleteMeetingModal] = useState(false);
@@ -308,7 +362,8 @@ export default function GeneralMeetingDetailPage() {
 
   // Admin vote entry panel
   const [showVoteEntryPanel, setShowVoteEntryPanel] = useState(false);
-  const [voteEntrySuccess, setVoteEntrySuccess] = useState<string | null>(null);
+  // Fix 9: modal replaces the old green banner
+  const [showVoteEntrySuccessModal, setShowVoteEntrySuccessModal] = useState(false);
 
   const addMotionMutation = useMutation({
     mutationFn: (data: AddMotionRequest) => addMotionToMeeting(meetingId!, data),
@@ -549,29 +604,18 @@ export default function GeneralMeetingDetailPage() {
           onClose={() => setShowVoteEntryPanel(false)}
           onSuccess={async () => {
             setShowVoteEntryPanel(false);
-            setVoteEntrySuccess("In-person votes submitted successfully.");
+            setShowVoteEntrySuccessModal(true);
             await queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
           }}
         />
       )}
+      {/* Fix 9: success modal replaces the old green banner */}
+      {showVoteEntrySuccessModal && (
+        <VoteEntrySuccessModal onClose={() => setShowVoteEntrySuccessModal(false)} />
+      )}
       <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/general-meetings")}>
         ← Back
       </button>
-      {voteEntrySuccess && (
-        <div
-          role="status"
-          aria-live="polite"
-          style={{
-            background: "var(--green-bg)",
-            color: "var(--green)",
-            borderRadius: "var(--r-md)",
-            padding: "10px 16px",
-            marginBottom: 16,
-          }}
-        >
-          {voteEntrySuccess}
-        </div>
-      )}
       <div className="admin-page-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h1 style={{ margin: 0 }}>{meeting.title}</h1>
@@ -700,7 +744,7 @@ export default function GeneralMeetingDetailPage() {
               <button
                 type="button"
                 className="btn btn--secondary"
-                onClick={() => { setVoteEntrySuccess(null); setShowVoteEntryPanel(true); }}
+                onClick={() => setShowVoteEntryPanel(true)}
               >
                 Enter In-Person Votes
               </button>
@@ -780,22 +824,10 @@ export default function GeneralMeetingDetailPage() {
       )}
 
 
-      {/* Fix 2: collapsible Results Report section */}
+      {/* Fix 10: Results Report always visible; per-motion drill-down inside AGMReportView */}
       <div style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0 }}>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            aria-expanded={showResults}
-            onClick={() => setShowResults((v) => !v)}
-            style={{ fontSize: "inherit", fontWeight: "inherit", padding: "0 0 16px 0", width: "100%", textAlign: "left" }}
-          >
-            {showResults ? "▼" : "▶"} Results Report
-          </button>
-        </h2>
-        {showResults && (
-          <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
-        )}
+        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: 16 }}>Results Report</h2>
+        <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
       </div>
 
       {/* Close Motion Confirmation Modal */}

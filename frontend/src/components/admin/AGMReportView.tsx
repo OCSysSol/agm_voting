@@ -166,7 +166,61 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement, isWinner }:
   );
 }
 
+/** Fix 10: Renders the expanded voter list for a binary motion */
+function BinaryVoterList({ motion }: { motion: MotionDetail }) {
+  const categories = ["yes", "no", "abstained", "absent", "not_eligible"] as const;
+  return (
+    <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border-subtle)" }}>
+      {categories.map((cat) => {
+        const voters = motion.voter_lists[cat];
+        if (!voters || voters.length === 0) return null;
+        return (
+          <div key={cat} style={{ marginBottom: 12 }}>
+            <span
+              style={{
+                fontWeight: 600,
+                fontSize: "0.75rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: CATEGORY_COLORS[cat],
+                display: "block",
+                marginBottom: 4,
+              }}
+            >
+              {CATEGORY_LABELS[cat]}
+            </span>
+            {voters.map((v) => (
+              <div
+                key={`${cat}-${v.lot_number}-${v.voter_email}`}
+                style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 2 }}
+              >
+                Lot {v.lot_number} — {v.voter_email}
+                {v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
+                {v.submitted_by_admin ? " — Admin" : " — Voter"}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 }: AGMReportViewProps) {
+  // Fix 10: per-motion expand/collapse state for binary motions
+  const [expandedMotionIds, setExpandedMotionIds] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpandedMotionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
   function handleExportCSV() {
     const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE),Voter Email,Submitted By"];
     for (const motion of motions) {
@@ -263,6 +317,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
         const yesSumBinary = motion.tally.yes.entitlement_sum;
         const noSumBinary = motion.tally.no.entitlement_sum;
 
+        const isExpanded = expandedMotionIds.has(motion.id);
         return (
           <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
             <div className="admin-card__header">
@@ -282,6 +337,27 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                 <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
                   Hidden
                 </span>
+              )}
+              {/* Fix 10: per-binary-motion expand/collapse toggle */}
+              {motion.is_multi_choice !== true && (
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-label={`${isExpanded ? "Collapse" : "Expand"} voter list for ${motion.title}`}
+                  onClick={() => toggleExpanded(motion.id)}
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: "0.75rem",
+                    cursor: "pointer",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-sm)",
+                    padding: "1px 6px",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {isExpanded ? "▲ Hide voters" : "▶ Show voters"}
+                </button>
               )}
             </div>
             {motion.description && (
@@ -371,6 +447,10 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               </tbody>
             </table>
             </div>
+            {/* Fix 10: voter list for binary motions, expanded on demand */}
+            {motion.is_multi_choice !== true && isExpanded && (
+              <BinaryVoterList motion={motion} />
+            )}
           </div>
         );
       })}

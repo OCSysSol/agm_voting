@@ -55,13 +55,34 @@ describe("BuildingSelectPage", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  // Helper: select a building by name via the combobox
+  async function selectBuilding(user: ReturnType<typeof userEvent.setup>, buildingName: string) {
+    const input = screen.getByRole("combobox");
+    await user.clear(input);
+    await user.type(input, buildingName);
+    // Wait for the option to appear in the listbox and click it
+    await waitFor(() => screen.getByRole("option", { name: buildingName }));
+    await user.click(screen.getByRole("option", { name: buildingName }));
+  }
 
-  it("renders building dropdown after load", async () => {
+  it("renders building combobox after load", async () => {
     renderPage();
     await waitFor(() => {
+      expect(screen.getByRole("combobox")).toBeInTheDocument();
       expect(screen.getByLabelText("Select your building")).toBeInTheDocument();
     });
-    expect(screen.getByRole("option", { name: "Sunset Towers" })).toBeInTheDocument();
+  });
+
+  it("typing in combobox shows matching options", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByRole("combobox"));
+    const input = screen.getByRole("combobox");
+    await user.click(input);
+    await user.type(input, "Sunset");
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Sunset Towers" })).toBeInTheDocument();
+    });
   });
 
   it("shows error when buildings fail to load", async () => {
@@ -77,8 +98,8 @@ describe("BuildingSelectPage", () => {
   it("fetches and shows AGMs when building selected", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
@@ -87,8 +108,8 @@ describe("BuildingSelectPage", () => {
   it("shows Enter Voting button for open AGM", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Enter Voting" })).toBeInTheDocument();
     });
@@ -97,8 +118,8 @@ describe("BuildingSelectPage", () => {
   it("shows View My Submission button for closed AGM", async () => {
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "View My Submission" })).toBeInTheDocument();
     });
@@ -115,8 +136,8 @@ describe("BuildingSelectPage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     // While AGMs are still loading (pending promise)
     await waitFor(() => {
       expect(screen.getByText("Loading General Meetings...")).toBeInTheDocument();
@@ -135,8 +156,8 @@ describe("BuildingSelectPage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => {
       expect(screen.getByText("No General Meetings found for this building.")).toBeInTheDocument();
     });
@@ -146,8 +167,8 @@ describe("BuildingSelectPage", () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => screen.getByRole("button", { name: "Enter Voting" }));
     await user.click(screen.getByRole("button", { name: "Enter Voting" }));
     expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/auth`);
@@ -157,8 +178,8 @@ describe("BuildingSelectPage", () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Select your building"));
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    await waitFor(() => screen.getByRole("combobox"));
+    await selectBuilding(user, "Sunset Towers");
     await waitFor(() => screen.getByRole("button", { name: "View My Submission" }));
     await user.click(screen.getByRole("button", { name: "View My Submission" }));
     expect(mockNavigate).toHaveBeenCalledWith(`/vote/agm-closed-999/auth?view=submission`);

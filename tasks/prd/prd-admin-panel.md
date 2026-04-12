@@ -500,6 +500,87 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ---
 
+### US-UI-FIX-01: Admin and voter header logo fills nav bar
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As a user, I want the tenant logo to be displayed at a comfortable size in both the admin sidebar and the voter header so it is clearly legible without overflowing its container.
+
+**Acceptance Criteria:**
+
+- [ ] The admin sidebar logo (`admin-sidebar__logo`) is rendered at `40px` height with `auto` width
+- [ ] The voter header logo (`app-header__logo`) is rendered at `40px` height with `auto` width
+- [ ] Both logos remain vertically centred within their respective bars
+- [ ] On mobile, neither logo overflows outside its container
+- [ ] Typecheck/lint passes
+
+---
+
+### US-UI-FIX-02: Admin in-person "All answered" badge requires multi-choice interaction
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As an admin entering in-person votes, I want the "All answered" badge on a lot's column header to appear only after I have interacted with every motion — including multi-choice motions — so that I am not misled into thinking I have finished when I have only answered the binary motions.
+
+**Acceptance Criteria:**
+
+- [ ] The "All answered" badge is shown only when every visible motion (binary and multi-choice) has at least one input from the admin
+- [ ] For binary motions: a choice in `For`/`Against`/`Abstain` counts as answered
+- [ ] For multi-choice motions: at least one option must have a `For`/`Against`/`Abstain` selection before the motion counts as answered
+- [ ] A multi-choice motion with no options touched does NOT count as answered for badge purposes
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-03: Admin in-person duplicate submission prevention
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As an admin, I want clear feedback when a lot I am trying to submit votes for already has a submitted ballot, so I can avoid errors and understand why the submission was rejected.
+
+**Acceptance Criteria:**
+
+- [ ] In step 2 of the vote entry grid, if a selected lot's `lot_number` is already in the submitted ballot set, an "Already submitted" badge is shown in that lot's column header
+- [ ] If the backend returns a 409 error on submission, the error message reads: "One or more selected lots already have a submitted ballot. Go back to step 1 and deselect those lots."
+- [ ] Non-409 submission errors continue to display the raw error message
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-04: Admin in-person vote entry success modal
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As an admin, I want a modal confirmation after submitting in-person votes so that I am required to explicitly acknowledge the success and cannot accidentally miss the notification.
+
+**Acceptance Criteria:**
+
+- [ ] After `AdminVoteEntryPanel` calls `onSuccess()`, a modal dialog is shown with the heading "Votes submitted" and body text confirming the votes were recorded
+- [ ] The modal has a single "OK" button that dismisses it
+- [ ] Pressing Escape also dismisses the modal
+- [ ] The previous green banner for this event is removed
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-05: Per-motion drill-down in results report
+
+**Status:** ✅ Implemented — branch: `fix/ui-updates`, committed 2026-04-12
+
+**Description:** As an admin reviewing meeting results, I want to expand individual motions to see the detailed voter list, rather than toggling the entire results section, so I can inspect specific motions without the page collapsing all data at once.
+
+**Acceptance Criteria:**
+
+- [ ] The global "Results Report" collapse/expand toggle is removed; the report is always visible
+- [ ] Each binary motion card has a "▶ Show voters" / "▲ Hide voters" toggle button in its header
+- [ ] Clicking "Show voters" expands an inline voter list for that motion showing: category (For/Against/etc.), lot number, voter email, entitlement (UOE), and submitted-by (Admin/Voter)
+- [ ] Voter lists are collapsed by default; each motion expands independently
+- [ ] Multi-choice motions retain their existing per-option expand/collapse controls
+- [ ] The `aria-expanded` attribute on each toggle button reflects the current state
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ## Non-Goals
 
 - No admin vote entry for meetings that are already closed

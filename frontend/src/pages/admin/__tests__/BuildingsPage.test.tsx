@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -741,4 +741,94 @@ describe("BuildingsPage", () => {
       expect(screen.getByRole("button", { name: /Created At/ }).closest("th")).toHaveAttribute("aria-sort", "descending");
     });
   });
+});
+
+// --- Fix 4: name filter input ---
+
+describe("BuildingsPage — name filter (Fix 4)", () => {
+  it("renders a 'Search buildings' label and text input", async () => {
+    renderPage();
+    // Input is rendered immediately as part of the page header
+    expect(screen.getByLabelText("Search buildings")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Filter by name…")).toBeInTheDocument();
+  });
+
+  it("typing in the name filter updates the input value immediately", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const input = screen.getByLabelText("Search buildings");
+    await user.type(input, "Tower");
+    expect(input).toHaveValue("Tower");
+  });
+
+  it("name_filter URL param pre-populates the filter input on load", () => {
+    renderPage("?name_filter=Alpha");
+    expect(screen.getByLabelText("Search buildings")).toHaveValue("Alpha");
+  });
+
+  it("listBuildings is called with name param when name_filter is in URL", async () => {
+    let capturedName: string | null = null;
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        capturedName = url.searchParams.get("name");
+        return HttpResponse.json([
+          { id: "b1", name: "Alpha Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
+        ]);
+      }),
+      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+        HttpResponse.json({ count: 1 })
+      )
+    );
+    renderPage("?name_filter=Alpha");
+    await waitFor(() => {
+      expect(capturedName).toBe("Alpha");
+    });
+  });
+
+  it("after debounce fires, name_filter URL param is updated", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    const input = screen.getByLabelText("Search buildings");
+    await user.type(input, "To");
+    expect(input).toHaveValue("To");
+    vi.runAllTimers();
+    await waitFor(() => {
+      expect(input).toHaveValue("To");
+    });
+    vi.useRealTimers();
+  }, 10000);
+
+  it("clearing the filter value triggers the empty-string branch (delete name_filter)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage("?name_filter=Tower");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search buildings")).toHaveValue("Tower");
+    });
+    await user.clear(screen.getByLabelText("Search buildings"));
+    expect(screen.getByLabelText("Search buildings")).toHaveValue("");
+    vi.runAllTimers();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search buildings")).toHaveValue("");
+    });
+    vi.useRealTimers();
+  }, 10000);
+
+  it("typing clears any existing debounce timeout (debounceRef.current branch)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    const input = screen.getByLabelText("Search buildings");
+    await user.type(input, "A");
+    vi.advanceTimersByTime(100);
+    await user.type(input, "l");
+    expect(input).toHaveValue("Al");
+    vi.runAllTimers();
+    await waitFor(() => {
+      expect(input).toHaveValue("Al");
+    });
+    vi.useRealTimers();
+  }, 10000);
 });

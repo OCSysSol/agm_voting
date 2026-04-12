@@ -538,6 +538,101 @@ describe("ConfirmationPage", () => {
     });
   });
 
+  // --- Fix 3: multi-choice option_choices per-option coloured rendering ---
+
+  it("Fix 3: renders per-option coloured lines for multi-choice vote with option_choices (For=green)", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              submitter_email: "voter@test.com",
+              proxy_email: null,
+              votes: [
+                {
+                  motion_id: "m1",
+                  motion_title: "Board Election",
+                  display_order: 1,
+                  motion_number: null,
+                  choice: "selected",
+                  eligible: true,
+                  is_multi_choice: true,
+                  selected_options: [],
+                  option_choices: [
+                    { option_id: "oc1", option_text: "Option A", choice: "for" },
+                    { option_id: "oc2", option_text: "Option B", choice: "against" },
+                    { option_id: "oc3", option_text: "Option C", choice: "abstained" },
+                  ],
+                },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Option A")).toBeInTheDocument();
+      expect(screen.getByText("Option B")).toBeInTheDocument();
+      expect(screen.getByText("Option C")).toBeInTheDocument();
+    });
+    // "For" renders as yes class (green)
+    const forSpans = document.querySelectorAll(".vote-item__choice--yes");
+    expect(forSpans.length).toBeGreaterThan(0);
+    // "Against" renders as no class (red)
+    const againstSpans = document.querySelectorAll(".vote-item__choice--no");
+    expect(againstSpans.length).toBeGreaterThan(0);
+    // "Abstained" renders as abstained class
+    const abstainedSpans = document.querySelectorAll(".vote-item__choice--abstained");
+    expect(abstainedSpans.length).toBeGreaterThan(0);
+  });
+
+  it("Fix 3: not_eligible multi-choice renders single 'Not eligible' span", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "in_arrear",
+              submitter_email: "voter@test.com",
+              proxy_email: null,
+              votes: [
+                {
+                  motion_id: "m1",
+                  motion_title: "Board Election",
+                  display_order: 1,
+                  motion_number: null,
+                  choice: "not_eligible",
+                  eligible: false,
+                  is_multi_choice: true,
+                  selected_options: [],
+                  option_choices: [],
+                },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Not eligible")).toBeInTheDocument();
+    });
+  });
+
   it("shows 'Not eligible' for multi_choice not_eligible vote", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>

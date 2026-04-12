@@ -176,7 +176,16 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
                 <td style={{ fontSize: "0.875rem", color: (lo.given_name || lo.surname) ? "inherit" : "var(--text-muted, #888)" }}>
                   {`${lo.given_name ?? ""} ${lo.surname ?? ""}`.trim() || "—"}
                 </td>
-                <td>{(lo.emails ?? []).join(", ")}</td>
+                <td>
+                  {(lo.owner_emails ?? []).map((e) => {
+                    const emailName = `${e.given_name ?? ""} ${e.surname ?? ""}`.trim();
+                    return (
+                      <div key={e.id} style={{ fontSize: "0.875rem" }}>
+                        {emailName ? `${emailName} <${e.email ?? "—"}>` : (e.email ?? "—")}
+                      </div>
+                    );
+                  })}
+                </td>
                 <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
                   {lo.unit_entitlement}
                 </td>

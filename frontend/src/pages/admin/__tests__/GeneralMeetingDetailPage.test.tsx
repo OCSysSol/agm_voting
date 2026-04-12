@@ -174,8 +174,8 @@ describe("GeneralMeetingDetailPage", () => {
   it("renders meeting report view with motions", async () => {
     renderPage();
     await waitFor(() => {
-      // Fix 2: Results Report is now a collapsible section — the heading is inside a toggle button
-      expect(screen.getByRole("button", { name: /Results Report/ })).toBeInTheDocument();
+      // Fix 10: Results Report is always visible as a plain heading (no collapse toggle)
+      expect(screen.getByRole("heading", { name: "Results Report" })).toBeInTheDocument();
     });
     // "Motion 1" appears in both the merged motions table and the report view
     expect(screen.getAllByText(/Motion 1/).length).toBeGreaterThanOrEqual(1);
@@ -2729,7 +2729,7 @@ describe("Admin In-Person Vote Entry", () => {
     });
   });
 
-  it("shows success toast after vote entry panel reports success", async () => {
+  it("Fix 9: closes AdminVoteEntryPanel when Cancel is clicked", async () => {
     const user = userEvent.setup();
     renderPage("agm1");
     await waitFor(() => {
@@ -2739,11 +2739,111 @@ describe("Admin In-Person Vote Entry", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /Enter In-Person Votes/i })).toBeInTheDocument();
     });
-    // Cancel the panel to trigger close without success
+    // Cancel the panel
     const cancelBtn = screen.getByRole("button", { name: "Cancel" });
     await user.click(cancelBtn);
     await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /Enter In-Person Votes/i })).not.toBeInTheDocument();
     });
+    // No success modal shown after cancel
+    expect(screen.queryByRole("dialog", { name: /Votes submitted/i })).not.toBeInTheDocument();
+  });
+
+  it("Fix 9: shows VoteEntrySuccessModal with 'Votes submitted' heading after successful vote entry", async () => {
+    const user = userEvent.setup();
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Enter In-Person Votes" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    // Select a lot and submit
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    // Success modal should appear with "Votes submitted" heading
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Votes submitted" })).toBeInTheDocument();
+    });
+    // No green banner (old behavior)
+    expect(screen.queryByText("In-person votes submitted successfully.")).not.toBeInTheDocument();
+  });
+
+  it("Fix 9: dismisses success modal on OK click", async () => {
+    const user = userEvent.setup();
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Enter In-Person Votes" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Votes submitted" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Votes submitted" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("Fix 9: dismisses success modal on Escape key", async () => {
+    const user = userEvent.setup();
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Enter In-Person Votes" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Votes submitted" })).toBeInTheDocument();
+    });
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Votes submitted" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("Fix 9: Results Report is always visible — no 'Results Report' toggle button", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    // Fix 10: no global toggle button
+    expect(screen.queryByRole("button", { name: /Results Report/ })).not.toBeInTheDocument();
+    // But the heading should be there
+    expect(screen.getByRole("heading", { name: "Results Report" })).toBeInTheDocument();
   });
 });

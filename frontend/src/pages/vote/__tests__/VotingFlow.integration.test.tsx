@@ -51,11 +51,15 @@ describe("Voting Flow Integration", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderApp("/");
 
-    // Wait for buildings to load
-    await waitFor(() => screen.getByLabelText("Select your building"));
+    // Wait for buildings combobox to load
+    await waitFor(() => screen.getByRole("combobox"));
 
-    // Select building
-    await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
+    // Select building via combobox: type name, wait for option, click it
+    const input = screen.getByRole("combobox");
+    await user.click(input);
+    await user.type(input, "Sunset");
+    await waitFor(() => screen.getByRole("option", { name: "Sunset Towers" }));
+    await user.click(screen.getByRole("option", { name: "Sunset Towers" }));
 
     // AGM list should appear
     await waitFor(() => {

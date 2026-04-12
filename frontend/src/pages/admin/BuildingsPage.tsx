@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { listBuildings, getBuildingsCount, createBuilding } from "../../api/admin";
@@ -32,6 +32,30 @@ export default function BuildingsPage() {
   const newBuildingBtnRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
+  // Fix 4: name filter state driven by URL params
+  const nameFilterParam = searchParams.get("name_filter") ?? "";
+  const [nameFilterInput, setNameFilterInput] = useState(nameFilterParam);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced URL update for name filter
+  const handleNameFilterChange = useCallback(
+    (val: string) => {
+      setNameFilterInput(val);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        const next = new URLSearchParams(searchParams);
+        if (val) {
+          next.set("name_filter", val);
+        } else {
+          next.delete("name_filter");
+        }
+        next.delete("page");
+        setSearchParams(next, { replace: true });
+      }, 300);
+    },
+    [searchParams, setSearchParams]
+  );
+
   // US-ACC-02: Focus trap for New Building modal
   useEffect(() => {
     if (!showCreateModal) return;
@@ -53,8 +77,12 @@ export default function BuildingsPage() {
   const sortDir = (searchParams.get("sort_dir") ?? "desc") as SortDir;
 
   const { data: countData } = useQuery<{ count: number }>({
-    queryKey: ["admin", "buildings", "count", showArchived],
-    queryFn: () => getBuildingsCount({ is_archived: showArchived ? undefined : false }),
+    queryKey: ["admin", "buildings", "count", showArchived, nameFilterParam],
+    queryFn: () =>
+      getBuildingsCount({
+        is_archived: showArchived ? undefined : false,
+        name: nameFilterParam || undefined,
+      }),
   });
 
   const totalCount = countData?.count ?? 0;
@@ -62,7 +90,7 @@ export default function BuildingsPage() {
   const safePage = Math.min(page, totalPages);
 
   const { data: buildings = [], isLoading, error } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings", "list", safePage, showArchived, sortBy, sortDir],
+    queryKey: ["admin", "buildings", "list", safePage, showArchived, sortBy, sortDir, nameFilterParam],
     queryFn: () =>
       listBuildings({
         limit: PAGE_SIZE,
@@ -70,6 +98,7 @@ export default function BuildingsPage() {
         is_archived: showArchived ? undefined : false,
         sort_by: sortBy,
         sort_dir: sortDir,
+        name: nameFilterParam || undefined,
       }),
   });
 
@@ -78,7 +107,7 @@ export default function BuildingsPage() {
     const nextOffset = safePage * PAGE_SIZE;
     if (nextOffset < totalCount) {
       void queryClient.prefetchQuery({
-        queryKey: ["admin", "buildings", "list", safePage + 1, showArchived, sortBy, sortDir],
+        queryKey: ["admin", "buildings", "list", safePage + 1, showArchived, sortBy, sortDir, nameFilterParam],
         queryFn: () =>
           listBuildings({
             limit: PAGE_SIZE,
@@ -86,10 +115,11 @@ export default function BuildingsPage() {
             is_archived: showArchived ? undefined : false,
             sort_by: sortBy,
             sort_dir: sortDir,
+            name: nameFilterParam || undefined,
           }),
       });
     }
-  }, [safePage, showArchived, totalCount, queryClient, sortBy, sortDir]);
+  }, [safePage, showArchived, totalCount, queryClient, sortBy, sortDir, nameFilterParam]);
 
   const mutation = useMutation<Building, Error, { name: string; manager_email: string }>({
     mutationFn: (data) => createBuilding(data),
@@ -192,6 +222,18 @@ export default function BuildingsPage() {
       <div className="admin-page-header">
         <h1>Buildings</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {/* Fix 4: name filter input */}
+          <div className="field" style={{ maxWidth: 320, marginBottom: 0 }}>
+            <label className="field__label" htmlFor="buildings-name-filter">Search buildings</label>
+            <input
+              id="buildings-name-filter"
+              className="field__input"
+              type="text"
+              value={nameFilterInput}
+              onChange={(e) => handleNameFilterChange(e.target.value)}
+              placeholder="Filter by name…"
+            />
+          </div>
           <label className="toggle-switch">
             <input
               id="show-archived-toggle"

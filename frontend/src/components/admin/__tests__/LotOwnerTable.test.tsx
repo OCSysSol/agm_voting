@@ -11,7 +11,7 @@ const lotOwners: LotOwner[] = [
     lot_number: "1A",
     given_name: "Alice",
     surname: "Smith",
-    owner_emails: [],
+    owner_emails: [{ id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith" }],
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
     financial_position: "normal",
@@ -25,7 +25,7 @@ const lotOwners: LotOwner[] = [
     lot_number: "2B",
     given_name: null,
     surname: null,
-    owner_emails: [],
+    owner_emails: [{ id: "em2", email: "owner2@example.com", given_name: null, surname: null }],
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
     financial_position: "in_arrear",
@@ -39,7 +39,8 @@ describe("LotOwnerTable", () => {
   it("renders lot owners", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("1A")).toBeInTheDocument();
-    expect(screen.getByText("owner1@example.com")).toBeInTheDocument();
+    // Email column now shows "Name <email>" when name is present
+    expect(screen.getByText("Alice Smith <owner1@example.com>")).toBeInTheDocument();
     expect(screen.getByText("100")).toBeInTheDocument();
     expect(screen.getByText("2B")).toBeInTheDocument();
   });
@@ -156,6 +157,41 @@ describe("LotOwnerTable", () => {
     expect(rows[1].textContent).toContain("2B");
   });
 
+  // --- Sort: Name ---
+
+  it("clicking Name sorts by name ascending", async () => {
+    const user = userEvent.setup();
+    const nameSortLots: LotOwner[] = [
+      { ...lotOwners[1], given_name: "Zelda", surname: "Anders", owner_emails: [] },
+      { ...lotOwners[0], given_name: "Alice", surname: "Smith", owner_emails: [] },
+    ];
+    render(<LotOwnerTable lotOwners={nameSortLots} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Name/ });
+    await user.click(btn);
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows[0].textContent).toContain("Alice");
+    expect(rows[1].textContent).toContain("Zelda");
+  });
+
+  it("clicking Name twice sorts by name descending", async () => {
+    const user = userEvent.setup();
+    const nameSortLots: LotOwner[] = [
+      { ...lotOwners[0], given_name: "Alice", surname: "Smith", owner_emails: [] },
+      { ...lotOwners[1], given_name: "Zelda", surname: "Anders", owner_emails: [] },
+    ];
+    render(<LotOwnerTable lotOwners={nameSortLots} onEdit={() => {}} />);
+    const btn = screen.getByRole("button", { name: /Name/ });
+    await user.click(btn); // asc
+    await user.click(btn); // desc
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "descending");
+    const tbody = document.querySelector("tbody")!;
+    const rows = within(tbody).getAllByRole("row");
+    expect(rows[0].textContent).toContain("Zelda");
+    expect(rows[1].textContent).toContain("Alice");
+  });
+
   // --- Sort: Lot Number ---
 
   it("clicking Lot Number twice toggles to descending order", async () => {
@@ -249,8 +285,16 @@ describe("LotOwnerTable", () => {
     const user = userEvent.setup();
     // Provide reversed order to confirm sorting actually works
     const emailSortLots: LotOwner[] = [
-      { ...lotOwners[1], emails: ["zz@example.com"] }, // 'zz' would sort after 'aa'
-      { ...lotOwners[0], emails: ["aa@example.com"] },
+      {
+        ...lotOwners[1],
+        emails: ["zz@example.com"],
+        owner_emails: [{ id: "em-zz", email: "zz@example.com", given_name: null, surname: null }],
+      }, // 'zz' would sort after 'aa'
+      {
+        ...lotOwners[0],
+        emails: ["aa@example.com"],
+        owner_emails: [{ id: "em-aa", email: "aa@example.com", given_name: null, surname: null }],
+      },
     ];
     render(<LotOwnerTable lotOwners={emailSortLots} onEdit={() => {}} />);
     const btn = screen.getByRole("button", { name: /Email/ });
@@ -265,8 +309,16 @@ describe("LotOwnerTable", () => {
   it("clicking Email twice sorts by email descending", async () => {
     const user = userEvent.setup();
     const emailSortLots: LotOwner[] = [
-      { ...lotOwners[0], emails: ["aa@example.com"] },
-      { ...lotOwners[1], emails: ["zz@example.com"] },
+      {
+        ...lotOwners[0],
+        emails: ["aa@example.com"],
+        owner_emails: [{ id: "em-aa", email: "aa@example.com", given_name: null, surname: null }],
+      },
+      {
+        ...lotOwners[1],
+        emails: ["zz@example.com"],
+        owner_emails: [{ id: "em-zz", email: "zz@example.com", given_name: null, surname: null }],
+      },
     ];
     render(<LotOwnerTable lotOwners={emailSortLots} onEdit={() => {}} />);
     const btn = screen.getByRole("button", { name: /Email/ });
@@ -393,7 +445,7 @@ describe("LotOwnerTable", () => {
       lot_number: `${i + 1}`,
       given_name: null,
       surname: null,
-      owner_emails: [] as LotOwner["owner_emails"],
+      owner_emails: [{ id: `em${i + 1}`, email: `owner${i + 1}@example.com`, given_name: null, surname: null }],
       emails: [`owner${i + 1}@example.com`],
       unit_entitlement: 100,
       financial_position: "normal" as const,
@@ -416,7 +468,7 @@ describe("LotOwnerTable", () => {
       lot_number: `lot-${i + 1}`,
       given_name: null,
       surname: null,
-      owner_emails: [] as LotOwner["owner_emails"],
+      owner_emails: [{ id: `em${i + 1}`, email: `owner${i + 1}@example.com`, given_name: null, surname: null }],
       emails: [`owner${i + 1}@example.com`],
       unit_entitlement: 100,
       financial_position: "normal" as const,
