@@ -497,8 +497,8 @@ function EditModal({
           {proxyEmail ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", fontSize: "0.875rem" }}>
               <span>
-                {(lotOwner.proxy_given_name || lotOwner.proxy_surname)
-                  ? `${lotOwner.proxy_given_name ?? ""} ${lotOwner.proxy_surname ?? ""}`.trim()
+                {(proxyGivenName || proxySurname)
+                  ? `${proxyGivenName} ${proxySurname}`.trim()
                   : <em style={{ color: "var(--text-muted)" }}>— no name —</em>
                 }
                 {" "}

@@ -62,6 +62,14 @@ const CATEGORY_COLORS: Record<string, string> = {
   not_eligible: "var(--text-muted)",
 };
 
+const CHOICE_BG_COLORS: Record<string, string> = {
+  yes: "var(--green-bg)",
+  no: "var(--red-bg)",
+  abstained: "#F0EFEE",
+  absent: "#F0EFEE",
+  not_eligible: "#F0EFEE",
+};
+
 interface MultiChoiceOptionRowsProps {
   optTally: OptionTallyEntry;
   motion: MotionDetail;
@@ -103,20 +111,21 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement, isWinner }:
             <button
               type="button"
               aria-expanded={expanded}
-              aria-label={`${expanded ? "Hide voters" : "Show voters"} for ${optTally.option_text}`}
+              aria-label={`${expanded ? "Hide voting details" : "Show voting details"} for ${optTally.option_text}`}
               onClick={() => setExpanded((v) => !v)}
               style={{
                 marginLeft: "auto",
-                fontSize: "0.75rem",
+                fontSize: "0.8125rem",
+                fontWeight: 600,
                 cursor: "pointer",
                 background: "none",
-                border: "1px solid var(--border, #ccc)",
-                borderRadius: "var(--r-sm, 4px)",
-                padding: "1px 6px",
-                color: "var(--text-muted, #555)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-sm)",
+                padding: "3px 10px",
+                color: "var(--text-secondary)",
               }}
             >
-              {expanded ? "▲ Hide voters" : "▶ Show voters"}
+              {expanded ? "▲ Hide voting details" : "▶ Show voting details"}
             </button>
           </div>
         </td>
@@ -166,42 +175,74 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement, isWinner }:
   );
 }
 
-/** Fix 10: Renders the expanded voter list for a binary motion */
+/** Fix 10: Renders the expanded voter list for a binary motion (Fix 6: tabular layout) */
 function BinaryVoterList({ motion }: { motion: MotionDetail }) {
   const categories = ["yes", "no", "abstained", "absent", "not_eligible"] as const;
+  const rows: Array<{ cat: typeof categories[number]; voter: MotionDetail["voter_lists"]["yes"][number] }> = [];
+  for (const cat of categories) {
+    for (const v of motion.voter_lists[cat] ?? []) {
+      rows.push({ cat, voter: v });
+    }
+  }
+  if (rows.length === 0) {
+    return (
+      <p style={{ padding: "12px 20px", fontSize: "0.875rem", color: "var(--text-muted)" }}>
+        No voter records.
+      </p>
+    );
+  }
   return (
-    <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border-subtle)" }}>
-      {categories.map((cat) => {
-        const voters = motion.voter_lists[cat];
-        if (!voters || voters.length === 0) return null;
-        return (
-          <div key={cat} style={{ marginBottom: 12 }}>
-            <span
-              style={{
-                fontWeight: 600,
-                fontSize: "0.75rem",
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                color: CATEGORY_COLORS[cat],
-                display: "block",
-                marginBottom: 4,
-              }}
-            >
-              {CATEGORY_LABELS[cat]}
-            </span>
-            {voters.map((v) => (
-              <div
-                key={`${cat}-${v.lot_number}-${v.voter_email}`}
-                style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 2 }}
-              >
-                Lot {v.lot_number} — {v.voter_email}
-                {v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
-                {v.submitted_by_admin ? " — Admin" : " — Voter"}
-              </div>
+    <div style={{ padding: "0 0 8px 0", borderTop: "1px solid var(--border-subtle)" }}>
+      <div className="admin-table-wrapper">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Lot #</th>
+              <th>Email</th>
+              <th style={{ textAlign: "right" }}>UOE</th>
+              <th>Submitted By</th>
+              <th>Choice</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ cat, voter }) => (
+              <tr key={`${cat}-${voter.lot_number}-${voter.voter_email}`}>
+                <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
+                  {voter.lot_number ?? "—"}
+                </td>
+                <td style={{ fontSize: "0.875rem" }}>
+                  {voter.voter_email ?? "—"}
+                  {voter.proxy_email && (
+                    <span style={{ marginLeft: 6, fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      (proxy)
+                    </span>
+                  )}
+                </td>
+                <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem", textAlign: "right" }}>
+                  {voter.entitlement}
+                </td>
+                <td style={{ fontSize: "0.875rem" }}>
+                  {voter.submitted_by_admin ? "Admin" : "Voter"}
+                </td>
+                <td>
+                  <span style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    padding: "3px 8px",
+                    borderRadius: "100px",
+                    color: CATEGORY_COLORS[cat],
+                    background: CHOICE_BG_COLORS[cat],
+                  }}>
+                    {CATEGORY_LABELS[cat]}
+                  </span>
+                </td>
+              </tr>
             ))}
-          </div>
-        );
-      })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -343,20 +384,21 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                 <button
                   type="button"
                   aria-expanded={isExpanded}
-                  aria-label={`${isExpanded ? "Collapse" : "Expand"} voter list for ${motion.title}`}
+                  aria-label={`${isExpanded ? "Collapse" : "Expand"} voting details for ${motion.title}`}
                   onClick={() => toggleExpanded(motion.id)}
                   style={{
                     marginLeft: "auto",
-                    fontSize: "0.75rem",
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
                     cursor: "pointer",
                     background: "none",
                     border: "1px solid var(--border)",
                     borderRadius: "var(--r-sm)",
-                    padding: "1px 6px",
-                    color: "var(--text-muted)",
+                    padding: "3px 10px",
+                    color: "var(--text-secondary)",
                   }}
                 >
-                  {isExpanded ? "▲ Hide voters" : "▶ Show voters"}
+                  {isExpanded ? "▲ Hide voting details" : "▶ Show voting details"}
                 </button>
               )}
             </div>

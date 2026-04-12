@@ -581,9 +581,62 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ---
 
+### US-UI-FIX-06: Admin sidebar logo fills sidebar width; voter header logo increased to 100px
+
+**Status:** ✅ Implemented — branch: `fix/ui-minor`, committed 2026-04-12
+
+**Description:** As a user, I want the tenant logo to be prominently displayed in both the admin sidebar and voter header at a size that makes it clearly legible, rather than capped at the old 40px height.
+
+**Acceptance Criteria:**
+
+- [ ] The admin sidebar logo (`admin-sidebar__logo`) fills the sidebar's available content width (`width: 100%; max-width: 100%; height: auto`) so it scales with its own aspect ratio rather than being fixed to 40px height
+- [ ] The voter header logo (`app-header__logo`) is rendered at `100px` height with `auto` width
+- [ ] The voter header (`app-header`) is increased to `120px` height to accommodate the taller logo without clipping
+- [ ] Both logos remain vertically centred within their respective containers
+- [ ] On mobile, neither logo overflows outside its container
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-07: Vote drill-down button renamed to "Show voting details"
+
+**Status:** ✅ Implemented — branch: `fix/ui-minor`, committed 2026-04-12
+
+**Description:** As an admin, I want the expand/collapse button on each binary motion result card to be labelled "Show voting details" / "Hide voting details" so its purpose is unambiguous, and to be visually weighted to match adjacent heading-level controls.
+
+**Acceptance Criteria:**
+
+- [ ] The per-binary-motion toggle button in the Results Report section reads "▶ Show voting details" when collapsed and "▲ Hide voting details" when expanded
+- [ ] The per-option toggle button in multi-choice motion result rows also reads "▶ Show voting details" / "▲ Hide voting details" (previously "Show voters" / "Hide voters")
+- [ ] `aria-label` on each button contains "voting details" rather than "voter list" or "voters"
+- [ ] Button font size is increased from `0.75rem` to `0.8125rem` with padding `3px 10px` (matching `.btn--admin` scale)
+- [ ] Button text colour uses `var(--text-secondary)` rather than `var(--text-muted)` for better contrast
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-08: Vote drill-down shows tabular voter list
+
+**Status:** ✅ Implemented — branch: `fix/ui-minor`, committed 2026-04-12
+
+**Description:** As an admin reviewing meeting results, I want the expanded voter detail section to display voters in an aligned table — with columns for Lot #, Email, UOE, Submitted By, and Choice — so I can scan and compare individual votes quickly.
+
+**Acceptance Criteria:**
+
+- [ ] When a binary motion's voter details are expanded, they are displayed as an `.admin-table` inside an `.admin-table-wrapper`
+- [ ] The table has 5 columns: "Lot #" (monospace), "Email", "UOE" (monospace, right-aligned), "Submitted By", "Choice"
+- [ ] Voters from all categories (For, Against, Abstained, Absent, Not eligible) appear in the same table, each row labelled with a coloured choice badge in the Choice column
+- [ ] Proxy voters show "(proxy)" next to their email address
+- [ ] Admin-submitted ballots show "Admin" in the Submitted By column; voter-submitted ballots show "Voter"
+- [ ] If no voters exist across all categories, a "No voter records." message is shown instead of an empty table
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ## Non-Goals
 
 - No admin vote entry for meetings that are already closed
 - No overriding or amending app-submitted ballots via admin vote entry
 - QR code customisation is limited to the tenant logo in the centre (no colour or style options)
 - Automatically resolving multi-choice ties is not supported (admin must resolve manually)
+- Voter name column in the drill-down table (requires backend query change; tracked as a separate story)

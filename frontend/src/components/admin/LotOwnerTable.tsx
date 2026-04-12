@@ -6,7 +6,7 @@ import type { SortDir } from "./SortableColumnHeader";
 
 const PAGE_SIZE = 25;
 
-type LotOwnerSortColumn = "lot_number" | "name" | "unit_entitlement" | "financial_position" | "email" | "proxy";
+type LotOwnerSortColumn = "lot_number" | "unit_entitlement" | "financial_position" | "email" | "proxy";
 
 interface LotOwnerTableProps {
   lotOwners: LotOwner[];
@@ -60,10 +60,6 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
         cmp = (a.unit_entitlement ?? 0) - (b.unit_entitlement ?? 0);
       } else if (sortState.column === "financial_position") {
         cmp = compareFinancialPosition(a.financial_position, b.financial_position);
-      } else if (sortState.column === "name") {
-        const nameA = `${a.given_name ?? ""} ${a.surname ?? ""}`.trim();
-        const nameB = `${b.given_name ?? ""} ${b.surname ?? ""}`.trim();
-        cmp = nameA.localeCompare(nameB);
       } else if (sortState.column === "email") {
         const emailA = (a.emails ?? [])[0] ?? "";
         const emailB = (b.emails ?? [])[0] ?? "";
@@ -124,12 +120,6 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               onSort={handleSort}
             />
             <SortableColumnHeader
-              label="Name"
-              column="name"
-              currentSort={currentSort}
-              onSort={handleSort}
-            />
-            <SortableColumnHeader
               label="Email"
               column="email"
               currentSort={currentSort}
@@ -159,11 +149,11 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
         <tbody>
           {isLoading && !lotOwners.length ? (
             <tr>
-              <td colSpan={7} className="state-message">Loading lot owners...</td>
+              <td colSpan={6} className="state-message">Loading lot owners...</td>
             </tr>
           ) : lotOwners.length === 0 ? (
             <tr>
-              <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
+              <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
                 No lot owners found.
               </td>
             </tr>
@@ -172,9 +162,6 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               <tr key={lo.id}>
                 <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
                   {lo.lot_number}
-                </td>
-                <td style={{ fontSize: "0.875rem", color: (lo.given_name || lo.surname) ? "inherit" : "var(--text-muted, #888)" }}>
-                  {`${lo.given_name ?? ""} ${lo.surname ?? ""}`.trim() || "—"}
                 </td>
                 <td>
                   {(lo.owner_emails ?? []).map((e) => {

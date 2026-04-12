@@ -74,7 +74,7 @@ button, input, select, textarea {
 
 .app-header {
   background: var(--color-primary);
-  height: 56px;
+  height: 120px;
   padding: 0 24px;
   display: flex;
   align-items: center;
@@ -104,7 +104,7 @@ button, input, select, textarea {
 }
 
 .app-header__logo {
-  height: 40px;
+  height: 100px;
   width: auto;
   display: block;
   object-fit: contain;
@@ -1384,8 +1384,9 @@ button, input, select, textarea {
 }
 
 .admin-sidebar__logo {
-  height: 40px;
-  width: auto;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
   display: block;
   object-fit: contain;
   margin-bottom: 6px;

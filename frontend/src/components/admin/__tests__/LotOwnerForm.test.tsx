@@ -903,6 +903,101 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     });
   });
 
+  // --- Fix 3: proxy name shown immediately after first save (stale prop bug) ---
+
+  it("Fix 3: proxy name is shown immediately after first save without waiting for cache refetch", async () => {
+    const user = userEvent.setup();
+    // Use a lot owner with a named email (so "— no name —" won't appear from owner section)
+    const lotWithNamedEmail: LotOwner = {
+      ...lotOwnerWithoutProxy,
+      owner_emails: [{ id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith" }],
+    };
+    // Override the MSW handler so it returns proxy_given_name and proxy_surname
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+        const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
+        const updated: LotOwner = {
+          ...lotWithNamedEmail,
+          id: params.lotOwnerId as string,
+          proxy_email: body?.proxy_email ?? null,
+          proxy_given_name: body?.given_name ?? null,
+          proxy_surname: body?.surname ?? null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    renderEditForm(lotWithNamedEmail);
+    await user.type(screen.getByLabelText("Proxy given name"), "Jane");
+    await user.type(screen.getByLabelText("Proxy surname"), "Doe");
+    await user.type(screen.getByLabelText("Set proxy email"), "jane@proxy.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    // After mutation resolves, the proxy display should show the name immediately
+    // (from local state, not the stale lotOwner prop)
+    await waitFor(() => {
+      expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    });
+    // The proxy section shows Remove proxy (not Set proxy), confirming it used local state
+    expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
+  });
+
+  it("Fix 3: proxy name shown correctly on second save too (regression check)", async () => {
+    const user = userEvent.setup();
+    // Use a lot owner with a named email so "— no name —" won't confuse assertions
+    const lotWithNamedEmail: LotOwner = {
+      ...lotOwnerWithoutProxy,
+      owner_emails: [{ id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith" }],
+    };
+    // Override PUT proxy handler to echo back the names
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+        const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
+        const updated: LotOwner = {
+          ...lotWithNamedEmail,
+          id: params.lotOwnerId as string,
+          proxy_email: body?.proxy_email ?? null,
+          proxy_given_name: body?.given_name ?? null,
+          proxy_surname: body?.surname ?? null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    // Override DELETE proxy handler to succeed
+    server.use(
+      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", ({ params }) => {
+        const updated: LotOwner = {
+          ...lotWithNamedEmail,
+          id: params.lotOwnerId as string,
+          proxy_email: null,
+          proxy_given_name: null,
+          proxy_surname: null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    renderEditForm(lotWithNamedEmail);
+    await user.type(screen.getByLabelText("Proxy given name"), "Jane");
+    await user.type(screen.getByLabelText("Proxy surname"), "Doe");
+    await user.type(screen.getByLabelText("Set proxy email"), "jane@proxy.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    });
+    // Remove proxy to reset to the set-proxy form
+    await user.click(screen.getByRole("button", { name: "Remove proxy" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
+    });
+    // Second save with a different name
+    await user.type(screen.getByLabelText("Proxy given name"), "Bob");
+    await user.type(screen.getByLabelText("Proxy surname"), "Smith");
+    await user.type(screen.getByLabelText("Set proxy email"), "bob@proxy.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("Bob Smith")).toBeInTheDocument();
+      expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    });
+  });
+
   // --- UX fix: No changes detected suppressed when emails modified (Issue A) ---
 
   it("calls onSuccess instead of showing 'No changes detected' after adding an email", async () => {

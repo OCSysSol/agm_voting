@@ -556,8 +556,8 @@ describe("AGMReportView", () => {
     expect(screen.getByText("Bob")).toBeInTheDocument();
     // For/Against now appear in header counts — the important check is that binary row cells
     // (separate <tr> for For/Against) are NOT rendered; only option rows appear.
-    // Verify the per-option Show voters buttons are present
-    expect(screen.getAllByRole("button", { name: /Show voters for/ }).length).toBeGreaterThan(0);
+    // Verify the per-option Show voting details buttons are present
+    expect(screen.getAllByRole("button", { name: /Show voting details for/ }).length).toBeGreaterThan(0);
   });
 
   it("CSV export uses MC format when is_multi_choice=true and motion_type='general'", async () => {
@@ -664,10 +664,9 @@ describe("AGMReportView", () => {
 
   // --- Slice 10: Expand/Collapse For/Against/Abstained sub-rows (US-MC-ADMIN-01) ---
 
-  it("shows 'Show voters' button for multi-choice option rows (Fix 3)", () => {
+  it("shows 'Show voting details' button for multi-choice option rows (Fix 3)", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    // Fix 3: button text changed from "Expand" to "Show voters"
-    const showVotersButtons = screen.getAllByRole("button", { name: /Show voters for/ });
+    const showVotersButtons = screen.getAllByRole("button", { name: /Show voting details for/ });
     expect(showVotersButtons).toHaveLength(2);
   });
 
@@ -686,10 +685,10 @@ describe("AGMReportView", () => {
     expect(screen.queryByText(/voter3@example\.com/)).not.toBeInTheDocument();
   });
 
-  it("clicking 'Show voters' reveals voter list (Fix 3)", async () => {
+  it("clicking 'Show voting details' reveals voter list (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const showBtn = screen.getAllByRole("button", { name: /Show voters for Alice/ })[0];
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
     await user.click(showBtn);
     // Voter list should now be visible
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
@@ -697,14 +696,14 @@ describe("AGMReportView", () => {
     expect(screen.getByText(/voter3@example\.com/)).toBeInTheDocument();
   });
 
-  it("clicking 'Show voters' then 'Hide voters' hides voter list again (Fix 3)", async () => {
+  it("clicking 'Show voting details' then 'Hide voting details' hides voter list again (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const showBtn = screen.getAllByRole("button", { name: /Show voters for Alice/ })[0];
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
     await user.click(showBtn);
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
     // Click hide button
-    const hideBtn = screen.getAllByRole("button", { name: /Hide voters for Alice/ })[0];
+    const hideBtn = screen.getAllByRole("button", { name: /Hide voting details for Alice/ })[0];
     await user.click(hideBtn);
     expect(screen.queryByText(/voter1@example\.com/)).not.toBeInTheDocument();
   });
@@ -712,7 +711,7 @@ describe("AGMReportView", () => {
   it("expanded section shows abstained voter list when present (Fix 3)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    const showBtn = screen.getAllByRole("button", { name: /Show voters for Bob/ })[0];
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Bob/ })[0];
     await user.click(showBtn);
     // Bob has abstained voter (voter4@example.com)
     expect(screen.getByText(/voter4@example\.com/)).toBeInTheDocument();
@@ -981,9 +980,10 @@ describe("AGMReportView", () => {
 
   // --- Fix 10: per-binary-motion voter drill-down ---
 
-  it("Fix 10: binary motion shows '▶ Show voters' expand button", () => {
+  it("Fix 10: binary motion shows '▶ Show voting details' expand button", () => {
     render(<AGMReportView motions={[motions[0]]} />);
-    expect(screen.getByRole("button", { name: /Expand voter list for Motion 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Expand voting details for Motion 1/ })).toBeInTheDocument();
+    expect(screen.getByText("▶ Show voting details")).toBeInTheDocument();
   });
 
   it("Fix 10: voter list is hidden before expand button is clicked", () => {
@@ -992,30 +992,30 @@ describe("AGMReportView", () => {
     expect(screen.queryByText("voter1@example.com")).not.toBeInTheDocument();
   });
 
-  it("Fix 10: clicking expand reveals binary voter list", async () => {
+  it("Fix 10: clicking expand reveals binary voter list as table", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[motions[0]]} />);
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 1/ }));
-    // voter1 and voter3 are in For/Against categories — text includes email + entitlement
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // voter1 and voter3 are in For/Against categories — visible in table rows
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
     expect(screen.getByText(/voter3@example\.com/)).toBeInTheDocument();
   });
 
-  it("Fix 10: button label changes to 'Collapse voter list' after expanding", async () => {
+  it("Fix 10: button label changes to 'Collapse voting details' after expanding", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[motions[0]]} />);
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 1/ }));
-    expect(screen.getByRole("button", { name: /Collapse voter list for Motion 1/ })).toBeInTheDocument();
-    expect(screen.getByText("▲ Hide voters")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    expect(screen.getByRole("button", { name: /Collapse voting details for Motion 1/ })).toBeInTheDocument();
+    expect(screen.getByText("▲ Hide voting details")).toBeInTheDocument();
   });
 
   it("Fix 10: clicking collapse hides voter list again (toggleExpanded toggles off)", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[motions[0]]} />);
-    const btn = screen.getByRole("button", { name: /Expand voter list for Motion 1/ });
+    const btn = screen.getByRole("button", { name: /Expand voting details for Motion 1/ });
     await user.click(btn); // expand
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
-    const collapseBtn = screen.getByRole("button", { name: /Collapse voter list for Motion 1/ });
+    const collapseBtn = screen.getByRole("button", { name: /Collapse voting details for Motion 1/ });
     await user.click(collapseBtn); // collapse
     expect(screen.queryByText(/voter1@example\.com/)).not.toBeInTheDocument();
   });
@@ -1024,25 +1024,25 @@ describe("AGMReportView", () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={motions} />);
     // Expand motion 1
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 1/ }));
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
     // Expand motion 2
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 2/ }));
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 2/ }));
     // Both voter lists shown
     expect(screen.getAllByText(/voter1@example\.com/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("Fix 10: multi-choice motions do NOT get an expand/collapse button", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    // The per-option "Show voters" buttons exist, but NOT the binary voter-list expand button
-    // Binary expand button aria-label format: "Expand voter list for <title>"
-    expect(screen.queryByRole("button", { name: /Expand voter list for Board Election/ })).not.toBeInTheDocument();
+    // The per-option "Show voting details" buttons exist, but NOT the binary voter-list expand button
+    // Binary expand button aria-label format: "Expand voting details for <title>"
+    expect(screen.queryByRole("button", { name: /Expand voting details for Board Election/ })).not.toBeInTheDocument();
   });
 
   it("Fix 10: absent voters appear in expanded voter list", async () => {
     const user = userEvent.setup();
     render(<AGMReportView motions={[motions[0]]} />);
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 1/ }));
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
     // Absent voters in motions[0]: voter4 and voter5
     expect(screen.getByText(/voter4@example\.com/)).toBeInTheDocument();
     expect(screen.getByText(/voter5@example\.com/)).toBeInTheDocument();
@@ -1052,8 +1052,146 @@ describe("AGMReportView", () => {
     const user = userEvent.setup();
     // motions[0].voter_lists.abstained is [] — should not render that category
     render(<AGMReportView motions={[motions[0]]} />);
-    await user.click(screen.getByRole("button", { name: /Expand voter list for Motion 1/ }));
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
     // No error thrown; voter list renders for non-empty categories only
     expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
+  });
+
+  // --- Fix 4: renamed button labels ---
+
+  it("Fix 4: binary motion expand button shows 'Show voting details' text", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    expect(screen.getByText("▶ Show voting details")).toBeInTheDocument();
+  });
+
+  it("Fix 4: after expand binary motion button shows 'Hide voting details' text", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[motions[0]]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    expect(screen.getByText("▲ Hide voting details")).toBeInTheDocument();
+  });
+
+  it("Fix 4: aria-expanded is false before clicking binary expand button", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    const btn = screen.getByRole("button", { name: /Expand voting details for Motion 1/ });
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Fix 4: aria-expanded is true after clicking binary expand button", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[motions[0]]} />);
+    const btn = screen.getByRole("button", { name: /Expand voting details for Motion 1/ });
+    await user.click(btn);
+    // After click the button gets new aria-label "Collapse voting details for..."
+    const collapseBtn = screen.getByRole("button", { name: /Collapse voting details for Motion 1/ });
+    expect(collapseBtn).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("Fix 4: multi-choice option button shows 'Show voting details' text", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtns = screen.getAllByText("▶ Show voting details");
+    expect(showBtns.length).toBeGreaterThan(0);
+  });
+
+  // --- Fix 6: tabular BinaryVoterList ---
+
+  it("Fix 6: expanded binary motion shows admin-table with correct headers", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<AGMReportView motions={[motions[0]]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    const table = container.querySelector(".admin-table-wrapper .admin-table");
+    expect(table).not.toBeNull();
+    expect(screen.getByText("Lot #")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByText("UOE")).toBeInTheDocument();
+    expect(screen.getByText("Submitted By")).toBeInTheDocument();
+    expect(screen.getByText("Choice")).toBeInTheDocument();
+  });
+
+  it("Fix 6: voter row contains lot number, email, entitlement, Voter label, and choice badge", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[motions[0]]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // voter1@example.com is a For voter in lot L1 with entitlement 100
+    expect(screen.getByText("voter1@example.com")).toBeInTheDocument();
+    expect(screen.getAllByText("L1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("100").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Voter").length).toBeGreaterThan(0);
+    // Check choice badge text (For)
+    const forBadges = screen.getAllByText("For");
+    expect(forBadges.length).toBeGreaterThan(0);
+  });
+
+  it("Fix 6: proxy voter shows (proxy) indicator next to email", async () => {
+    const user = userEvent.setup();
+    const motionWithProxy: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        ...motions[0].voter_lists,
+        yes: [{ voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" }],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+      },
+    };
+    render(<AGMReportView motions={[motionWithProxy]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    expect(screen.getByText("(proxy)")).toBeInTheDocument();
+  });
+
+  it("Fix 6: admin-submitted ballot shows 'Admin' in Submitted By column", async () => {
+    const user = userEvent.setup();
+    const motionWithAdmin: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        ...motions[0].voter_lists,
+        yes: [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+      },
+    };
+    render(<AGMReportView motions={[motionWithAdmin]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("Fix 6: empty voter lists show 'No voter records.' message", async () => {
+    const user = userEvent.setup();
+    const emptyMotion: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        yes: [],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options: {},
+      },
+    };
+    render(<AGMReportView motions={[emptyMotion]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    expect(screen.getByText("No voter records.")).toBeInTheDocument();
+  });
+
+  it("Fix 6: not_eligible voter shows 'Not eligible' choice badge", async () => {
+    const user = userEvent.setup();
+    const motionWithNotEligible: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        yes: [],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [{ voter_email: "ne@example.com", lot_number: "L1", entitlement: 50 }],
+        options: {},
+      },
+    };
+    render(<AGMReportView motions={[motionWithNotEligible]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // Multiple "Not eligible" text nodes may exist (tally row + badge) — assert at least one is present
+    expect(screen.getAllByText("Not eligible").length).toBeGreaterThan(0);
   });
 });

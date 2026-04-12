@@ -588,6 +588,37 @@ This document covers all building management, lot owner management, CSV/Excel im
 
 ---
 
+### US-UI-FIX-11: Remove redundant "Name" column from lot owner table
+
+**Status:** ✅ Implemented — branch: `fix/ui-minor`, committed 2026-04-12
+
+**Description:** As an admin viewing the building detail page, I want the lot owner table to display owner names inline with each email address rather than in a separate Name column, reducing visual redundancy.
+
+**Acceptance Criteria:**
+
+- [ ] The "Name" column is removed from the admin lot owner table (building detail page)
+- [ ] The table has 6 columns: Lot Number, Email, Unit Entitlement, Financial Position, Proxy, Actions
+- [ ] Owner names continue to appear inline with each email entry in the Email column (format: "Given Surname <email>")
+- [ ] The Name sort option is no longer present
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-UI-FIX-12: Proxy name displayed immediately after first save
+
+**Status:** ✅ Implemented — branch: `fix/ui-minor`, committed 2026-04-12
+
+**Description:** As a building manager, I want the proxy name to appear immediately after I save a new proxy nomination — without needing to close and reopen the edit modal — so I can confirm the save was successful at a glance.
+
+**Acceptance Criteria:**
+
+- [ ] After clicking "Set proxy" with a proxy given name, surname, and email, the proxy display section shows `"Given Surname email"` immediately (in the same render cycle, without waiting for the React Query cache to refetch)
+- [ ] The placeholder "— no name —" is not shown after a successful first save that included a name
+- [ ] The behaviour is consistent for subsequent saves (already worked before; must not regress)
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ## Functional Requirements
 
 - FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form or bulk-created/updated via CSV or Excel upload. Building names must be globally unique (case-insensitive).

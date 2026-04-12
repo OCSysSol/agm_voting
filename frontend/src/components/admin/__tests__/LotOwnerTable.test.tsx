@@ -81,6 +81,29 @@ describe("LotOwnerTable", () => {
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
+  it("does not render a Name column header", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Name/ })).not.toBeInTheDocument();
+  });
+
+  it("renders exactly 6 column headers (Lot Number, Email, Unit Entitlement, Financial Position, Proxy, Actions)", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    const ths = document.querySelectorAll("thead th");
+    expect(ths).toHaveLength(6);
+  });
+
+  it("loading row colSpan is 6", () => {
+    const { container } = render(<LotOwnerTable lotOwners={[]} onEdit={() => {}} isLoading={true} />);
+    const td = container.querySelector("tbody td");
+    expect(td).toHaveAttribute("colSpan", "6");
+  });
+
+  it("empty state row colSpan is 6", () => {
+    const { container } = render(<LotOwnerTable lotOwners={[]} onEdit={() => {}} />);
+    const td = container.querySelector("tbody td");
+    expect(td).toHaveAttribute("colSpan", "6");
+  });
+
   it("shows In Arrear badge for in_arrear lot owner", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("In Arrear")).toBeInTheDocument();
@@ -155,41 +178,6 @@ describe("LotOwnerTable", () => {
     // First row should be lot 1A (natural sort 1A < 2B)
     expect(rows[0].textContent).toContain("1A");
     expect(rows[1].textContent).toContain("2B");
-  });
-
-  // --- Sort: Name ---
-
-  it("clicking Name sorts by name ascending", async () => {
-    const user = userEvent.setup();
-    const nameSortLots: LotOwner[] = [
-      { ...lotOwners[1], given_name: "Zelda", surname: "Anders", owner_emails: [] },
-      { ...lotOwners[0], given_name: "Alice", surname: "Smith", owner_emails: [] },
-    ];
-    render(<LotOwnerTable lotOwners={nameSortLots} onEdit={() => {}} />);
-    const btn = screen.getByRole("button", { name: /Name/ });
-    await user.click(btn);
-    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
-    const tbody = document.querySelector("tbody")!;
-    const rows = within(tbody).getAllByRole("row");
-    expect(rows[0].textContent).toContain("Alice");
-    expect(rows[1].textContent).toContain("Zelda");
-  });
-
-  it("clicking Name twice sorts by name descending", async () => {
-    const user = userEvent.setup();
-    const nameSortLots: LotOwner[] = [
-      { ...lotOwners[0], given_name: "Alice", surname: "Smith", owner_emails: [] },
-      { ...lotOwners[1], given_name: "Zelda", surname: "Anders", owner_emails: [] },
-    ];
-    render(<LotOwnerTable lotOwners={nameSortLots} onEdit={() => {}} />);
-    const btn = screen.getByRole("button", { name: /Name/ });
-    await user.click(btn); // asc
-    await user.click(btn); // desc
-    expect(btn.closest("th")).toHaveAttribute("aria-sort", "descending");
-    const tbody = document.querySelector("tbody")!;
-    const rows = within(tbody).getAllByRole("row");
-    expect(rows[0].textContent).toContain("Zelda");
-    expect(rows[1].textContent).toContain("Alice");
   });
 
   // --- Sort: Lot Number ---
