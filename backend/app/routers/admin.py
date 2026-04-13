@@ -743,7 +743,8 @@ async def close_general_meeting(
     admin_close_limiter.check("admin")
     meeting = await admin_service.close_general_meeting(general_meeting_id, db)
     email_service = EmailService()
-    background_tasks.add_task(email_service.trigger_with_retry, meeting.id)
+    base_url = str(request.base_url).rstrip("/")
+    background_tasks.add_task(email_service.trigger_with_retry, meeting.id, base_url)
     return GeneralMeetingCloseOut(
         id=meeting.id,
         status=meeting.status.value if hasattr(meeting.status, "value") else meeting.status,
@@ -767,13 +768,15 @@ async def delete_general_meeting_endpoint(
     response_model=ResendReportOut,
 )
 async def resend_report(
+    request: Request,
     general_meeting_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> ResendReportOut:
     result = await admin_service.resend_report(general_meeting_id, db)
     email_service = EmailService()
-    background_tasks.add_task(email_service.trigger_with_retry, general_meeting_id)
+    base_url = str(request.base_url).rstrip("/")
+    background_tasks.add_task(email_service.trigger_with_retry, general_meeting_id, base_url)
     return ResendReportOut(**result)
 
 

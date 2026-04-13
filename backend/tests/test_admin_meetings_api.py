@@ -5817,7 +5817,7 @@ class TestEmailFailureDuringClose:
 
         email_service = EmailService()
 
-        async def _failing_send_report(_agm_id, _db):
+        async def _failing_send_report(_agm_id, _db, _base_url=""):
             raise Exception("SMTP timeout")
 
         sleep_count = 0
@@ -5902,7 +5902,7 @@ class TestEmailFailureDuringClose:
 
         email_service = EmailService()
 
-        async def _always_fail(_agm_id, _db):
+        async def _always_fail(_agm_id, _db, _base_url=""):
             raise Exception("Final SMTP failure")
 
         with (

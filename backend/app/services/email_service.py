@@ -138,12 +138,17 @@ async def send_otp_email(to_email: str, meeting_title: str, code: str, db: Async
 
 
 class EmailService:
-    async def send_report(self, agm_id: uuid.UUID, db: AsyncSession) -> None:
+    async def send_report(self, agm_id: uuid.UUID, db: AsyncSession, base_url: str = "") -> None:
         """
         Attempt to send the results report email for the given AGM.
 
         Fetches AGM data, renders HTML template, sends via Resend SDK,
         and updates the EmailDelivery record on success or failure.
+
+        base_url: the scheme+host of the originating request (e.g.
+        "https://vms-demo.ocss.tech"). Used to build the "View Full Results"
+        link so the link works in the deployed environment rather than
+        defaulting to settings.allowed_origin (which is localhost in dev).
         """
         log = logger.bind(agm_id=str(agm_id))
 
@@ -174,7 +179,7 @@ class EmailService:
         manager_email: str = building.manager_email
 
         # Render template
-        meeting_url = f"{settings.allowed_origin}/admin/general-meetings/{agm_id}"
+        meeting_url = f"{base_url.rstrip('/')}/admin/general-meetings/{agm_id}"
         env = _get_jinja_env()
         template = env.get_template("report_email.html")
         html_body = template.render(
@@ -218,7 +223,7 @@ class EmailService:
         log.info("email_send_completed", agm_id=str(agm_id), to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
         log.info("email_sent", to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
 
-    async def trigger_with_retry(self, agm_id: uuid.UUID) -> None:
+    async def trigger_with_retry(self, agm_id: uuid.UUID, base_url: str = "") -> None:
         """
         Background task: attempt delivery with exponential backoff.
         Max 30 attempts. Delays: 2^attempt seconds, capped at 3600s.
@@ -231,6 +236,9 @@ class EmailService:
         concurrent Lambda cold-start or an HTTP retry) already holds the lock
         for this agm_id, this invocation exits immediately — preventing
         duplicate email sends.
+
+        base_url: passed through to send_report to construct the "View Full
+        Results" link. See send_report for details.
         """
         session_factory = _make_session_factory()
         attempt_number = 0
@@ -289,7 +297,7 @@ class EmailService:
                     current_attempt = delivery.total_attempts + 1
 
                     try:
-                        await self.send_report(agm_id, db)
+                        await self.send_report(agm_id, db, base_url)
 
                         # Success
                         delivery.status = EmailDeliveryStatus.delivered

@@ -472,7 +472,7 @@ class TestSendReport:
 
         service = EmailService()
         # Should not raise
-        await service.send_report(agm.id, db_session)
+        await service.send_report(agm.id, db_session, "https://example.com")
 
         mock_send.assert_called_once()
         # First positional arg is the MIMEMultipart message object
@@ -508,7 +508,7 @@ class TestSendReport:
         )
 
         service = EmailService()
-        await service.send_report(agm.id, db_session)
+        await service.send_report(agm.id, db_session, "https://example.com")
 
         call_kwargs = mock_send.call_args[1]
         assert call_kwargs["hostname"] == "smtp.example.com"
@@ -538,7 +538,7 @@ class TestSendReport:
 
         service = EmailService()
         with pytest.raises(Exception, match="SMTP error"):
-            await service.send_report(agm.id, db_session)
+            await service.send_report(agm.id, db_session, "https://example.com")
 
     async def test_send_report_agm_not_found_raises(self, db_session: AsyncSession, mocker):
         """GeneralMeeting not found → get_agm_detail raises HTTPException(404)."""
@@ -547,7 +547,7 @@ class TestSendReport:
 
         service = EmailService()
         with pytest.raises(HTTPException) as exc_info:
-            await service.send_report(uuid.uuid4(), db_session)
+            await service.send_report(uuid.uuid4(), db_session, "https://example.com")
         assert exc_info.value.status_code == 404
 
     async def test_send_report_no_manager_email_raises(self, db_session: AsyncSession, mocker):
@@ -572,7 +572,7 @@ class TestSendReport:
 
         service = EmailService()
         with pytest.raises(ValueError, match="no manager_email"):
-            await service.send_report(agm.id, db_session)
+            await service.send_report(agm.id, db_session, "https://example.com")
 
     async def test_send_report_with_null_motion_description(self, db_session: AsyncSession, mocker):
         """Motion with null description → template renders without error."""
@@ -591,8 +591,63 @@ class TestSendReport:
         mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
         mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
         service = EmailService()
-        await service.send_report(agm.id, db_session)
+        await service.send_report(agm.id, db_session, "https://example.com")
         mock_send.assert_called_once()
+
+    async def test_send_report_uses_base_url_in_meeting_link(self, db_session: AsyncSession, mocker):
+        """send_report builds the meeting_url from the provided base_url, not settings.allowed_origin."""
+        building = await _create_building(db_session, manager_email="mgr@example.com")
+        agm = await _create_agm(db_session, building)
+        await _create_motion(db_session, agm)
+        await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
+
+        service = EmailService()
+        await service.send_report(agm.id, db_session, "https://vms-demo.ocss.tech")
+
+        mock_send.assert_called_once()
+        msg = mock_send.call_args[0][0]
+        html_part = msg.get_payload()[0].get_payload()
+        expected_url = f"https://vms-demo.ocss.tech/admin/general-meetings/{agm.id}"
+        assert expected_url in html_part
+
+    async def test_send_report_base_url_trailing_slash_stripped(self, db_session: AsyncSession, mocker):
+        """Trailing slash on base_url is stripped so the meeting URL is well-formed."""
+        building = await _create_building(db_session, manager_email="mgr@example.com")
+        agm = await _create_agm(db_session, building)
+        await _create_motion(db_session, agm)
+        await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
+
+        service = EmailService()
+        # Pass base_url with a trailing slash — should still produce a clean URL
+        await service.send_report(agm.id, db_session, "https://vms-demo.ocss.tech/")
+
+        mock_send.assert_called_once()
+        msg = mock_send.call_args[0][0]
+        html_part = msg.get_payload()[0].get_payload()
+        expected_url = f"https://vms-demo.ocss.tech/admin/general-meetings/{agm.id}"
+        assert expected_url in html_part
+        # Confirm there is no double-slash in the path
+        assert "//admin" not in html_part
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +684,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -674,7 +729,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -708,7 +763,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.failed
@@ -752,7 +807,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         await db_session.refresh(delivery)
         # Must fail immediately — no retries
@@ -784,7 +839,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         mock_send.assert_not_called()
 
@@ -809,7 +864,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         mock_send.assert_not_called()
 
@@ -827,7 +882,7 @@ class TestTriggerWithRetry:
 
         service = EmailService()
         # Should not raise
-        await service.trigger_with_retry(uuid.uuid4())
+        await service.trigger_with_retry(uuid.uuid4(), "https://example.com")
         mock_send.assert_not_called()
 
     # --- Exponential backoff ---
@@ -867,7 +922,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         # 3 failures → 3 sleep calls with delays 2^1=2, 2^2=4, 2^3=8
         sleep_calls = [c.args[0] for c in sleep_mock.call_args_list]
@@ -918,7 +973,7 @@ class TestTriggerWithRetry:
             pass
 
         # Just verify the call succeeds without error
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -976,8 +1031,8 @@ class TestTriggerWithRetry:
         service = EmailService()
         # Run two concurrent invocations
         await asyncio.gather(
-            service.trigger_with_retry(agm.id),
-            service.trigger_with_retry(agm.id),
+            service.trigger_with_retry(agm.id, "https://example.com"),
+            service.trigger_with_retry(agm.id, "https://example.com"),
         )
 
         # Exactly one send should have occurred
@@ -1008,7 +1063,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         mock_send.assert_not_called()
 
@@ -1048,7 +1103,7 @@ class TestTriggerWithRetry:
         )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, "https://example.com")
 
         # After success on attempt 2, next_retry_at should be None
         await db_session.refresh(delivery)
@@ -1315,7 +1370,7 @@ class TestCloseAgmEmailIntegration:
         assert delivery.status == EmailDeliveryStatus.pending
 
         # trigger_with_retry should have been scheduled via BackgroundTasks
-        trigger_mock.assert_called_once_with(agm.id)
+        trigger_mock.assert_called_once_with(agm.id, "http://test")
 
     async def test_resend_report_triggers_email(
         self, client: AsyncClient, db_session: AsyncSession, mocker
@@ -1361,7 +1416,7 @@ class TestCloseAgmEmailIntegration:
         assert delivery.total_attempts == 0
 
         # trigger_with_retry should have been scheduled via BackgroundTasks
-        trigger_mock.assert_called_once_with(agm.id)
+        trigger_mock.assert_called_once_with(agm.id, "http://test")
 
     async def test_resend_report_succeeds_when_already_delivered(
         self, client: AsyncClient, db_session: AsyncSession, mocker
