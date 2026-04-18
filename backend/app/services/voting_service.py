@@ -24,6 +24,7 @@ from app.models.lot_proxy import LotProxy
 from app.models.motion import Motion, MotionType
 from app.models.motion_option import MotionOption
 from app.models.vote import Vote, VoteChoice, VoteStatus
+from app.schemas.shared import MotionOptionOut
 from app.schemas.voting import (
     BallotOptionChoiceItem,
     BallotVoteItem,
@@ -787,9 +788,8 @@ async def get_my_ballot(
                                 )
                             )
                             if vote.choice == VoteChoice.selected and opt is not None:
-                                from app.schemas.admin import MotionOptionOut as AdminMotionOptionOut
                                 existing_item.selected_options.append(
-                                    AdminMotionOptionOut(
+                                    MotionOptionOut(
                                         id=opt.id,
                                         text=opt.text,
                                         display_order=opt.display_order,
@@ -798,7 +798,6 @@ async def get_my_ballot(
                     continue
                 seen_motion_ids.add(motion.id)
                 # Create the BallotVoteItem with per-option choices
-                from app.schemas.admin import MotionOptionOut as AdminMotionOptionOut
                 selected_opts = []
                 initial_option_choices = []
                 if vote.motion_option_id is not None:
@@ -807,7 +806,7 @@ async def get_my_ballot(
                         choice_str = "for"
                         if opt is not None:
                             selected_opts.append(
-                                AdminMotionOptionOut(
+                                MotionOptionOut(
                                     id=opt.id,
                                     text=opt.text,
                                     display_order=opt.display_order,

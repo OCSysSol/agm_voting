@@ -897,9 +897,9 @@ async def _upsert_lot_owners(
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
-    new_lot_numbers: set[str] = set(lot_data.keys())
-
-    # Upsert: update existing, insert new
+    # Upsert: update existing, insert new — never delete absent lots.
+    # Deleting lots absent from the import would cascade-delete AGMLotWeight
+    # records and destroy historical vote tallies for existing AGMs.
     for lot_number, data in lot_data.items():
         if lot_number in existing:
             lo = existing[lot_number]
@@ -941,11 +941,6 @@ async def _upsert_lot_owners(
                         given_name=entry["given_name"],
                         surname=entry["surname"],
                     ))
-
-    # Delete lot owners that are no longer in the import
-    for lot_number, lo in existing.items():
-        if lot_number not in new_lot_numbers:
-            await db.delete(lo)
 
     await db.commit()
 

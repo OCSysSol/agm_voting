@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.models.motion import MotionType
 from app.models.vote import VoteChoice
-from app.schemas.admin import MotionOptionOut
+from app.schemas.shared import MotionOptionOut
 
 
 class MotionOut(BaseModel):

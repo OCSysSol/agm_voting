@@ -693,9 +693,14 @@ class TestImportLotOwners:
         assert data["imported"] == 1
         assert data["emails"] == 0
 
-    async def test_import_replaces_existing_owners(
+    async def test_import_adds_new_owners_without_removing_absent_lots(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
+        """Pure upsert: existing lots absent from a re-import are preserved, not deleted.
+
+        This guards the architecture decision that import never deletes lots — doing so
+        would cascade-delete AGMLotWeight records and destroy historical vote tallies.
+        """
         # First import
         csv1 = make_csv(
             ["lot_number", "email", "unit_entitlement"],
@@ -706,7 +711,7 @@ class TestImportLotOwners:
             files={"file": ("owners.csv", csv1, "text/csv")},
         )
 
-        # Second import should replace
+        # Second import introduces new lots; A1 is absent but must NOT be deleted
         csv2 = make_csv(
             ["lot_number", "email", "unit_entitlement"],
             [["B1", "new@test.com", "75"], ["B2", "new2@test.com", "25"]],
@@ -718,7 +723,6 @@ class TestImportLotOwners:
         assert response.status_code == 200
         assert response.json()["imported"] == 2
 
-        # Verify replacement
         owners_response = await client.get(
             f"/api/admin/buildings/{building.id}/lot-owners"
         )
@@ -726,11 +730,13 @@ class TestImportLotOwners:
         lot_numbers = {o["lot_number"] for o in owners}
         assert "B1" in lot_numbers
         assert "B2" in lot_numbers
-        assert "A1" not in lot_numbers
+        # A1 was absent from csv2 — pure upsert must preserve it
+        assert "A1" in lot_numbers, "Absent lot deleted by re-import (pure-upsert violated)"
 
-    async def test_empty_csv_clears_owners(
+    async def test_empty_csv_import_preserves_existing_owners(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
+        """An empty re-import must not clear existing lots (pure upsert, never delete)."""
         # Seed
         csv1 = make_csv(
             ["lot_number", "email", "unit_entitlement"],
@@ -741,7 +747,7 @@ class TestImportLotOwners:
             files={"file": ("owners.csv", csv1, "text/csv")},
         )
 
-        # Import empty
+        # Import empty file
         csv2 = make_csv(["lot_number", "email", "unit_entitlement"], [])
         response = await client.post(
             f"/api/admin/buildings/{building.id}/lot-owners/import",
@@ -750,11 +756,12 @@ class TestImportLotOwners:
         assert response.status_code == 200
         assert response.json()["imported"] == 0
 
-        # Verify cleared
+        # X1 must still exist — empty import must not clear existing lots
         owners_response = await client.get(
             f"/api/admin/buildings/{building.id}/lot-owners"
         )
-        assert owners_response.json() == []
+        lot_numbers = {o["lot_number"] for o in owners_response.json()}
+        assert "X1" in lot_numbers, "Empty import deleted existing lots (pure-upsert violated)"
 
     async def test_extra_columns_ignored(
         self, client: AsyncClient, building: Building

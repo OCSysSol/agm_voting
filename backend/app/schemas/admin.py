@@ -10,6 +10,10 @@ from typing import Optional
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from app.models.motion import MotionType
+from app.schemas.shared import MotionOptionOut
+
+# Re-export so existing callers that import MotionOptionOut from admin keep working.
+__all__ = ["MotionOptionOut"]
 
 
 # ---------------------------------------------------------------------------
@@ -244,14 +248,6 @@ class MotionOptionCreate(BaseModel):
         if len(v) > 200:
             raise ValueError("option text must not exceed 200 characters")
         return v
-
-
-class MotionOptionOut(BaseModel):
-    id: uuid.UUID
-    text: str
-    display_order: int
-
-    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------
