@@ -18,6 +18,18 @@ describe("apiFetch", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it("sends X-Requested-With: XMLHttpRequest on every request (CSRF header)", async () => {
+    let xRequestedWith: string | null = null;
+    server.use(
+      http.post(`${BASE}/api/test-csrf`, ({ request }) => {
+        xRequestedWith = request.headers.get("x-requested-with");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    await apiFetch("/api/test-csrf", { method: "POST", body: JSON.stringify({}) });
+    expect(xRequestedWith).toBe("XMLHttpRequest");
+  });
+
   it("sends FormData without Content-Type header (lets browser set boundary)", async () => {
     let contentType: string | null = null;
     server.use(
@@ -57,6 +69,18 @@ describe("apiFetch", () => {
 
 describe("apiFetchVoid", () => {
   // --- Happy path ---
+
+  it("sends X-Requested-With: XMLHttpRequest on every request (CSRF header)", async () => {
+    let xRequestedWith: string | null = null;
+    server.use(
+      http.delete(`${BASE}/api/test-void-csrf`, ({ request }) => {
+        xRequestedWith = request.headers.get("x-requested-with");
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    await apiFetchVoid("/api/test-void-csrf", { method: "DELETE" });
+    expect(xRequestedWith).toBe("XMLHttpRequest");
+  });
 
   it("resolves to undefined on 204 no-content response", async () => {
     server.use(
