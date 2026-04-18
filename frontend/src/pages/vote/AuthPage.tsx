@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { requestOtp, verifyAuth, restoreSession } from "../../api/voter";
@@ -15,7 +15,7 @@ export function AuthPage() {
   const [isRestoringSession, setIsRestoringSession] = useState(false);
 
   // Shared logic: write sessionStorage keys and navigate after a successful auth response
-  function handleAuthSuccess(data: Parameters<typeof verifyAuth>[0] extends infer _R ? Awaited<ReturnType<typeof verifyAuth>> : never) {
+  const handleAuthSuccess = useCallback((data: Parameters<typeof verifyAuth>[0] extends infer _R ? Awaited<ReturnType<typeof verifyAuth>> : never) => {
     /* c8 ignore next */
     if (!meetingId) return;
     const pendingLots = data.lots.filter((l) => !l.already_submitted);
@@ -41,7 +41,7 @@ export function AuthPage() {
     } else {
       navigate(`/vote/${meetingId}/confirmation`);
     }
-  }
+  }, [meetingId, navigate]);
 
   // On mount: attempt session restore via the HttpOnly agm_session cookie.
   // The cookie is sent automatically by the browser — no localStorage needed.
@@ -56,7 +56,7 @@ export function AuthPage() {
         // Cookie is invalid/expired — show the OTP form instead.
         setIsRestoringSession(false);
       });
-  }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meetingId, handleAuthSuccess]);
 
   const requestOtpMutation = useMutation({
     mutationFn: ({ email }: { email: string }) => {

@@ -14,6 +14,7 @@ export async function apiFetch<T>(
 
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
+      "X-Requested-With": "XMLHttpRequest",
       ...contentTypeHeader,
       ...options?.headers,
     },
@@ -44,6 +45,7 @@ export async function apiFetchVoid(
 
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
+      "X-Requested-With": "XMLHttpRequest",
       ...contentTypeHeader,
       ...options?.headers,
     },
