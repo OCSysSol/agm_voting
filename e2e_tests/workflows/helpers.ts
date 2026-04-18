@@ -129,6 +129,8 @@ export async function seedLotOwner(
   seed: LotOwnerSeed
 ): Promise<string> {
   return withRetry(async () => {
+    // limit=1000: the backend does not support filtering by lot_number, so we fetch all
+    // and find client-side. 1000 is the API maximum and well above any real building size.
     const lotOwnersRes = await api.get(`/api/admin/buildings/${buildingId}/lot-owners?limit=1000`);
     if (!lotOwnersRes.ok()) {
       throw new Error(
@@ -178,6 +180,9 @@ export async function seedLotOwner(
           data: { financial_position: seed.financialPosition },
         });
       }
+    }
+    if (!lo) {
+      throw new Error(`Lot owner not found and could not be created: ${seed.lotNumber}`);
     }
     return lo.id;
   });
@@ -302,6 +307,11 @@ export async function createPendingMeeting(
   const agmsRes = await api.get(
     `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
   );
+  if (!agmsRes.ok()) {
+    throw new Error(
+      `GET /api/admin/general-meetings returned ${agmsRes.status()}: ${await agmsRes.text()}`
+    );
+  }
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
@@ -652,19 +662,19 @@ export async function submitBallotViaApi(
   }
   const { code } = (await otpRes.json()) as { code: string };
 
-  // 3. Verify OTP → get session token (unauthenticated context needed, but the admin context
-  //    also works since /api/auth/verify is a public endpoint)
+  // 3. Verify OTP → the response sets an agm_session HttpOnly cookie in api's cookie jar.
+  //    /api/auth/verify is a public endpoint so the admin context works fine here.
   const verifyRes = await api.post("/api/auth/verify", {
     data: { email, code, general_meeting_id: meetingId },
   });
   if (!verifyRes.ok()) {
     throw new Error(`submitBallotViaApi: verify failed (${verifyRes.status()}): ${await verifyRes.text()}`);
   }
-  const { session_token } = (await verifyRes.json()) as { session_token: string };
 
-  // 4. Submit ballot using Authorization header (bypasses cookie requirement)
+  // 4. Submit ballot — the agm_session cookie set by step 3 is automatically sent by api's
+  //    cookie jar. Do NOT use Authorization: Bearer — session_token in the verify response
+  //    is always "" (deprecated field) and would cause a 401.
   const submitRes = await api.post(`/api/general-meeting/${meetingId}/submit`, {
-    headers: { Authorization: `Bearer ${session_token}` },
     data: { lot_owner_ids: lotOwnerIds, votes },
   });
   if (!submitRes.ok() && submitRes.status() !== 409) {
