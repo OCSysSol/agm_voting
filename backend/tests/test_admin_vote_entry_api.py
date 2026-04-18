@@ -154,13 +154,13 @@ class TestAdminVoteEntry:
         assert all(s.submitted_by_admin for s in subs)
         assert all(s.voter_email == "admin" for s in subs)
 
-    async def test_skip_already_submitted_lot(
+    async def test_skip_lot_with_all_motions_already_voted(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """A lot with an existing app submission is skipped; skipped_count = 1."""
+        """A lot that has already voted on all visible motions is skipped; skipped_count = 1."""
         agm, lots, motions = await _setup_meeting_with_lots(db_session, "SkipExisting")
 
-        # Create an existing app submission for lots[0]
+        # Create an existing submission + vote for lots[0] on the only visible motion
         existing_sub = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lots[0].id,
@@ -168,13 +168,22 @@ class TestAdminVoteEntry:
             submitted_by_admin=False,
         )
         db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email="voter@test.com",
+            lot_owner_id=lots[0].id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
         await db_session.commit()
 
         payload = {
             "entries": [
                 {
                     "lot_owner_id": str(lots[0].id),
-                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "no"}],
                     "multi_choice_votes": [],
                 },
                 {
@@ -826,6 +835,195 @@ class TestAdminVoteEntry:
         assert lot_a.id in submitted_ids, "Lot A must be recorded"
         assert lot_b.id not in submitted_ids, "Lot B (failed) must NOT be recorded"
         assert lot_c.id in submitted_ids, "Lot C must be recorded"
+
+    # --- Fix 4a: Admin vote entry on partially-submitted lots ---
+
+    async def test_admin_enters_votes_for_newly_visible_motion_on_partially_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Fix 4a: Admin can enter votes for a newly visible motion on a lot that already
+        voted on M1.  No new BallotSubmission is created; only Vote(M2) is inserted."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "Fix4aPartial")
+        lot = lots[0]
+        m1 = motions[0]
+
+        # Add a second visible motion M2
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="Fix4a M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        # Voter already submitted M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot.id,
+            voter_email="voter@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@test.com",
+            lot_owner_id=lot.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        # Admin enters vote for M2 only
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [{"motion_id": str(m2.id), "choice": "no"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 0
+
+        await db_session.flush()
+        # Exactly one BallotSubmission — the original one from the voter
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(BallotSubmission.general_meeting_id == agm.id)
+        )
+        subs = list(subs_result.scalars().all())
+        assert len(subs) == 1
+        assert subs[0].voter_email == "voter@test.com"  # not overwritten by admin
+
+        # Two Vote rows: M1 (voter) and M2 (admin)
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot.id,
+            )
+        )
+        votes = list(votes_result.scalars().all())
+        assert len(votes) == 2
+        vote_by_motion = {v.motion_id: v for v in votes}
+        assert vote_by_motion[m1.id].choice == VoteChoice.yes  # voter's choice unchanged
+        assert vote_by_motion[m2.id].choice == VoteChoice.no   # admin's new vote
+
+    async def test_admin_skips_lot_with_all_motions_voted_when_partially_submitted_lots_present(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Fix 4a: When one lot has all motions voted and another has none, only the
+        fully-voted lot is skipped."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "Fix4aMixed")
+        lot_a, lot_b = lots[0], lots[1]
+        m1 = motions[0]
+
+        # lot_a already voted on the only visible motion
+        sub_a = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot_a.id,
+            voter_email="voter_a@test.com",
+        )
+        db_session.add(sub_a)
+        vote_a = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter_a@test.com",
+            lot_owner_id=lot_a.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(vote_a)
+        await db_session.commit()
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot_a.id),
+                    "votes": [{"motion_id": str(m1.id), "choice": "no"}],
+                    "multi_choice_votes": [],
+                },
+                {
+                    "lot_owner_id": str(lot_b.id),
+                    "votes": [{"motion_id": str(m1.id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 1
+
+    async def test_admin_enters_votes_creates_no_new_ballot_submission_on_reentry(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Fix 4a: Re-entry adds Vote rows but does not create a second BallotSubmission."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "Fix4aNoNewSub")
+        lot = lots[0]
+        m1 = motions[0]
+
+        # Add a second visible motion
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="Fix4a NoNewSub M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        # Voter submitted M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot.id,
+            voter_email="voter@test.com",
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@test.com",
+            lot_owner_id=lot.id,
+            choice=VoteChoice.no,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        # Admin submits M2
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [{"motion_id": str(m2.id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
+
+        await db_session.flush()
+        # Still only one BallotSubmission (the original voter's)
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.general_meeting_id == agm.id,
+                BallotSubmission.lot_owner_id == lot.id,
+            )
+        )
+        subs = list(subs_result.scalars().all())
+        assert len(subs) == 1
+        assert subs[0].submitted_by_admin is False  # voter's, not admin's
 
 
 # ---------------------------------------------------------------------------

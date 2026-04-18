@@ -3752,7 +3752,9 @@ async def enter_votes_for_meeting(
             detail=f"Unknown lot_owner_ids: {unknown}",
         )
 
-    # Check existing real (non-absent) submissions for these lots
+    # Check existing real (non-absent) submissions for these lots.
+    # Retained to distinguish "new submission" from "re-entry submission" in the
+    # BallotSubmission creation step (Fix 4a).
     existing_result = await db.execute(
         select(BallotSubmission.lot_owner_id).where(
             BallotSubmission.general_meeting_id == general_meeting_id,
@@ -3761,6 +3763,20 @@ async def enter_votes_for_meeting(
         )
     )
     already_submitted: set[uuid.UUID] = {row[0] for row in existing_result.all()}
+
+    # Load already-voted motion IDs per lot (single IN query).
+    # Used by the per-motion skip logic to allow admin vote entry on partially-submitted
+    # lots (Fix 4a: mirrors the re-entry logic in submit_ballot).
+    all_voted_result = await db.execute(
+        select(Vote.lot_owner_id, Vote.motion_id).where(
+            Vote.general_meeting_id == general_meeting_id,
+            Vote.lot_owner_id.in_(lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
+        )
+    )
+    already_voted_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for row in all_voted_result.all():
+        already_voted_by_lot.setdefault(row[0], set()).add(row[1])
 
     # Load financial position snapshots for all lots
     weights_result = await db.execute(
@@ -3800,11 +3816,6 @@ async def enter_votes_for_meeting(
 
     for entry in request.entries:
         lot_owner_id = entry.lot_owner_id
-
-        # Skip lots that already have an app submission
-        if lot_owner_id in already_submitted:
-            skipped_count += 1
-            continue
 
         # Determine financial position
         weight = weight_by_lot.get(lot_owner_id)
@@ -3892,9 +3903,16 @@ async def enter_votes_for_meeting(
                         )
                 mc_lookup[mid] = [(oid, VoteChoice.selected) for oid in opt_ids]
 
-        # Build Vote rows for all visible motions
+        # Build Vote rows for all visible motions.
+        # Fix 4a: skip motions this lot has already voted on (per-motion check),
+        # mirroring the re-entry logic in submit_ballot.  This allows admin vote entry
+        # on partially-submitted lots (e.g. voter submitted M1 online; admin enters M2).
+        already_voted_for_lot: set[uuid.UUID] = already_voted_by_lot.get(lot_owner_id, set())
         votes_to_add: list[Vote] = []
         for motion in visible_motions:
+            if motion.id in already_voted_for_lot:
+                continue  # already voted on this motion — skip
+
             motion_type = motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type
 
             if motion.is_multi_choice:
@@ -3955,21 +3973,29 @@ async def enter_votes_for_meeting(
                 status=VoteStatus.submitted,
             ))
 
-        # Create BallotSubmission with submitted_by_admin=True.
+        # If all motions for this lot are already voted, skip it entirely.
+        if not votes_to_add:
+            skipped_count += 1
+            continue
+
+        # Create BallotSubmission with submitted_by_admin=True (only when not already
+        # submitted).  On re-entry (lot_owner_id in already_submitted), the existing
+        # BallotSubmission is reused and only the new Vote rows are inserted.
         # RR4-05: Use a savepoint (begin_nested) so that only this lot's flush is
         # rolled back on IntegrityError.  Previously a full session rollback wiped
         # all successfully flushed lots that preceded the conflicting one.
         try:
             async with db.begin_nested():
-                submission = BallotSubmission(
-                    general_meeting_id=general_meeting_id,
-                    lot_owner_id=lot_owner_id,
-                    voter_email="admin",
-                    proxy_email=None,
-                    submitted_by_admin=True,
-                    submitted_by_admin_username=admin_username,
-                )
-                db.add(submission)
+                if lot_owner_id not in already_submitted:
+                    submission = BallotSubmission(
+                        general_meeting_id=general_meeting_id,
+                        lot_owner_id=lot_owner_id,
+                        voter_email="admin",
+                        proxy_email=None,
+                        submitted_by_admin=True,
+                        submitted_by_admin_username=admin_username,
+                    )
+                    db.add(submission)
                 for vote in votes_to_add:
                     db.add(vote)
                 await db.flush()

@@ -429,8 +429,10 @@ async def submit_ballot(
                 option_choices = mc_votes_map.get(motion.id, [])
 
                 if not option_choices:
-                    # No options interacted with — record motion-level abstain
-                    motions_needing_new_vote.append(motion)
+                    # No options interacted with — record motion-level abstain on first
+                    # submission; leave unrecorded on re-entry.
+                    if lot_owner_id not in existing_subs_by_lot:
+                        motions_needing_new_vote.append(motion)
                 else:
                     # RR4-12: validate no duplicate option_ids in submission
                     seen_option_ids: set[str] = set()
@@ -496,7 +498,11 @@ async def submit_ballot(
                     choice=choice,
                 ))
             else:
-                motions_needing_new_vote.append(motion)
+                # On first submission: auto-abstain unanswered visible motions.
+                # On re-entry: leave them unrecorded — the voter will address them in a
+                # subsequent submit or they will be inferred as absent at meeting close.
+                if lot_owner_id not in existing_subs_by_lot:
+                    motions_needing_new_vote.append(motion)
 
         # Build not_eligible votes for in-arrear general motions (deferred — no db.add yet)
         for motion in motions_needing_not_eligible:
@@ -581,10 +587,14 @@ async def submit_ballot(
             # Re-entry: BallotSubmission already exists.  Add any newly visible
             # motion Vote rows (votes_to_add only contains motions not yet answered,
             # as already_voted_for_lot filters out already-submitted motions above).
+            # Always update voter_email to the current submitter so the audit trail
+            # reflects who most recently submitted (Fix 3: co-owner re-entry case).
+            submission = existing_subs_by_lot[lot_owner_id]
+            submission.voter_email = voter_email
             if votes_to_add:
                 for vote in votes_to_add:
                     db.add(vote)
-                await db.flush()
+            await db.flush()
 
         lot_results.append(LotBallotResult(
             lot_owner_id=lot_owner_id,
