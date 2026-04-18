@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,9 +19,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import or_, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
+from app.database import AsyncSessionLocal
 from app.logging_config import get_logger
 from app.services.smtp_config_service import get_smtp_config, get_decrypted_password
 from app.models import (
@@ -89,12 +89,6 @@ def _get_jinja_env() -> Environment:
 def _backoff_seconds(attempt: int) -> int:
     """Return exponential backoff delay in seconds, capped at _BACKOFF_CAP_SECONDS."""
     return min(2**attempt, _BACKOFF_CAP_SECONDS)
-
-
-def _make_session_factory() -> async_sessionmaker:
-    """Create a new async session factory using the configured database URL."""
-    engine = create_async_engine(settings.database_url, echo=False, future=True)
-    return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def send_otp_email(to_email: str, meeting_title: str, code: str, db: AsyncSession) -> None:
@@ -221,9 +215,13 @@ class EmailService:
         )
 
         log.info("email_send_completed", agm_id=str(agm_id), to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
-        log.info("email_sent", to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
 
-    async def trigger_with_retry(self, agm_id: uuid.UUID, base_url: str = "") -> None:
+    async def trigger_with_retry(
+        self,
+        agm_id: uuid.UUID,
+        base_url: str = "",
+        session_factory: async_sessionmaker | None = None,
+    ) -> None:
         """
         Background task: attempt delivery with exponential backoff.
         Max 30 attempts. Delays: 2^attempt seconds, capped at 3600s.
@@ -239,8 +237,15 @@ class EmailService:
 
         base_url: passed through to send_report to construct the "View Full
         Results" link. See send_report for details.
+
+        session_factory: the async session factory to use. Defaults to the
+        shared AsyncSessionLocal from app.database so the shared connection
+        pool is reused — callers must NOT pass a factory that creates a new
+        engine, as each new engine creates its own connection pool that is
+        never disposed.
         """
-        session_factory = _make_session_factory()
+        if session_factory is None:
+            session_factory = AsyncSessionLocal
         attempt_number = 0
 
         # Acquire a per-agm advisory lock that persists for the life of this task.
@@ -429,12 +434,20 @@ class EmailService:
                 meeting_ids=[str(d.general_meeting_id) for d in pending_deliveries],
             )
 
+        tasks = []
         for delivery in pending_deliveries:
             logger.info(
                 "requeueing_pending_email",
                 general_meeting_id=str(delivery.general_meeting_id),
                 total_attempts=delivery.total_attempts,
             )
-            asyncio.create_task(
-                _send_with_limit(self.trigger_with_retry(delivery.general_meeting_id))
-            )
+            tasks.append(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for exc in results:
+                if isinstance(exc, BaseException):
+                    logger.error(
+                        "startup_email_requeue_task_error",
+                        error=str(exc),
+                    )

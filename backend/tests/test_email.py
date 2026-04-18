@@ -676,15 +676,10 @@ class TestTriggerWithRetry:
         mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
         mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
-        # Patch session factory to use our test session
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -723,13 +718,9 @@ class TestTriggerWithRetry:
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -757,13 +748,9 @@ class TestTriggerWithRetry:
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.failed
@@ -801,13 +788,9 @@ class TestTriggerWithRetry:
         sleep_mock = mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         # Must fail immediately — no retries
@@ -833,13 +816,9 @@ class TestTriggerWithRetry:
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         mock_send.assert_not_called()
 
@@ -858,13 +837,9 @@ class TestTriggerWithRetry:
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         mock_send.assert_not_called()
 
@@ -875,14 +850,10 @@ class TestTriggerWithRetry:
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
         # Should not raise
-        await service.trigger_with_retry(uuid.uuid4(), "https://example.com")
+        await service.trigger_with_retry(uuid.uuid4(), "https://example.com", session_factory=mock_factory)
         mock_send.assert_not_called()
 
     # --- Exponential backoff ---
@@ -916,13 +887,9 @@ class TestTriggerWithRetry:
         sleep_mock = mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         # 3 failures → 3 sleep calls with delays 2^1=2, 2^2=4, 2^3=8
         sleep_calls = [c.args[0] for c in sleep_mock.call_args_list]
@@ -949,10 +916,6 @@ class TestTriggerWithRetry:
         mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         log_events: list[dict] = []
 
@@ -973,7 +936,7 @@ class TestTriggerWithRetry:
             pass
 
         # Just verify the call succeeds without error
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
@@ -1022,17 +985,13 @@ class TestTriggerWithRetry:
             return False       # second caller finds it taken
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
         mocker.patch("app.services.email_service._try_acquire_email_lock", side_effect=mock_lock)
 
         service = EmailService()
         # Run two concurrent invocations
         await asyncio.gather(
-            service.trigger_with_retry(agm.id, "https://example.com"),
-            service.trigger_with_retry(agm.id, "https://example.com"),
+            service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory),
+            service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory),
         )
 
         # Exactly one send should have occurred
@@ -1057,13 +1016,9 @@ class TestTriggerWithRetry:
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         mock_send.assert_not_called()
 
@@ -1097,13 +1052,9 @@ class TestTriggerWithRetry:
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id, "https://example.com")
+        await service.trigger_with_retry(agm.id, "https://example.com", session_factory=mock_factory)
 
         # After success on attempt 2, next_retry_at should be None
         await db_session.refresh(delivery)
@@ -1165,7 +1116,6 @@ class TestRequeuePendingOnStartup:
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
-        await asyncio.sleep(0)
 
         assert "startup_email_requeue" in warning_events
 
@@ -1186,7 +1136,7 @@ class TestRequeuePendingOnStartup:
         assert "startup_email_requeue" not in warning_events
 
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
-        """Pending deliveries due for retry are launched as background tasks (non-blocking)."""
+        """Pending deliveries due for retry are awaited via asyncio.gather on startup."""
         await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
@@ -1195,14 +1145,10 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 5
         await db_session.commit()
 
-        # Patch trigger_with_retry as AsyncMock — tasks are fired via asyncio.create_task
-        # (non-blocking) so startup returns immediately without waiting for delivery.
         trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
-        # Yield to the event loop so the create_task coroutines run
-        await asyncio.sleep(0)
 
         assert trigger_mock.call_count == 1
 
@@ -1314,9 +1260,36 @@ class TestRequeuePendingOnStartup:
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
-        await asyncio.sleep(0)  # yield so create_task coroutines run
 
         assert trigger_mock.call_count == 3
+
+    async def test_gather_exceptions_are_logged_not_raised(self, db_session: AsyncSession, mocker):
+        """If a trigger_with_retry task raises, the error is logged and startup completes without raising."""
+        await self._clear_pending_deliveries(db_session)
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        delivery = await _create_email_delivery(db_session, agm)
+        delivery.status = EmailDeliveryStatus.pending
+        delivery.total_attempts = 0
+        await db_session.commit()
+
+        mocker.patch.object(
+            EmailService, "trigger_with_retry", new_callable=AsyncMock,
+            side_effect=Exception("unexpected gather error"),
+        )
+
+        import app.services.email_service as _email_svc
+        error_events: list[str] = []
+        mocker.patch.object(
+            _email_svc.logger, "error",
+            side_effect=lambda e, **kw: error_events.append(e),
+        )
+
+        service = EmailService()
+        # Must not raise even though the task failed
+        await service.requeue_pending_on_startup(db_session)
+
+        assert "startup_email_requeue_task_error" in error_events
 
 
 # ---------------------------------------------------------------------------

@@ -5775,9 +5775,10 @@ class TestEmailFailureDuringClose:
     ):
         """A single send_report failure sets last_error but keeps status pending.
 
-        trigger_with_retry uses its own DB session.  We patch _make_session_factory to
-        return a factory connected to the real test DB.  After one failure
-        (total_attempts < 30), status stays 'pending' with last_error set.
+        trigger_with_retry uses its own DB session via session_factory parameter.
+        We pass a factory connected to the real test DB so commits are visible
+        across session boundaries.  After one failure (total_attempts < 30),
+        status stays 'pending' with last_error set.
         Data is cleaned up at the end of the test to avoid polluting requeue tests.
         """
         import os
@@ -5829,11 +5830,10 @@ class TestEmailFailureDuringClose:
 
         with (
             patch.object(email_service, "send_report", _failing_send_report),
-            patch("app.services.email_service._make_session_factory", return_value=real_session_factory),
             patch("app.services.email_service.asyncio.sleep", _stop_after_one),
         ):
             try:
-                await email_service.trigger_with_retry(agm_id)
+                await email_service.trigger_with_retry(agm_id, session_factory=real_session_factory)
             except asyncio.CancelledError:
                 pass
 
@@ -5905,12 +5905,9 @@ class TestEmailFailureDuringClose:
         async def _always_fail(_agm_id, _db, _base_url=""):
             raise Exception("Final SMTP failure")
 
-        with (
-            patch.object(email_service, "send_report", _always_fail),
-            patch("app.services.email_service._make_session_factory", return_value=real_session_factory),
-        ):
+        with patch.object(email_service, "send_report", _always_fail):
             # One more attempt → total_attempts reaches MAX → status = failed, returns
-            await email_service.trigger_with_retry(agm_id)
+            await email_service.trigger_with_retry(agm_id, session_factory=real_session_factory)
 
         async with real_session_factory() as s:
             result = await s.execute(

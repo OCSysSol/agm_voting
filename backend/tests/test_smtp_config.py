@@ -765,14 +765,10 @@ class TestSmtpNotConfiguredError:
 
         from tests.test_email import _make_mock_factory
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
         mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_config))
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, session_factory=mock_factory)
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.failed
@@ -820,15 +816,11 @@ class TestSmtpNotConfiguredError:
 
         from tests.test_email import _make_mock_factory
         mock_factory = _make_mock_factory(db_session)
-        mocker.patch(
-            "app.services.email_service._make_session_factory",
-            return_value=mock_factory,
-        )
         mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_config))
         sleep_mock = mocker.patch("asyncio.sleep", new=AsyncMock())
 
         service = EmailService()
-        await service.trigger_with_retry(agm.id)
+        await service.trigger_with_retry(agm.id, session_factory=mock_factory)
 
         # No sleep called — immediate failure, no retry
         sleep_mock.assert_not_called()
