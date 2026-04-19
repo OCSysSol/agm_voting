@@ -360,7 +360,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
 
   const { data: allLotOwners = [], isLoading: lotsLoading } = useQuery<LotOwner[]>({
     queryKey: ["lot-owners", buildingId],
-    queryFn: () => listLotOwners(buildingId),
+    queryFn: () => listLotOwners(buildingId, { limit: 1000 }),
     enabled: !!buildingId,
   });
 
