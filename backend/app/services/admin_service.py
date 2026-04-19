@@ -2038,9 +2038,9 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             not_eligible_ids: set[uuid.UUID] = set()
 
             for lot_id in submitted_lot_owner_ids:
-                if not motion.is_visible and lot_id not in motion_votes_map:
-                    continue  # hidden motion: voter had no visibility, do not infer abstained
-                choice = motion_votes_map.get(lot_id, "abstained")
+                if lot_id not in motion_votes_map:
+                    continue  # no real Vote row for this lot+motion — omit entirely
+                choice = motion_votes_map[lot_id]
                 if choice == "yes":
                     yes_ids.add(lot_id)
                 elif choice in ("no", "against"):
@@ -2073,9 +2073,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 yes_tally = _tally(yes_ids)
                 no_tally = _tally(no_ids)
                 not_eligible_tally = _tally(not_eligible_ids)
-            # Implicit abstained (submitted but no vote row for this visible motion)
-            # is not in the DB, so we always use _tally(abstained_ids) which covers both
-            # explicit abstained rows and implicit abstained (inferred from submissions).
+            # abstained_ids contains only real Vote rows with choice=abstained.
+            # Lots that submitted a ballot but have no Vote row for this motion are omitted
+            # entirely (they are not inferred as abstained).  _tally() is always used because
+            # SQL aggregation does not cover the abstained bucket (no separate tally_map entry).
             motion_details.append(
                 {
                     "id": motion.id,

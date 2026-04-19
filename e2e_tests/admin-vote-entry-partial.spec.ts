@@ -220,15 +220,15 @@ test.describe("Gap 1: Admin vote entry for partially-submitted lot", () => {
     expect(motion1!.tally.no.voter_count).toBe(0);
     expect(motion1!.tally.absent.voter_count).toBe(0);
 
-    // Motion 2: Lot B voted No (80) via admin; Lot A is implicitly abstained
-    // (it has a BallotSubmission but no Vote row for M2 — the backend infers "abstained"
-    // for visible motions where the submitter cast no vote).
+    // Motion 2: Lot B voted No (80) via admin.
+    // Lot A has a BallotSubmission but no Vote row for M2 — it does NOT appear in any
+    // voter_list bucket for M2 (no inferred abstain; the fix removes that inference).
     expect(motion2!.tally.no.voter_count).toBe(1);
     expect(motion2!.tally.no.entitlement_sum).toBe(80);
     // Lot A has a BallotSubmission (is_absent=False) so it is NOT in absent_ids_global.
-    // It is inferred as abstained because it submitted but left M2 unanswered.
-    expect(motion2!.tally.abstained.voter_count).toBe(1);
-    expect(motion2!.tally.abstained.entitlement_sum).toBe(100);
+    // With no Vote row for M2, it also does not appear in abstained — voter_count is 0.
+    expect(motion2!.tally.abstained.voter_count).toBe(0);
+    expect(motion2!.tally.abstained.entitlement_sum).toBe(0);
     expect(motion2!.tally.absent.voter_count).toBe(0);
 
     // Lot A's M1 vote was submitted by the voter (not admin) — voter_email is LOT_A_EMAIL

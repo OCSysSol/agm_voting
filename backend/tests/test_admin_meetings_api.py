@@ -3917,6 +3917,236 @@ class TestGetGeneralMeetingDetailAbsentBehaviour:
         assert hidden_tally["yes"]["voter_count"] == 0
         assert hidden_tally["no"]["voter_count"] == 0
 
+    async def test_newly_visible_motion_no_inferred_abstain_in_voter_lists(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Lot A votes on M1. M2 is visible but Lot A has no Vote row for M2.
+        M2's voter_lists.abstained must NOT contain Lot A — no inferred abstain.
+        M1's voter_lists.yes must still correctly contain Lot A.
+        """
+        b = Building(name="NewVisibleMotionTest", manager_email="newvis@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="NV1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="voter@newvis.test"))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="NewVisible AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="Motion NV1",
+            display_order=1,
+            is_visible=True,
+        )
+        # M2 is visible (newly made visible after Lot A already voted on M1)
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="Motion NV2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add_all([m1, m2])
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+        ))
+        await db_session.flush()
+
+        # Lot A submitted a ballot and voted yes on M1 only — no Vote row for M2
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="voter@newvis.test",
+        ))
+        db_session.add(Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@newvis.test",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        ))
+        # No Vote row for m2 — simulates M2 becoming visible after Lot A voted
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+
+        motions_data = response.json()["motions"]
+        m1_data = next(m for m in motions_data if m["title"] == "Motion NV1")
+        m2_data = next(m for m in motions_data if m["title"] == "Motion NV2")
+
+        # M1: Lot A voted yes — must appear in yes list
+        m1_yes_lots = {v["lot_number"] for v in m1_data["voter_lists"]["yes"]}
+        assert "NV1" in m1_yes_lots
+
+        # M2: Lot A has no Vote row — must NOT appear in abstained voter list
+        m2_abstained_lots = {v["lot_number"] for v in m2_data["voter_lists"]["abstained"]}
+        assert "NV1" not in m2_abstained_lots, (
+            "Lot A must not be inferred as abstained on M2 when no Vote row exists"
+        )
+
+        # M2: tally abstained count must be 0
+        assert m2_data["tally"]["abstained"]["voter_count"] == 0
+
+    async def test_explicit_abstain_still_appears_in_voter_lists(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Lot A explicitly votes 'abstained' on M2 (real Vote row with choice=abstained).
+        M2's voter_lists.abstained MUST contain Lot A.
+        """
+        b = Building(name="ExplicitAbstainTest", manager_email="expabs@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="EA1", unit_entitlement=75)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="voter@expabs.test"))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="ExplicitAbstain AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="Motion EA2",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+        ))
+        await db_session.flush()
+
+        # Lot A explicitly votes abstained on M2 — real Vote row
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="voter@expabs.test",
+        ))
+        db_session.add(Vote(
+            general_meeting_id=agm.id,
+            motion_id=m2.id,
+            voter_email="voter@expabs.test",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.abstained,
+            status=VoteStatus.submitted,
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+
+        motions_data = response.json()["motions"]
+        m2_data = next(m for m in motions_data if m["title"] == "Motion EA2")
+
+        # Explicit abstain Vote row — must appear in abstained list
+        m2_abstained_lots = {v["lot_number"] for v in m2_data["voter_lists"]["abstained"]}
+        assert "EA1" in m2_abstained_lots, (
+            "Lot A must appear in abstained when a real Vote row with choice=abstained exists"
+        )
+        assert m2_data["tally"]["abstained"]["voter_count"] == 1
+        assert m2_data["tally"]["abstained"]["entitlement_sum"] == 75
+
+    async def test_regression_m1_yes_voter_still_in_yes_list(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Regression: Lot A votes yes on M1. M1's voter_lists.yes must still contain Lot A
+        after the inferred-abstain fix."""
+        b = Building(name="RegressionYesTest", manager_email="regyes@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="RY1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="voter@regyes.test"))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RegressionYes AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="Motion RY1",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(m1)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+        ))
+        await db_session.flush()
+
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="voter@regyes.test",
+        ))
+        db_session.add(Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@regyes.test",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+
+        motions_data = response.json()["motions"]
+        m1_data = next(m for m in motions_data if m["title"] == "Motion RY1")
+
+        # M1: Lot A voted yes — must still appear in yes list
+        m1_yes_lots = {v["lot_number"] for v in m1_data["voter_lists"]["yes"]}
+        assert "RY1" in m1_yes_lots, "Lot A must still appear in yes list for M1"
+        assert m1_data["tally"]["yes"]["voter_count"] == 1
+        assert m1_data["tally"]["yes"]["entitlement_sum"] == 50
+
 
 # ---------------------------------------------------------------------------
 # DELETE /api/admin/general-meetings/{agm_id}
