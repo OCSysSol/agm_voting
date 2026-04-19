@@ -31,11 +31,15 @@ export default defineConfig({
     },
 
     // ── Admin tests ───────────────────────────────────────────────────────────
-    // All tests under e2e_tests/admin/. Use the admin-authenticated session.
+    // All tests under e2e_tests/admin/ and root-level admin specs.
+    // Use the admin-authenticated session.
     // In CI the setup job runs first; locally, 'setup' runs automatically.
     {
       name: "admin",
-      testMatch: /e2e_tests\/admin\/.*\.spec\.ts/,
+      testMatch: [
+        /e2e_tests\/admin\/.*\.spec\.ts/,
+        /e2e_tests\/admin-vote-entry-partial\.spec\.ts/,
+      ],
       dependencies: process.env.CI ? [] : ["setup"],
       use: {
         ...devices["Desktop Chrome"],
