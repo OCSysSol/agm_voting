@@ -1025,6 +1025,478 @@ class TestAdminVoteEntry:
         assert len(subs) == 1
         assert subs[0].submitted_by_admin is False  # voter's, not admin's
 
+    # --- Bug fix: no auto-abstain for already-submitted lots ---
+
+    async def test_new_motion_not_auto_abstained_for_already_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Bug fix: when admin enters votes for a mix of lots and a lot already has a
+        BallotSubmission, a newly visible motion with no explicit choice must NOT be
+        auto-recorded as abstained for that lot.
+
+        Setup:
+          - M1 is already voted on by lot_a (via an existing submission).
+          - M2 is a new visible motion added after lot_a submitted.
+          - Admin enters votes for M2 for lot_b only (no entry for lot_a on M2).
+          - lot_a should NOT get a Vote(M2, abstained) auto-recorded.
+          - lot_b should get Vote(M2, yes) recorded.
+        """
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "NoAutoAbstain")
+        lot_a, lot_b = lots[0], lots[1]
+        m1 = motions[0]
+
+        # Add a second visible motion M2
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="NoAutoAbstain M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        # lot_a already has a submission + vote for M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot_a.id,
+            voter_email="voter_a@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter_a@test.com",
+            lot_owner_id=lot_a.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        # Admin enters votes for BOTH lots, but only provides M2 for lot_b.
+        # lot_a is included with only M1 (already voted) — no M2 entry.
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot_a.id),
+                    "votes": [{"motion_id": str(m1.id), "choice": "yes"}],  # M1 only (already voted)
+                    "multi_choice_votes": [],
+                },
+                {
+                    "lot_owner_id": str(lot_b.id),
+                    "votes": [{"motion_id": str(m2.id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        # lot_a: M1 already voted → skipped entirely; lot_b: M2 is new → submitted
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 1
+
+        await db_session.flush()
+        # lot_a must still have exactly ONE vote (M1 from voter, choice=yes).
+        # M2 must NOT have been auto-recorded for lot_a.
+        lot_a_votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot_a.id,
+            )
+        )
+        lot_a_votes = list(lot_a_votes_result.scalars().all())
+        assert len(lot_a_votes) == 1
+        assert lot_a_votes[0].motion_id == m1.id
+        assert lot_a_votes[0].choice == VoteChoice.yes
+
+        # lot_b has no prior submission, so M1 (not explicitly supplied) is auto-abstained
+        # and M2 (explicitly supplied) is recorded as yes → 2 votes total.
+        lot_b_votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot_b.id,
+            )
+        )
+        lot_b_votes = list(lot_b_votes_result.scalars().all())
+        assert len(lot_b_votes) == 2
+        vote_b_by_motion = {v.motion_id: v for v in lot_b_votes}
+        assert vote_b_by_motion[m1.id].choice == VoteChoice.abstained  # auto-abstained
+        assert vote_b_by_motion[m2.id].choice == VoteChoice.yes        # admin's explicit vote
+
+    async def test_explicit_choice_still_recorded_for_already_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Bug fix guard only skips motions with NO explicit choice.  When admin explicitly
+        supplies a choice for a new motion on an already-submitted lot, it is recorded."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "ExplicitOnSubmitted")
+        lot = lots[0]
+        m1 = motions[0]
+
+        # Add a second visible motion M2
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="ExplicitOnSubmitted M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        # lot already voted on M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot.id,
+            voter_email="voter@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@test.com",
+            lot_owner_id=lot.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        # Admin explicitly supplies a choice for M2 on the already-submitted lot
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [{"motion_id": str(m2.id), "choice": "no"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
+
+        await db_session.flush()
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot.id,
+            )
+        )
+        votes = list(votes_result.scalars().all())
+        # M1 (original) + M2 (admin explicit) = 2 votes
+        assert len(votes) == 2
+        vote_by_motion = {v.motion_id: v for v in votes}
+        assert vote_by_motion[m1.id].choice == VoteChoice.yes
+        assert vote_by_motion[m2.id].choice == VoteChoice.no
+
+    async def test_mc_motion_not_auto_abstained_for_already_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Bug fix (multi-choice path): when a lot already has a BallotSubmission and no
+        options are supplied for a new MC motion, no motion-level abstain is auto-recorded."""
+        b = make_building("VE MC NoAutoAbs")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo_submitted = make_lot_owner(b, "VE-MCNA1")
+        lo_new = make_lot_owner(b, "VE-MCNA2")
+        db_session.add(lo_submitted)
+        db_session.add(lo_new)
+        await db_session.flush()
+
+        agm = make_open_meeting(b, "VE MC NoAutoAbs AGM")
+        db_session.add(agm)
+        await db_session.flush()
+
+        for lo in (lo_submitted, lo_new):
+            db_session.add(GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
+                lot_owner_id=lo.id,
+                unit_entitlement_snapshot=lo.unit_entitlement,
+                financial_position_snapshot=FinancialPositionSnapshot.normal,
+            ))
+
+        # A standard motion M1 (already voted on by lo_submitted)
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="MC NoAutoAbs M1",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(m1)
+        # A multi-choice motion M2 (newly visible)
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="MC NoAutoAbs M2",
+            display_order=2,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        opt = MotionOption(motion_id=m2.id, text="Opt1", display_order=1)
+        db_session.add(opt)
+
+        # lo_submitted already has BallotSubmission + Vote for M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_submitted.id,
+            voter_email="voter@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@test.com",
+            lot_owner_id=lo_submitted.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(opt)
+        await db_session.refresh(m2)
+
+        # Admin enters MC votes for lo_new on M2; lo_submitted is NOT included.
+        # No explicit MC vote is supplied for lo_submitted's M2 — it should NOT be
+        # auto-abstained.
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo_new.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m2.id), "option_ids": [str(opt.id)]}
+                    ],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        # lo_submitted must still have only 1 vote (M1)
+        sub_votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo_submitted.id,
+            )
+        )
+        sub_votes = list(sub_votes_result.scalars().all())
+        assert len(sub_votes) == 1
+        assert sub_votes[0].motion_id == m1.id
+
+    async def test_mc_no_options_auto_abstained_for_new_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Bug fix guard does NOT suppress auto-abstain for lots without a prior submission.
+        When a new lot sends an MC motion entry with no options, it still gets abstained."""
+        b = make_building("VE MC AbsNew")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b, "VE-MAN1")
+        db_session.add(lo)
+        await db_session.flush()
+
+        agm = make_open_meeting(b, "VE MC AbsNew AGM")
+        db_session.add(agm)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        ))
+
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="MC AbsNew M1",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opt = MotionOption(motion_id=m.id, text="Opt1", display_order=1)
+        db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+
+        # No prior submission — empty option_ids should still produce a motion-level abstain
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": []}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.abstained,
+                Vote.motion_option_id.is_(None),
+            )
+        )
+        assert vote_result.scalar_one_or_none() is not None
+
+    async def test_standard_motion_no_vote_auto_abstained_for_new_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Bug fix guard does NOT suppress auto-abstain for lots without a prior submission.
+        When a new lot sends no vote for a visible motion, it still gets abstained."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "StdAbsNewLot")
+        lot = lots[0]
+
+        # No prior submission — empty votes should still produce abstained
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot.id,
+                Vote.choice == VoteChoice.abstained,
+            )
+        )
+        assert vote_result.scalar_one_or_none() is not None
+
+    async def test_mc_motion_not_auto_abstained_for_already_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """MC no-options skip for already-submitted lot (covers admin_service line 3984).
+
+        When the already-submitted lot is explicitly included in the entries payload and
+        provides an MC motion entry with empty option_ids, the service must skip (not
+        auto-abstain) because the lot already has a BallotSubmission.
+
+        This is distinct from the sibling test where lo_submitted is omitted from entries
+        entirely — here mc_lookup[m2.id] == [] is reached and the already_submitted guard
+        on the continue branch must fire.
+        """
+        b = make_building("VE MC SkipAbs")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b, "VE-MCSA1")
+        db_session.add(lo)
+        await db_session.flush()
+
+        agm = make_open_meeting(b, "VE MC SkipAbs AGM")
+        db_session.add(agm)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        ))
+
+        # A standard motion M1 (already voted on by lo)
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="MC SkipAbs M1",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(m1)
+        # A multi-choice motion M2 (newly visible — lot has no vote for it yet)
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="MC SkipAbs M2",
+            display_order=2,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m2)
+        await db_session.flush()
+
+        opt = MotionOption(motion_id=m2.id, text="Opt1", display_order=1)
+        db_session.add(opt)
+
+        # lo already has BallotSubmission + Vote for M1
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="voter@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        existing_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m1.id,
+            voter_email="voter@test.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(existing_vote)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(m2)
+
+        # Admin includes lo in entries with an MC entry for M2 but empty option_ids.
+        # Because lo already has a BallotSubmission, the service must skip M2 rather than
+        # recording a motion-level abstain (the continue on line 3984).
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m2.id), "option_ids": []}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()
+        # lo must still have exactly 1 vote — the original M1 vote.
+        # No Vote for M2 must have been created (not auto-abstained).
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        votes = list(votes_result.scalars().all())
+        assert len(votes) == 1
+        assert votes[0].motion_id == m1.id
+        assert votes[0].choice == VoteChoice.yes
+
 
 # ---------------------------------------------------------------------------
 # Slice 9 — US-AVE2-01: For/Against/Abstain per multi-choice option

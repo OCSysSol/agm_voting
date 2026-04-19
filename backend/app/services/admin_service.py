@@ -3977,7 +3977,11 @@ async def enter_votes_for_meeting(
 
                 option_pairs = mc_lookup.get(motion.id, [])
                 if not option_pairs:
-                    # No options specified → motion-level abstain
+                    # No options specified → motion-level abstain, but only when this
+                    # lot has no prior submission.  For already-submitted lots, skip
+                    # motions that were not explicitly supplied — do not auto-record.
+                    if lot_owner_id in already_submitted:
+                        continue
                     votes_to_add.append(Vote(
                         general_meeting_id=general_meeting_id,
                         motion_id=motion.id,
@@ -4011,6 +4015,10 @@ async def enter_votes_for_meeting(
                 ))
                 continue
 
+            if motion.id not in inline_lookup and lot_owner_id in already_submitted:
+                # No explicit choice supplied for this motion and the lot already has a
+                # prior submission — skip rather than auto-recording abstained.
+                continue
             choice = inline_lookup.get(motion.id, VoteChoice.abstained)
             votes_to_add.append(Vote(
                 general_meeting_id=general_meeting_id,
