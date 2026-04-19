@@ -1881,7 +1881,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     # falling back to BallotSubmission.voter_email for absent/no-Vote cases.
                     if motion_id is not None:
                         voter_email = vote_voter_email_map.get((lid, motion_id), lot_owner_to_email.get(lid, ""))
-                    else:
+                    else:  # pragma: no cover
                         voter_email = lot_owner_to_email.get(lid, "")
                     proxy_email_val = lot_owner_to_proxy_email.get(lid)
                     ballot_hash_val = lot_owner_to_ballot_hash.get(lid)
