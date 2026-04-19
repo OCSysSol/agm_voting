@@ -55,6 +55,22 @@ describe("AdminVoteEntryPanel", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("fetches lot owners with limit=1000 to load all lots regardless of building size", async () => {
+    let capturedUrl: string | null = null;
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json(ADMIN_LOT_OWNERS);
+      })
+    );
+    renderPanel();
+    await waitFor(() => {
+      expect(capturedUrl).not.toBeNull();
+    });
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("limit")).toBe("1000");
+  });
+
   it("renders lot checkboxes for pending lots", async () => {
     renderPanel();
     await waitFor(() => {
