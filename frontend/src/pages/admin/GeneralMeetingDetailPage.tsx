@@ -11,6 +11,7 @@ import {
   deleteMotion,
   resendReport,
   closeMotion,
+  updateGeneralMeeting,
 } from "../../api/admin";
 import type { GeneralMeetingDetail, AddMotionRequest, UpdateMotionRequest, MotionDetail } from "../../api/admin";
 import type { MotionType } from "../../types";
@@ -24,6 +25,19 @@ import MotionManagementTable from "../../components/admin/MotionManagementTable"
 import AdminVoteEntryPanel from "./AdminVoteEntryPanel";
 import { formatLocalDateTime } from "../../utils/dateTime";
 import { useBranding } from "../../context/BrandingContext";
+
+/** Convert a UTC ISO string to a "YYYY-MM-DDTHH:MM" value for datetime-local inputs. */
+function toDatetimeLocalValue(isoUtcString: string): string {
+  const d = new Date(isoUtcString);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    d.getFullYear() +
+    "-" + pad(d.getMonth() + 1) +
+    "-" + pad(d.getDate()) +
+    "T" + pad(d.getHours()) +
+    ":" + pad(d.getMinutes())
+  );
+}
 
 const AgmQrCode = lazy(() => import("../../components/admin/AgmQrCode"));
 const AgmQrCodeModal = lazy(() => import("../../components/admin/AgmQrCodeModal"));
@@ -360,6 +374,58 @@ export default function GeneralMeetingDetailPage() {
   // Delete motion confirmation state
   const [pendingDeleteMotionId, setPendingDeleteMotionId] = useState<string | null>(null);
 
+  // Edit close time state
+  const [isEditingCloseTime, setIsEditingCloseTime] = useState(false);
+  const [editCloseTimeValue, setEditCloseTimeValue] = useState("");
+  const [editCloseTimeError, setEditCloseTimeError] = useState<string | null>(null);
+
+  const editCloseTimeMutation = useMutation({
+    mutationFn: (votingClosesAtUtc: string) =>
+      updateGeneralMeeting(meetingId!, { voting_closes_at: votingClosesAtUtc }),
+    onSuccess: async () => {
+      setIsEditingCloseTime(false);
+      setEditCloseTimeError(null);
+      await queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    },
+    onError: (err: Error) => {
+      let msg = err.message || "Failed to update close time";
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart !== -1) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { detail?: string };
+          if (parsed.detail) msg = parsed.detail;
+        } catch {
+          // leave msg as-is
+        }
+      }
+      setEditCloseTimeError(msg);
+    },
+  });
+
+  function handleEditCloseTimeOpen() {
+    if (!meeting) return;
+    setEditCloseTimeValue(toDatetimeLocalValue(meeting.voting_closes_at));
+    setEditCloseTimeError(null);
+    setIsEditingCloseTime(true);
+  }
+
+  function handleEditCloseTimeCancel() {
+    setIsEditingCloseTime(false);
+    setEditCloseTimeError(null);
+  }
+
+  function handleEditCloseTimeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!meeting) return;
+    // Client-side validation: new time must be after meeting_at
+    const selectedUtc = new Date(editCloseTimeValue).toISOString();
+    if (new Date(selectedUtc) <= new Date(meeting.meeting_at)) {
+      setEditCloseTimeError("Close time must be after the meeting start time.");
+      return;
+    }
+    editCloseTimeMutation.mutate(selectedUtc);
+  }
+
   // Admin vote entry panel
   const [showVoteEntryPanel, setShowVoteEntryPanel] = useState(false);
   // Fix 9: modal replaces the old green banner
@@ -659,7 +725,54 @@ export default function GeneralMeetingDetailPage() {
             </span>
             <span className="admin-meta__item">
               <span className="admin-meta__label">Voting closes</span>
-              {formatLocalDateTime(meeting.voting_closes_at)}
+              {isEditingCloseTime ? (
+                <form onSubmit={handleEditCloseTimeSubmit} style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      type="datetime-local"
+                      className="field__input"
+                      aria-label="New voting close time"
+                      value={editCloseTimeValue}
+                      onChange={(e) => setEditCloseTimeValue(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={editCloseTimeMutation.isPending}
+                    >
+                      {editCloseTimeMutation.isPending ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={handleEditCloseTimeCancel}
+                      disabled={editCloseTimeMutation.isPending}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {editCloseTimeError && (
+                    <span role="alert" className="field__error">
+                      {editCloseTimeError}
+                    </span>
+                  )}
+                </form>
+              ) : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  {formatLocalDateTime(meeting.voting_closes_at)}
+                  {(meeting.status === "pending" || meeting.status === "open") && (
+                    <button
+                      type="button"
+                      className="btn btn--admin"
+                      onClick={handleEditCloseTimeOpen}
+                      aria-label="Edit close time"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </span>
+              )}
             </span>
             {meeting.closed_at && (
               <span className="admin-meta__item">

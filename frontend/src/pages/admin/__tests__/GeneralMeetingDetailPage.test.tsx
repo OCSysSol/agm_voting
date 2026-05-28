@@ -2846,4 +2846,187 @@ describe("Admin In-Person Vote Entry", () => {
     // But the heading should be there
     expect(screen.getByRole("heading", { name: "Results Report" })).toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // US-ECT-01: Edit close time inline form
+  // ---------------------------------------------------------------------------
+
+  it("shows Edit button next to Voting closes for open meeting", async () => {
+    renderPage(); // agm1 is open
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+  });
+
+  it("shows Edit button next to Voting closes for pending meeting", async () => {
+    renderPage("agm-pending");
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+  });
+
+  it("does NOT show Edit button for closed meeting", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Edit close time" })).not.toBeInTheDocument();
+  });
+
+  it("clicking Edit shows datetime input pre-filled with current voting_closes_at", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    const input = screen.getByLabelText("New voting close time");
+    expect(input).toBeInTheDocument();
+    // Input should be pre-filled (non-empty)
+    expect((input as HTMLInputElement).value).not.toBe("");
+  });
+
+  it("clicking Cancel collapses form and shows original value, no API call made", async () => {
+    const user = userEvent.setup();
+    let patchCalled = false;
+    server.use(
+      http.patch("http://localhost/api/admin/general-meetings/agm1", () => {
+        patchCalled = true;
+        return HttpResponse.json({ id: "agm1", status: "open", voting_closes_at: "2025-01-01T00:00:00Z" });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    expect(screen.getByLabelText("New voting close time")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    // Form collapsed
+    expect(screen.queryByLabelText("New voting close time")).not.toBeInTheDocument();
+    // Edit button back
+    expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    // No API call
+    expect(patchCalled).toBe(false);
+  });
+
+  it("client-side validation: shows error and no API call when new time <= meeting_at", async () => {
+    const user = userEvent.setup();
+    let patchCalled = false;
+    server.use(
+      http.patch("http://localhost/api/admin/general-meetings/agm1", () => {
+        patchCalled = true;
+        return HttpResponse.json({ id: "agm1", status: "open", voting_closes_at: "2020-01-01T00:00:00Z" });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    // Set a datetime before meeting_at (2024-06-01T10:00:00Z)
+    const input = screen.getByLabelText("New voting close time");
+    await user.clear(input);
+    await user.type(input, "2024-01-01T08:00");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Validation error visible
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert").textContent).toContain("meeting start time");
+    // No API call made
+    expect(patchCalled).toBe(false);
+  });
+
+  it("successful save invalidates query and collapses form", async () => {
+    const user = userEvent.setup();
+    const newClose = "2030-06-01T15:00:00.000Z";
+    server.use(
+      http.patch("http://localhost/api/admin/general-meetings/agm1", async ({ request }) => {
+        const body = await request.json() as { voting_closes_at: string };
+        return HttpResponse.json({ id: "agm1", status: "open", voting_closes_at: body.voting_closes_at });
+      }),
+      http.get("http://localhost/api/admin/general-meetings/agm1", () => {
+        return HttpResponse.json({
+          ...ADMIN_MEETING_DETAIL,
+          voting_closes_at: newClose,
+        });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    const input = screen.getByLabelText("New voting close time");
+    await user.clear(input);
+    await user.type(input, "2030-06-01T15:00");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Form collapses after success
+    await waitFor(() => {
+      expect(screen.queryByLabelText("New voting close time")).not.toBeInTheDocument();
+    });
+    // Edit button visible again
+    expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+  });
+
+  it("API error on save shows error message, form stays open", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.patch("http://localhost/api/admin/general-meetings/agm1", () => {
+        return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    const input = screen.getByLabelText("New voting close time");
+    await user.clear(input);
+    await user.type(input, "2030-06-01T15:00");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Error message shown
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    // Form stays open
+    expect(screen.getByLabelText("New voting close time")).toBeInTheDocument();
+  });
+
+  it("Save button is disabled and shows Saving... while request is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveRequest!: () => void;
+    server.use(
+      http.patch("http://localhost/api/admin/general-meetings/agm1", () => {
+        return new Promise<Response>((resolve) => {
+          resolveRequest = () =>
+            resolve(
+              HttpResponse.json({ id: "agm1", status: "open", voting_closes_at: "2030-06-01T15:00:00Z" })
+            );
+        });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit close time" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit close time" }));
+    const input = screen.getByLabelText("New voting close time");
+    await user.clear(input);
+    await user.type(input, "2030-06-01T15:00");
+    // Click save — request is pending
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // While in-flight: button shows "Saving..." and is disabled
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+    });
+    // Now resolve the request
+    resolveRequest();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Saving..." })).not.toBeInTheDocument();
+    });
+  });
 });

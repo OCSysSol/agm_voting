@@ -66,6 +66,8 @@ from app.schemas.admin import (
     ProxyImportResult,
     ResendReportOut,
     SetProxyRequest,
+    GeneralMeetingUpdate,
+    GeneralMeetingUpdateOut,
 )
 from app.schemas.config import (
     FaviconUploadOut,
@@ -1020,6 +1022,31 @@ async def get_general_meeting_detail(
 ) -> GeneralMeetingDetail:
     detail = await admin_service.get_general_meeting_detail(general_meeting_id, db)
     return GeneralMeetingDetail(**detail)
+
+
+@router.patch(
+    "/general-meetings/{general_meeting_id}",
+    response_model=GeneralMeetingUpdateOut,
+)
+async def update_general_meeting(
+    general_meeting_id: uuid.UUID,
+    data: GeneralMeetingUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> GeneralMeetingUpdateOut:
+    """Update the voting_closes_at timestamp for a non-closed meeting.
+
+    Returns 404 if the meeting does not exist.
+    Returns 409 if the meeting is already closed.
+    Returns 422 if voting_closes_at is not strictly after meeting_at.
+    """
+    meeting = await admin_service.update_general_meeting(general_meeting_id, data, db)
+    effective = get_effective_status(meeting)
+    effective_str = effective.value if hasattr(effective, "value") else effective
+    return GeneralMeetingUpdateOut(
+        id=meeting.id,
+        status=effective_str,
+        voting_closes_at=meeting.voting_closes_at,
+    )
 
 
 @router.put(

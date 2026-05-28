@@ -355,7 +355,7 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 
 ### US-ECT-01: Admin edits the voting close time on a non-closed meeting
 
-**Status:** 🔄 In progress — branch: `edit-meeting-close-time` (design)
+**Status:** ✅ Implemented — branch: `edit-meeting-close-time`, committed 2026-05-29
 
 **Description:** As a building manager, I want to update the scheduled voting close time on a meeting that has not yet closed so I can extend or shorten the voting window in response to meeting circumstances without needing to delete and recreate the meeting.
 

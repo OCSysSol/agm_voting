@@ -7817,3 +7817,232 @@ class TestAdminCloseMeetingRateLimit:
         response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 429
         assert response.headers.get("Retry-After") == "60"
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/admin/general-meetings/{id} — edit voting close time (US-ECT-01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestUpdateGeneralMeeting:
+    """Tests for PATCH /api/admin/general-meetings/{id}."""
+
+    async def _create_meeting(
+        self,
+        db_session: AsyncSession,
+        name: str,
+        status: GeneralMeetingStatus,
+        meeting_at_offset: int = -1,  # days from now
+        closing_at_offset: int = 2,   # days from now
+    ) -> GeneralMeeting:
+        b = Building(name=name, manager_email=f"ect_{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"ECT Test {name}",
+            status=status,
+            meeting_at=datetime.now(UTC) + timedelta(days=meeting_at_offset),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=closing_at_offset),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        return agm
+
+    # --- Happy path ---
+
+    async def test_patch_open_meeting_updates_voting_closes_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on an open meeting with a future close time returns 200 with updated timestamp."""
+        agm = await self._create_meeting(db_session, "PatchOpenHappy", GeneralMeetingStatus.open)
+        new_close = datetime.now(UTC) + timedelta(days=10)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(agm.id)
+        assert data["status"] == "open"
+        # The returned voting_closes_at should match the new value
+        from datetime import timezone
+        returned_dt = datetime.fromisoformat(data["voting_closes_at"].replace("Z", "+00:00"))
+        assert abs((returned_dt - new_close).total_seconds()) < 2
+
+    async def test_patch_open_meeting_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on an open meeting updates the DB record."""
+        agm = await self._create_meeting(db_session, "PatchOpenDB", GeneralMeetingStatus.open)
+        new_close = datetime.now(UTC) + timedelta(days=7)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 200
+        # Verify the DB was updated
+        result = await db_session.execute(
+            select(GeneralMeeting).where(GeneralMeeting.id == agm.id)
+        )
+        updated = result.scalar_one()
+        stored = updated.voting_closes_at
+        stored_naive = stored.replace(tzinfo=None) if stored.tzinfo else stored
+        target_naive = new_close.replace(tzinfo=None)
+        assert abs((stored_naive - target_naive).total_seconds()) < 2
+
+    async def test_patch_pending_meeting_updates_voting_closes_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a pending meeting with a future close time returns 200."""
+        agm = await self._create_meeting(
+            db_session, "PatchPendingHappy", GeneralMeetingStatus.pending,
+            meeting_at_offset=1, closing_at_offset=2
+        )
+        new_close = datetime.now(UTC) + timedelta(days=5)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "pending"
+
+    async def test_patch_returns_effective_status(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH response includes effective status (derived from timestamps)."""
+        # Meeting with meeting_at in the past = open (even if stored as pending)
+        agm = await self._create_meeting(db_session, "PatchStatusOpen", GeneralMeetingStatus.open)
+        new_close = datetime.now(UTC) + timedelta(days=3)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "open"
+
+    # --- State / precondition errors ---
+
+    async def test_patch_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a closed meeting returns 409."""
+        agm = await self._create_meeting(db_session, "PatchClosed", GeneralMeetingStatus.closed)
+        new_close = datetime.now(UTC) + timedelta(days=5)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 409
+        assert "already closed" in response.json()["detail"].lower()
+
+    async def test_patch_time_expired_open_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a meeting where voting_closes_at is in the past (effective closed) returns 409."""
+        agm = await self._create_meeting(
+            db_session, "PatchExpired", GeneralMeetingStatus.open,
+            meeting_at_offset=-5, closing_at_offset=-1  # closing in the past = effectively closed
+        )
+        new_close = datetime.now(UTC) + timedelta(days=5)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": new_close.isoformat()},
+        )
+        assert response.status_code == 409
+        assert "already closed" in response.json()["detail"].lower()
+
+    async def test_patch_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a non-existent meeting ID returns 404."""
+        response = await client.patch(
+            f"/api/admin/general-meetings/{uuid.uuid4()}",
+            json={"voting_closes_at": (datetime.now(UTC) + timedelta(days=5)).isoformat()},
+        )
+        assert response.status_code == 404
+        assert "General Meeting not found" in response.json()["detail"]
+
+    # --- Input validation ---
+
+    async def test_patch_voting_closes_at_equal_to_meeting_at_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH where voting_closes_at == meeting_at returns 422."""
+        agm = await self._create_meeting(db_session, "PatchEqual422", GeneralMeetingStatus.open)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": agm.meeting_at.isoformat()},
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "voting_closes_at" in detail
+
+    async def test_patch_voting_closes_at_before_meeting_at_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH where voting_closes_at < meeting_at returns 422."""
+        agm = await self._create_meeting(db_session, "PatchBefore422", GeneralMeetingStatus.open)
+        before_meeting = agm.meeting_at - timedelta(hours=1)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": before_meeting.isoformat()},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_missing_voting_closes_at_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with missing voting_closes_at field returns 422."""
+        agm = await self._create_meeting(db_session, "PatchMissing422", GeneralMeetingStatus.open)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_invalid_datetime_format_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with non-datetime value for voting_closes_at returns 422."""
+        agm = await self._create_meeting(db_session, "PatchInvalid422", GeneralMeetingStatus.open)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": "not-a-date"},
+        )
+        assert response.status_code == 422
+
+    # --- Authentication ---
+
+    async def test_patch_unauthenticated_returns_401(
+        self, db_session: AsyncSession
+    ):
+        """PATCH without admin credentials returns 401."""
+        from app.main import app as fastapi_app
+        agm = await self._create_meeting(db_session, "PatchUnauth", GeneralMeetingStatus.open)
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        ) as unauthenticated_client:
+            response = await unauthenticated_client.patch(
+                f"/api/admin/general-meetings/{agm.id}",
+                json={"voting_closes_at": (datetime.now(UTC) + timedelta(days=5)).isoformat()},
+            )
+            assert response.status_code == 401
+
+    # --- Boundary values ---
+
+    async def test_patch_one_second_after_meeting_at_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with voting_closes_at exactly 1 second after meeting_at returns 200."""
+        agm = await self._create_meeting(db_session, "PatchBoundary1s", GeneralMeetingStatus.open)
+        one_second_after = agm.meeting_at + timedelta(seconds=1)
+        response = await client.patch(
+            f"/api/admin/general-meetings/{agm.id}",
+            json={"voting_closes_at": one_second_after.isoformat()},
+        )
+        assert response.status_code == 200

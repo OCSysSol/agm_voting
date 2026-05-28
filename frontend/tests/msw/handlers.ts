@@ -1108,6 +1108,32 @@ export const adminHandlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.patch(`${BASE}/api/admin/general-meetings/:meetingId`, async ({ request, params }) => {
+    const body = await request.json() as { voting_closes_at: string };
+    const meetingId = params.meetingId as string;
+    if (meetingId === "agm2") {
+      // Closed meeting
+      return HttpResponse.json({ detail: "Meeting is already closed" }, { status: 409 });
+    }
+    if (meetingId === "agm-notfound-patch") {
+      return HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 });
+    }
+    if (meetingId === "agm-patch-422") {
+      return HttpResponse.json(
+        { detail: "voting_closes_at must be after meeting_at" },
+        { status: 422 }
+      );
+    }
+    if (meetingId === "agm-patch-error") {
+      return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+    }
+    return HttpResponse.json({
+      id: meetingId,
+      status: "open",
+      voting_closes_at: body.voting_closes_at,
+    });
+  }),
+
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/resend-report`, ({ params }) => {
     if (params.meetingId === "agm-resend-fail") {
       return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });

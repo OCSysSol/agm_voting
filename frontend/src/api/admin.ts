@@ -583,6 +583,29 @@ export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
   });
 }
 
+export interface GeneralMeetingUpdateRequest {
+  voting_closes_at: string; // ISO 8601 UTC
+}
+
+export interface GeneralMeetingUpdateOut {
+  id: string;
+  status: string;
+  voting_closes_at: string;
+}
+
+export async function updateGeneralMeeting(
+  meetingId: string,
+  data: GeneralMeetingUpdateRequest
+): Promise<GeneralMeetingUpdateOut> {
+  return apiFetch<GeneralMeetingUpdateOut>(
+    `/api/admin/general-meetings/${meetingId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Motion reorder
 // ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import {
   closeMotion,
   searchPersons,
   updatePerson,
+  updateGeneralMeeting,
 } from "../admin";
 
 const BASE = "http://localhost";
@@ -903,5 +904,75 @@ describe("updatePerson", () => {
       )
     );
     await expect(updatePerson(personId, {})).rejects.toThrow("500");
+  });
+});
+
+describe("updateGeneralMeeting", () => {
+  const meetingId = "meeting-abc-123";
+  const newCloseTime = "2026-12-31T10:00:00.000Z";
+
+  // --- Happy path ---
+
+  it("sends PATCH request and returns updated meeting", async () => {
+    server.use(
+      http.patch(`${BASE}/api/admin/general-meetings/${meetingId}`, async ({ request }) => {
+        const body = await request.json() as { voting_closes_at: string };
+        return HttpResponse.json({
+          id: meetingId,
+          status: "open",
+          voting_closes_at: body.voting_closes_at,
+        });
+      })
+    );
+    const result = await updateGeneralMeeting(meetingId, { voting_closes_at: newCloseTime });
+    expect(result.id).toBe(meetingId);
+    expect(result.status).toBe("open");
+    expect(result.voting_closes_at).toBe(newCloseTime);
+  });
+
+  it("sends the correct request body", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    server.use(
+      http.patch(`${BASE}/api/admin/general-meetings/${meetingId}`, async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: meetingId, status: "open", voting_closes_at: newCloseTime });
+      })
+    );
+    await updateGeneralMeeting(meetingId, { voting_closes_at: newCloseTime });
+    expect(capturedBody).toEqual({ voting_closes_at: newCloseTime });
+  });
+
+  // --- Error handling ---
+
+  it("throws on 404 not found", async () => {
+    server.use(
+      http.patch(`${BASE}/api/admin/general-meetings/not-found-id`, () =>
+        HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 })
+      )
+    );
+    await expect(updateGeneralMeeting("not-found-id", { voting_closes_at: newCloseTime })).rejects.toThrow("404");
+  });
+
+  it("throws on 409 already closed", async () => {
+    server.use(
+      http.patch(`${BASE}/api/admin/general-meetings/closed-id`, () =>
+        HttpResponse.json({ detail: "Meeting is already closed" }, { status: 409 })
+      )
+    );
+    await expect(updateGeneralMeeting("closed-id", { voting_closes_at: newCloseTime })).rejects.toThrow("409");
+  });
+
+  it("throws on 422 validation error", async () => {
+    server.use(
+      http.patch(`${BASE}/api/admin/general-meetings/invalid-id`, () =>
+        HttpResponse.json(
+          { detail: "voting_closes_at must be after meeting_at" },
+          { status: 422 }
+        )
+      )
+    );
+    await expect(
+      updateGeneralMeeting("invalid-id", { voting_closes_at: "2020-01-01T00:00:00Z" })
+    ).rejects.toThrow("422");
   });
 });

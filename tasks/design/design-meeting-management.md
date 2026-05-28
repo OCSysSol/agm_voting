@@ -1,6 +1,6 @@
 # Design: General Meeting Management
 
-**Status:** Draft
+**Status:** Implemented
 
 ## Overview
 
