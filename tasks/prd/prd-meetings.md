@@ -353,6 +353,29 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 
 ---
 
+### US-ECT-01: Admin edits the voting close time on a non-closed meeting
+
+**Status:** 🔄 In progress — branch: `edit-meeting-close-time` (design)
+
+**Description:** As a building manager, I want to update the scheduled voting close time on a meeting that has not yet closed so I can extend or shorten the voting window in response to meeting circumstances without needing to delete and recreate the meeting.
+
+**Acceptance Criteria:**
+
+- [ ] The General Meeting detail page shows an "Edit Close Time" button when the meeting effective status is `pending` or `open`; the button is not shown for `closed` meetings
+- [ ] Clicking "Edit Close Time" opens an inline edit form (or modal) containing a datetime picker pre-filled with the current `voting_closes_at` value
+- [ ] The new close time must be strictly after the meeting's current `meeting_at`; submitting an invalid value shows a clear validation error and does not call the API
+- [ ] Saving calls `PATCH /api/admin/general-meetings/{id}` with `{ voting_closes_at: <ISO8601 datetime> }`
+- [ ] On success, the displayed "Voting closes" value on the detail page updates immediately without a full page reload
+- [ ] The endpoint returns 404 if the meeting does not exist
+- [ ] The endpoint returns 409 if the meeting is already closed (effective status `closed`)
+- [ ] The endpoint returns 422 if `voting_closes_at` is not after `meeting_at`
+- [ ] The Save button is disabled and shows "Saving..." while the request is in flight
+- [ ] Cancelling the edit form discards changes and restores the original value with no API call
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ## Functional Requirements
 
 - FR-2: A General Meeting belongs to one building, has a status (`pending` | `open` | `closed`), a title, a meeting date/time (`meeting_at`), and a scheduled voting close date/time (`voting_closes_at`). `voting_closes_at` must be after `meeting_at`. Both fields are stored in UTC.
@@ -363,6 +386,7 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 - `POST /api/admin/general-meetings/{id}/start` sets `status = 'open'` and updates `meeting_at = now()`; returns 409 if not pending.
 - `POST /api/admin/general-meetings/{id}/close` sets `status = 'closed'`, sets `voting_closes_at = now()` if it is in the future, and creates absent records for all non-voting lots.
 - `DELETE /api/admin/general-meetings/{id}` returns 409 if the meeting is `open`.
+- `PATCH /api/admin/general-meetings/{id}` updates `voting_closes_at`; returns 409 if the meeting is closed, 422 if the new value is not after `meeting_at`.
 
 ---
 
@@ -373,5 +397,5 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 - No per-meeting grace period configuration
 - No `pending` → `closed` direct transition (a meeting must pass through `open` first, even if only transiently during a cold start)
 - No voter notification when a pending meeting opens
-- No editing of meeting title, date, or close time after creation
+- No editing of meeting title or meeting date/time (`meeting_at`) after creation
 - Reopening a per-motion-closed motion is not supported (irreversible once closed)
