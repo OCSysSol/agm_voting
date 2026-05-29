@@ -46,7 +46,13 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      - name: Kill background apt processes
+        run: |
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo killall apt-get 2>/dev/null || true
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: cd frontend && npx playwright install --with-deps chromium
 
       - name: Derive stable branch alias URL
@@ -143,7 +149,13 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      - name: Kill background apt processes
+        run: |
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo killall apt-get 2>/dev/null || true
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: cd frontend && npx playwright install --with-deps chromium
 
       - name: Warm up Lambda and start keepalive
@@ -207,7 +219,13 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      - name: Kill background apt processes
+        run: |
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo killall apt-get 2>/dev/null || true
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: cd frontend && npx playwright install --with-deps chromium
 
       - name: Warm up Lambda and start keepalive
@@ -271,7 +289,13 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      - name: Kill background apt processes
+        run: |
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo killall apt-get 2>/dev/null || true
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: cd frontend && npx playwright install --with-deps chromium
 
       - name: Warm up Lambda and start keepalive
@@ -335,7 +359,13 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      - name: Kill background apt processes
+        run: |
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo killall apt-get 2>/dev/null || true
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: cd frontend && npx playwright install --with-deps chromium
 
       - name: Warm up Lambda and start keepalive
