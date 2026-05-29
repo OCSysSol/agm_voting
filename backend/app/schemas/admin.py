@@ -617,6 +617,16 @@ class GeneralMeetingBallotResetOut(BaseModel):
     deleted: int
 
 
+class GeneralMeetingUpdate(BaseModel):
+    voting_closes_at: datetime
+
+
+class GeneralMeetingUpdateOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    voting_closes_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Subscription schemas
 # ---------------------------------------------------------------------------

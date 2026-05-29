@@ -46,6 +46,7 @@ from app.schemas.admin import (
     AdminVoteEntryRequest,
     BuildingUpdate,
     GeneralMeetingCreate,
+    GeneralMeetingUpdate,
     LotOwnerCreate,
     LotOwnerUpdate,
     MotionAddRequest,
@@ -2601,6 +2602,36 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             "last_error": email_delivery_obj.last_error,
         } if email_delivery_obj else None,
     }
+
+
+async def update_general_meeting(
+    general_meeting_id: uuid.UUID,
+    data: GeneralMeetingUpdate,
+    db: AsyncSession,
+) -> GeneralMeeting:
+    """Update voting_closes_at on a non-closed meeting.
+
+    Raises:
+        HTTPException 404: Meeting not found.
+        HTTPException 409: Meeting is already closed.
+        HTTPException 422: voting_closes_at is not after meeting_at.
+    """
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    meeting = result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+
+    effective = get_effective_status(meeting)
+    if effective == GeneralMeetingStatus.closed:
+        raise HTTPException(status_code=409, detail="Meeting is already closed")
+
+    if data.voting_closes_at <= meeting.meeting_at:
+        raise HTTPException(status_code=422, detail="voting_closes_at must be after meeting_at")
+
+    meeting.voting_closes_at = data.voting_closes_at
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting
 
 
 async def toggle_motion_visibility(
